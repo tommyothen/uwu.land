@@ -1,0 +1,65 @@
+---
+export interface Props {
+	title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width" />
+		<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+	</head>
+	<body class="dark:bg-gray-800 bg-slate-100">
+		<slot />
+	</body>
+</html>
+<style>
+	:root {
+		--font-size-base: clamp(1rem, 0.34vw + 0.91rem, 1.19rem);
+		--font-size-lg: clamp(1.2rem, 0.7vw + 1.2rem, 1.5rem);
+		--font-size-xl: clamp(2.44rem, 2.38vw + 1.85rem, 3.75rem);
+
+		--color-text: hsl(12, 5%, 4%);
+		--color-bg: hsl(10, 21%, 95%);
+		--color-border: hsl(17, 24%, 90%);
+	}
+
+	html {
+		font-family: system-ui, sans-serif;
+		font-size: var(--font-size-base);
+		color: var(--color-text);
+		background-color: var(--color-bg);
+		overflow: hidden;
+	}
+
+	body {
+		margin: 0;
+		width: 100vw;
+		height: 100vh;
+		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' version='1.1' xmlns:xlink='http://www.w3.org/1999/xlink' xmlns:svgjs='http://svgjs.com/svgjs' width='1440' height='560' preserveAspectRatio='none' viewBox='0 0 1440 560'%3e%3cg mask='url(%26quot%3b%23SvgjsMask1001%26quot%3b)' fill='none'%3e%3cpath d='M1512 560L0 560 L0 437.69Q57.96 423.65%2c 72 481.62Q100.38 438%2c 144 466.39Q165.61 416%2c 216 437.6Q244.9 394.5%2c 288 423.41Q343.84 407.25%2c 360 463.1Q385.38 416.48%2c 432 441.86Q483.4 373.26%2c 552 424.67Q628.86 381.52%2c 672 458.38Q726 392.38%2c 792 446.39Q845.89 428.28%2c 864 482.18Q897.5 395.68%2c 984 429.18Q1062.35 387.53%2c 1104 465.88Q1145.66 435.54%2c 1176 477.21Q1215.24 396.45%2c 1296 435.69Q1324.91 392.6%2c 1368 421.51Q1416.45 397.97%2c 1440 446.42Q1487.8 422.22%2c 1512 470.01z' fill='rgba(114%2c 119%2c 241%2c 1)'%3e%3c/path%3e%3cpath d='M1560 560L0 560 L0 519.62Q11.92 459.54%2c 72 471.46Q114.13 441.58%2c 144 483.71Q201.67 469.38%2c 216 527.05Q238.74 477.78%2c 288 500.52Q329.89 422.41%2c 408 464.31Q454.69 439%2c 480 485.69Q534.05 467.74%2c 552 521.79Q606.64 456.43%2c 672 511.08Q721.44 440.52%2c 792 489.96Q819.57 445.52%2c 864 473.09Q921.84 458.93%2c 936 516.77Q980.72 441.49%2c 1056 486.21Q1106.63 416.84%2c 1176 467.47Q1233.88 453.35%2c 1248 511.23Q1271.91 463.14%2c 1320 487.05Q1374.92 421.97%2c 1440 476.89Q1510.2 427.1%2c 1560 497.3z' fill='rgba(145%2c 118%2c 224%2c 1)'%3e%3c/path%3e%3cpath d='M1464 560L0 560 L0 516.55Q48.33 492.88%2c 72 541.21Q139.46 488.67%2c 192 556.14Q211.91 504.05%2c 264 523.96Q307.79 495.75%2c 336 539.54Q414.07 497.61%2c 456 575.68Q490.29 489.97%2c 576 524.27Q625.84 502.11%2c 648 551.94Q677.09 509.03%2c 720 538.11Q796.54 494.65%2c 840 571.19Q878.39 489.58%2c 960 527.97Q1013.56 461.53%2c 1080 515.08Q1162.11 477.18%2c 1200 559.29Q1220.16 507.45%2c 1272 527.61Q1337.41 473.02%2c 1392 538.43Q1445.93 520.36%2c 1464 574.29z' fill='rgba(176%2c 116%2c 207%2c 1)'%3e%3c/path%3e%3c/g%3e%3cdefs%3e%3cmask id='SvgjsMask1001'%3e%3crect width='1440' height='560' fill='white'%3e%3c/rect%3e%3c/mask%3e%3c/defs%3e%3c/svg%3e");
+		background-size: cover;
+	}
+
+
+</style>
+
+<style is:global>
+	h1 {
+		font-size: var(--font-size-xl);
+	}
+
+	h2 {
+		font-size: var(--font-size-lg);
+	}
+
+	code {
+		font-family: Menlo, Monaco, Lucida Console, Liberation Mono, DejaVu Sans Mono,
+			Bitstream Vera Sans Mono, Courier New, monospace;
+	}
+</style>
