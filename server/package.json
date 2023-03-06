@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "start": "wrangler dev",
-    "deploy": "wrangler publish"
+    "deploy-app": "wrangler publish"
   },
   "dependencies": {
     "@prisma/client": "^4.11.0",
