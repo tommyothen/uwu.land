@@ -1,9 +1,10 @@
+import { PrismaClient } from "@prisma/client/edge";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-export interface Env {
-  UwU: KVNamespace;
-}
+export interface Env {}
+
+const prisma = new PrismaClient();
 
 const schemas = {
   body: z.object({
@@ -57,7 +58,7 @@ const createErrorResponse = ({ status, message, errors }: IResponse) => {
   );
 };
 
-const handleGET = async (request: Request, { UwU }: Env): Promise<Response> => {
+const handleGET = async (request: Request): Promise<Response> => {
   // Get slug from request
   const url = decodeURI(request.url);
   const slug = url.split("/")[3];
@@ -67,18 +68,22 @@ const handleGET = async (request: Request, { UwU }: Env): Promise<Response> => {
     return Response.redirect("https://app.uwu.land");
   }
 
-  // Get the redirect URL from KV
-  const redirectURL = await UwU.get(slug);
+  // Get the redirect URL from prisma
+  const redirect = await prisma.redirect.findFirst({
+    where: {
+      slug,
+    },
+  });
 
   // If there is no redirect URL, the redirect URL is https://app.uwu.land/404
-  if (!redirectURL) {
+  if (!redirect) {
     return Response.redirect("https://app.uwu.land/404");
   }
 
-  return Response.redirect(redirectURL);
+  return Response.redirect(redirect.url);
 };
 
-const handlePOST = async (request: Request, { UwU }: Env): Promise<Response> => {
+const handlePOST = async (request: Request): Promise<Response> => {
   // Get the body from the request
   const body: {
     url?: string;
@@ -109,10 +114,14 @@ const handlePOST = async (request: Request, { UwU }: Env): Promise<Response> => 
 
   // If we have an ID, check if it's already in use
   if (id) {
-    const redirectURL = await UwU.get(id);
+    const redirect = await prisma.redirect.findFirst({
+      where: {
+        slug: id,
+      },
+    });
 
     // If the ID is already in use, return a 409
-    if (redirectURL) {
+    if (redirect) {
       return createErrorResponse({
         status: 409,
         message: "ID already in use",
@@ -123,13 +132,18 @@ const handlePOST = async (request: Request, { UwU }: Env): Promise<Response> => 
     id = nanoid(5);
 
     // Check if the ID is already in use
-    while (await UwU.get(id)) {
+    while (await prisma.redirect.findFirst({ where: { slug: id } })) {
       id = nanoid(5);
     }
   }
 
-  // Set the redirect URL in KV
-  await UwU.put(id, url);
+  // Set the redirect URL in prisma
+  await prisma.redirect.create({
+    data: {
+      slug: id,
+      url,
+    },
+  });
 
   // Return a 201 with the ID and URL
   return new CORSResponse(
@@ -148,12 +162,22 @@ const handlePOST = async (request: Request, { UwU }: Env): Promise<Response> => 
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // If it's a post request, we'll save the body to the KV
+    prisma.log.create({
+      data: {
+        level: "Info",
+        message: `${request.method} ${request.url}`,
+        meta: {
+          headers: JSON.stringify(request.headers),
+          body: JSON.stringify(await request.json()),
+        },
+      },
+    });
+
     switch (request.method) {
       case "GET":
-        return await handleGET(request, env);
+        return await handleGET(request);
       case "POST":
-        return await handlePOST(request, env);
+        return await handlePOST(request);
       case "OPTIONS":
         return new CORSResponse("", { status: 200 });
       default:

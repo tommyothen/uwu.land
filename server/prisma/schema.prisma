@@ -19,3 +19,8 @@ enum Level {
   Warn
   Error
 }
+
+model Redirect {
+  slug String @id @map("_id")
+  url  String
+}

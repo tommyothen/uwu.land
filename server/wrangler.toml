@@ -1,6 +1,5 @@
 name = "uwu-land-server"
 main = "src/index.ts"
 compatibility_date = "2022-09-11"
-kv_namespaces = [
-  { binding = "UwU", id = "ee9a868a897d4ca190a08f87b765df99" }
-]
+
+[vars]

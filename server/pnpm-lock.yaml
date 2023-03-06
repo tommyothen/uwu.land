@@ -2,6 +2,7 @@ lockfileVersion: 5.4
 
 specifiers:
   '@cloudflare/workers-types': ^3.16.0
+  '@prisma/client': ^4.11.0
   nanoid: ^4.0.0
   prisma: ^4.11.0
   typescript: ^4.8.3
@@ -9,6 +10,7 @@ specifiers:
   zod: ^3.19.0
 
 dependencies:
+  '@prisma/client': 4.11.0_prisma@4.11.0
   nanoid: 4.0.1
   zod: 3.21.2
 
@@ -223,10 +225,27 @@ packages:
       - utf-8-validate
     dev: true
 
+  /@prisma/client/4.11.0_prisma@4.11.0:
+    resolution: {integrity: sha512-0INHYkQIqgAjrt7NzhYpeDQi8x3Nvylc2uDngKyFDDj1tTRQ4uV1HnVmd1sQEraeVAN63SOK0dgCKQHlvjL0KA==}
+    engines: {node: '>=14.17'}
+    requiresBuild: true
+    peerDependencies:
+      prisma: '*'
+    peerDependenciesMeta:
+      prisma:
+        optional: true
+    dependencies:
+      '@prisma/engines-version': 4.11.0-57.8fde8fef4033376662cad983758335009d522acb
+      prisma: 4.11.0
+    dev: false
+
+  /@prisma/engines-version/4.11.0-57.8fde8fef4033376662cad983758335009d522acb:
+    resolution: {integrity: sha512-3Vd8Qq06d5xD8Ch5WauWcUUrsVPdMC6Ge8ILji8RFfyhUpqon6qSyGM0apvr1O8n8qH8cKkEFqRPsYjuz5r83g==}
+    dev: false
+
   /@prisma/engines/4.11.0:
     resolution: {integrity: sha512-0AEBi2HXGV02cf6ASsBPhfsVIbVSDC9nbQed4iiY5eHttW9ZtMxHThuKZE1pnESbr8HRdgmFSa/Kn4OSNYuibg==}
     requiresBuild: true
-    dev: true
 
   /@types/better-sqlite3/7.6.3:
     resolution: {integrity: sha512-YS64N9SNDT/NAvou3QNdzAu3E2om/W/0dhORimtPGLef+zSK5l1vDzfsWb4xgXOgfhtOI5ZDTRxnvRPb22AIVQ==}
@@ -781,7 +800,6 @@ packages:
     requiresBuild: true
     dependencies:
       '@prisma/engines': 4.11.0
-    dev: true
 
   /readdirp/3.6.0:
     resolution: {integrity: sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==}
