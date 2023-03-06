@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model Log {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  level   Level
+  message String
+  meta    Json
+}
+
+enum Level {
+  Info
+  Warn
+  Error
+}

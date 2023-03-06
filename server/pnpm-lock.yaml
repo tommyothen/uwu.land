@@ -3,6 +3,7 @@ lockfileVersion: 5.4
 specifiers:
   '@cloudflare/workers-types': ^3.16.0
   nanoid: ^4.0.0
+  prisma: ^4.11.0
   typescript: ^4.8.3
   wrangler: 2.0.29
   zod: ^3.19.0
@@ -13,6 +14,7 @@ dependencies:
 
 devDependencies:
   '@cloudflare/workers-types': 3.19.0
+  prisma: 4.11.0
   typescript: 4.9.5
   wrangler: 2.0.29
 
@@ -219,6 +221,11 @@ packages:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+    dev: true
+
+  /@prisma/engines/4.11.0:
+    resolution: {integrity: sha512-0AEBi2HXGV02cf6ASsBPhfsVIbVSDC9nbQed4iiY5eHttW9ZtMxHThuKZE1pnESbr8HRdgmFSa/Kn4OSNYuibg==}
+    requiresBuild: true
     dev: true
 
   /@types/better-sqlite3/7.6.3:
@@ -765,6 +772,15 @@ packages:
   /picomatch/2.3.1:
     resolution: {integrity: sha512-JU3teHTNjmE2VCGFzuY8EXzCDVwEqB2a8fsIvwaStHhAWJEeVd1o1QD80CU6+ZdEXXSLbSsuLwJjkCBWqRQUVA==}
     engines: {node: '>=8.6'}
+    dev: true
+
+  /prisma/4.11.0:
+    resolution: {integrity: sha512-4zZmBXssPUEiX+GeL0MUq/Yyie4ltiKmGu7jCJFnYMamNrrulTBc+D+QwAQSJ01tyzeGHlD13kOnqPwRipnlNw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+    requiresBuild: true
+    dependencies:
+      '@prisma/engines': 4.11.0
     dev: true
 
   /readdirp/3.6.0:
