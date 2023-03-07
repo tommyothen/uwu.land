@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "start": "wrangler dev",
-    "deploy-app": "wrangler publish"
+    "deploy-app": "prisma generate --data-proxy && wrangler publish"
   },
   "dependencies": {
     "@prisma/client": "^4.11.0",
