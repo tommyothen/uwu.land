@@ -9,7 +9,7 @@ datasource db {
 }
 
 model Log {
-  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  id      String   @id @default(auto()) @map("_id") @db.ObjectId
   level   Level
   message String
   meta    Json
@@ -23,6 +23,7 @@ enum Level {
 }
 
 model Redirect {
-  slug String @id @map("_id")
-  url  String
+  slug   String @id @map("_id")
+  url    String
+  clicks Int    @default(0)
 }
