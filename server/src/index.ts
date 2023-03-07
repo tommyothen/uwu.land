@@ -122,6 +122,28 @@ const handlePOST = async (request: Request): Promise<Response> => {
     });
   }
 
+  // We can save space in the database by removing duplicate urls
+  const existingRedirect = await prisma.redirect.findFirst({
+    where: {
+      url,
+    },
+  });
+
+  if (existingRedirect) {
+    return new CORSResponse(
+      JSON.stringify({
+        id: existingRedirect.slug,
+        url: `http://uwu.land/${existingRedirect.slug}`,
+      }),
+      {
+        status: 201,
+        headers: {
+          "content-type": "application/json;charset=UTF-8",
+        },
+      }
+    );
+  }
+
   // If we have an ID, check if it's already in use
   if (id) {
     const redirect = await prisma.redirect.findFirst({
