@@ -78,6 +78,18 @@ const handleGET = async (request: Request): Promise<Response> => {
     return Response.redirect("https://app.uwu.land/404");
   }
 
+  // Increment the redirect count
+  await prisma.redirect.update({
+    where: {
+      slug,
+    },
+    data: {
+      clicks: {
+        increment: 1,
+      },
+    },
+  });
+
   return Response.redirect(redirect.url);
 };
 
