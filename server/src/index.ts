@@ -122,6 +122,22 @@ const handlePOST = async (request: Request): Promise<Response> => {
     });
   }
 
+  // Check if the URL is in the banned list
+  const banned = await prisma.bannedURLs.findFirst({
+    where: {
+      url: {
+        contains: url,
+      },
+    },
+  });
+
+  if (banned) {
+    return createErrorResponse({
+      status: 400,
+      message: "URL is banned",
+    });
+  }
+
   // We can save space in the database by removing duplicate urls
   const existingRedirect = await prisma.redirect.findFirst({
     where: {
@@ -210,7 +226,10 @@ export default {
             city: request.cf?.city,
             postalCode: request.cf?.postalCode,
           },
-          ip: request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || request.headers.get("X-Real-IP"),
+          ip:
+            request.headers.get("CF-Connecting-IP") ||
+            request.headers.get("X-Forwarded-For") ||
+            request.headers.get("X-Real-IP"),
         },
       },
     });

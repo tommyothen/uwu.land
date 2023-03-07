@@ -27,3 +27,7 @@ model Redirect {
   url    String
   clicks Int    @default(0)
 }
+
+model BannedURLs {
+  url String @id @map("_id")
+}
