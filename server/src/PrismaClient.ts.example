@@ -1,0 +1,11 @@
+import { PrismaClient } from "@prisma/client/edge";
+
+// Unfortunately, this hack of hardcoding the url is necessary
+// since I wasn't able to get the env vars to work
+export const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: "prisma://aws-us-east-1.prisma-data.com/?api_key=•••••••••••••••••"
+    }
+  }
+});

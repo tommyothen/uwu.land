@@ -1,10 +1,8 @@
-import { PrismaClient } from "@prisma/client/edge";
+import { prisma } from "./PrismaClient";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 export interface Env {}
-
-const prisma = new PrismaClient();
 
 const schemas = {
   body: z.object({
@@ -162,13 +160,12 @@ const handlePOST = async (request: Request): Promise<Response> => {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    prisma.log.create({
+    await prisma.log.create({
       data: {
         level: "Info",
         message: `${request.method} ${request.url}`,
         meta: {
-          headers: JSON.stringify(request.headers),
-          body: JSON.stringify(await request.json()),
+          cf: JSON.stringify(request.cf),
         },
       },
     });
