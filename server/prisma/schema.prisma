@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb"
-  url      = env("DATABASE_URL")
+  provider  = "mongodb"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Log {
@@ -12,6 +13,7 @@ model Log {
   level   Level
   message String
   meta    Json
+  date    DateTime @default(now())
 }
 
 enum Level {
