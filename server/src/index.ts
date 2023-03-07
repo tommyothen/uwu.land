@@ -123,10 +123,11 @@ const handlePOST = async (request: Request): Promise<Response> => {
   }
 
   // Check if the URL is in the banned list
+  const domain = new URL(url).hostname;
   const banned = await prisma.bannedURLs.findFirst({
     where: {
       url: {
-        contains: url,
+        contains: domain,
       },
     },
   });
