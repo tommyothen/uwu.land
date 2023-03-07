@@ -164,8 +164,19 @@ export default {
       data: {
         level: "Info",
         message: `${request.method} ${request.url}`,
+        // Unfortunatly, we need to log since there's a lot of people who abuse the service
         meta: {
-          cf: JSON.stringify(request.cf),
+          location: {
+            long: request.cf?.longitude,
+            lat: request.cf?.latitude,
+            continent: request.cf?.continent,
+            country: request.cf?.country,
+            timezone: request.cf?.timezone,
+            region: request.cf?.region,
+            city: request.cf?.city,
+            postalCode: request.cf?.postalCode,
+          },
+          ip: request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || request.headers.get("X-Real-IP"),
         },
       },
     });
