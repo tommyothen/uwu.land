@@ -8,7 +8,7 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 
 - [x] Create a working URL shortener
 - [ ] Add an account system
-- [ ] Track clicks
+- [x] Track clicks
 - [ ] Add a dashboard
 - [ ] Vanity URLs
 - [ ] Developer API
