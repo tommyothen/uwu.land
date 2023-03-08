@@ -211,37 +211,28 @@ const handlePOST = async (request: Request): Promise<Response> => {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // Since its not really useful, we can just ignore logging some requests
-    // to boost the speed of our responses and reduce the cost of the service
-    const avoidLog =
-      (request.method === "GET" && /^https?:\/\/uwu.land\/?$/.test(request.url)) ||
-      request.method === "OPTIONS";
-
-    if (!avoidLog) {
-      await prisma.log.create({
-        data: {
-          level: "Info",
-          message: `${request.method} ${request.url}`,
-          // Unfortunatly, we need to log since there's a lot of people who abuse the service
-          meta: {
-            location: {
-              long: request.cf?.longitude,
-              lat: request.cf?.latitude,
-              continent: request.cf?.continent,
-              country: request.cf?.country,
-              timezone: request.cf?.timezone,
-              region: request.cf?.region,
-              city: request.cf?.city,
-              postalCode: request.cf?.postalCode,
-            },
-            ip:
-              request.headers.get("CF-Connecting-IP") ||
-              request.headers.get("X-Forwarded-For") ||
-              request.headers.get("X-Real-IP"),
-          },
+    // Log drains are set up in the Cloudflare dashboard
+    console.info({
+      level: "Info",
+      message: `${request.method} ${request.url}`,
+      // Unfortunatly, we need to log since there's a lot of people who abuse the service
+      meta: {
+        location: {
+          long: request.cf?.longitude,
+          lat: request.cf?.latitude,
+          continent: request.cf?.continent,
+          country: request.cf?.country,
+          timezone: request.cf?.timezone,
+          region: request.cf?.region,
+          city: request.cf?.city,
+          postalCode: request.cf?.postalCode,
         },
-      });
-    }
+        ip:
+          request.headers.get("CF-Connecting-IP") ||
+          request.headers.get("X-Forwarded-For") ||
+          request.headers.get("X-Real-IP"),
+      },
+    });
 
     switch (request.method) {
       case "GET":
