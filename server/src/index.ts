@@ -96,6 +96,7 @@ const handlePOST = async (request: Request, { UwU, Clicks }: Env): Promise<Respo
     url?: string;
     id?: string;
   } = await request.json();
+  console.info(body);
 
   // Validate the body
   const result = schemas.body.safeParse(body);
@@ -214,25 +215,20 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     // Log drains are set up in the Cloudflare dashboard
     console.info({
-      level: "Info",
-      message: `${request.method} ${request.url}`,
-      // Unfortunatly, we need to log since there's a lot of people who abuse the service
-      meta: {
-        location: {
-          long: request.cf?.longitude,
-          lat: request.cf?.latitude,
-          continent: request.cf?.continent,
-          country: request.cf?.country,
-          timezone: request.cf?.timezone,
-          region: request.cf?.region,
-          city: request.cf?.city,
-          postalCode: request.cf?.postalCode,
-        },
-        ip:
-          request.headers.get("CF-Connecting-IP") ||
-          request.headers.get("X-Forwarded-For") ||
-          request.headers.get("X-Real-IP"),
+      location: {
+        long: request.cf?.longitude,
+        lat: request.cf?.latitude,
+        continent: request.cf?.continent,
+        country: request.cf?.country,
+        timezone: request.cf?.timezone,
+        region: request.cf?.region,
+        city: request.cf?.city,
+        postalCode: request.cf?.postalCode,
       },
+      ip:
+        request.headers.get("CF-Connecting-IP") ||
+        request.headers.get("X-Forwarded-For") ||
+        request.headers.get("X-Real-IP"),
     });
 
     switch (request.method) {
