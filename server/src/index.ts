@@ -2,7 +2,10 @@ import { prisma } from "./PrismaClient";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-export interface Env {}
+export interface Env {
+  UwU: KVNamespace;
+  Clicks: KVNamespace;
+}
 
 const schemas = {
   body: z.object({
@@ -56,7 +59,7 @@ const createErrorResponse = ({ status, message, errors }: IResponse) => {
   );
 };
 
-const handleGET = async (request: Request): Promise<Response> => {
+const handleGET = async (request: Request, { UwU, Clicks }: Env): Promise<Response> => {
   // Get slug from request
   const url = decodeURI(request.url);
   const slug = url.split("/")[3];
@@ -66,12 +69,8 @@ const handleGET = async (request: Request): Promise<Response> => {
     return Response.redirect("https://app.uwu.land");
   }
 
-  // Get the redirect URL from prisma
-  const redirect = await prisma.redirect.findFirst({
-    where: {
-      slug,
-    },
-  });
+  // Get the redirect URL from KV by slug
+  const redirect = await UwU.get(slug);
 
   // If there is no redirect URL, the redirect URL is https://app.uwu.land/404
   if (!redirect) {
@@ -79,21 +78,19 @@ const handleGET = async (request: Request): Promise<Response> => {
   }
 
   // Increment the redirect count
-  await prisma.redirect.update({
-    where: {
-      slug,
-    },
-    data: {
-      clicks: {
-        increment: 1,
-      },
-    },
-  });
+  const count = await Clicks.get(slug);
 
-  return Response.redirect(redirect.url);
+  if (count) {
+    await Clicks.put(slug, (parseInt(count) + 1).toString());
+  } else {
+    await Clicks.put(slug, "1");
+  }
+
+  // Redirect to the redirect URL
+  return Response.redirect(redirect);
 };
 
-const handlePOST = async (request: Request): Promise<Response> => {
+const handlePOST = async (request: Request, { UwU, Clicks }: Env): Promise<Response> => {
   // Get the body from the request
   const body: {
     url?: string;
@@ -194,6 +191,10 @@ const handlePOST = async (request: Request): Promise<Response> => {
     },
   });
 
+  // Set the redirect URL in KV
+  await UwU.put(id, url);
+  await Clicks.put(id, "0");
+
   // Return a 201 with the ID and URL
   return new CORSResponse(
     JSON.stringify({
@@ -236,9 +237,9 @@ export default {
 
     switch (request.method) {
       case "GET":
-        return await handleGET(request);
+        return await handleGET(request, env);
       case "POST":
-        return await handlePOST(request);
+        return await handlePOST(request, env);
       case "OPTIONS":
         return new CORSResponse("", { status: 200 });
       default:

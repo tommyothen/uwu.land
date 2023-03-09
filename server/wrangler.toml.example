@@ -1,6 +1,7 @@
 name = "uwu-land-server"
 main = "src/index.ts"
 compatibility_date = "2022-09-11"
-
-[vars]
-DATABASE_URL = "prisma://aws-us-east-1.prisma-data.com/?api_key=•••••••••••••••••"
+kv_namespaces = [
+  { binding = "UwU", id = "" },
+  { binding = "Clicks", id = "" }
+]
