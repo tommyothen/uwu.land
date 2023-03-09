@@ -8,24 +8,9 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model Log {
-  id      String   @id @default(auto()) @map("_id") @db.ObjectId
-  level   Level
-  message String
-  meta    Json
-  date    DateTime @default(now())
-}
-
-enum Level {
-  Info
-  Warn
-  Error
-}
-
 model Redirect {
   slug   String @id @map("_id")
   url    String
-  clicks Int    @default(0)
 }
 
 model BannedURLs {
