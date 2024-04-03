@@ -1,11 +1,12 @@
 import { PrismaClient } from "@prisma/client/edge";
+import { withAccelerate } from "@prisma/extension-accelerate";
 
 // Unfortunately, this hack of hardcoding the url is necessary
 // since I wasn't able to get the env vars to work
 export const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: "prisma://aws-us-east-1.prisma-data.com/?api_key=•••••••••••••••••"
+      url: "prisma://accelerate.prisma-data.net/?api_key=•••••••••••••••••"
     }
   }
-});
+}).$extends(withAccelerate());

@@ -237,7 +237,14 @@ export default {
       case "POST":
         return await handlePOST(request, env);
       case "OPTIONS":
-        return new CORSResponse("", { status: 200 });
+        return new CORSResponse("", {
+          status: 200,
+          headers: {
+            "Access-Control-Allow-Origin": "https://app.uwu.land",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS, DELETE",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+          },
+        });
       default:
         return new CORSResponse("Method not allowed", { status: 405 });
     }
