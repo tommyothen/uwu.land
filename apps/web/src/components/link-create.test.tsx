@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLink, UwuApiError } from "@/lib/api";
 import { LinkCreate } from "./link-create";
 
-vi.mock("@clerk/nextjs", () => ({
+vi.mock("@clerk/react-router", () => ({
 	useAuth: () => ({ getToken: async () => "tok" })
 }));
 

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getMe } from "@/lib/api";
 import { AccountPanel } from "./account-panel";
 
-vi.mock("@clerk/nextjs", () => ({
+vi.mock("@clerk/react-router", () => ({
 	useAuth: () => ({ getToken: async () => "tok" })
 }));
 

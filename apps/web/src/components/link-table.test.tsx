@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteLink, listLinks } from "@/lib/api";
 import { LinkTable } from "./link-table";
 
-vi.mock("@clerk/nextjs", () => ({
+vi.mock("@clerk/react-router", () => ({
 	useAuth: () => ({ getToken: async () => "tok" })
 }));
 

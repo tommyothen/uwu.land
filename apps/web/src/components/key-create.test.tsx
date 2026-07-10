@@ -1,11 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TIERS } from "@uwu/shared";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createKey, UwuApiError } from "@/lib/api";
 import { KeyCreate } from "./key-create";
 
-vi.mock("@clerk/nextjs", () => ({
+vi.mock("@clerk/react-router", () => ({
 	useAuth: () => ({ getToken: async () => "tok" })
 }));
 
@@ -39,7 +40,11 @@ describe("KeyCreate", () => {
 			value: { writeText },
 			configurable: true
 		});
-		render(<KeyCreate onCreated={onCreated} />);
+		render(
+			<MemoryRouter>
+				<KeyCreate onCreated={onCreated} />
+			</MemoryRouter>
+		);
 
 		await user.type(screen.getByLabelText(/name/i), "bot");
 		await user.click(screen.getByRole("button", { name: /create/i }));
@@ -68,7 +73,11 @@ describe("KeyCreate", () => {
 			})
 		);
 		const user = userEvent.setup();
-		render(<KeyCreate onCreated={vi.fn()} />);
+		render(
+			<MemoryRouter>
+				<KeyCreate onCreated={vi.fn()} />
+			</MemoryRouter>
+		);
 
 		await user.type(screen.getByLabelText(/name/i), "bot");
 		await user.click(screen.getByRole("button", { name: /create/i }));

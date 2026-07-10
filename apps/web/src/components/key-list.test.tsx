@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteKey, listKeys } from "@/lib/api";
 import { KeyList } from "./key-list";
 
-vi.mock("@clerk/nextjs", () => ({
+vi.mock("@clerk/react-router", () => ({
 	useAuth: () => ({ getToken: async () => "tok" })
 }));
 

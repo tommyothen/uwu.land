@@ -1,26 +1,26 @@
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import RootLayout from "./layout";
+import { Layout } from "./root";
 
-vi.mock("@clerk/nextjs", () => ({
+vi.mock("@clerk/react-router", () => ({
 	ClerkProvider: ({ children }: { children: ReactNode }) => children
 }));
 
-vi.mock("geist/font/sans", () => ({
-	GeistSans: { variable: "font-geist-sans" }
+vi.mock("react-router", () => ({
+	Links: () => null,
+	Meta: () => null,
+	Outlet: () => null,
+	Scripts: () => null,
+	ScrollRestoration: () => null
 }));
 
-vi.mock("geist/font/mono", () => ({
-	GeistMono: { variable: "font-geist-mono" }
-}));
-
-describe("RootLayout", () => {
+describe("root layout", () => {
 	it("renders its children without crashing", () => {
 		const { getByText } = render(
-			<RootLayout>
+			<Layout>
 				<p>hello</p>
-			</RootLayout>
+			</Layout>
 		);
 		expect(getByText("hello")).toBeInTheDocument();
 	});
