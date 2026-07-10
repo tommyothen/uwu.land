@@ -10,12 +10,25 @@ import {
 } from "react-router";
 import type { Route } from "./+types/root";
 import stylesheet from "./app.css?url";
+import "@fontsource-variable/bricolage-grotesque";
+import "@fontsource-variable/instrument-sans";
+import "@fontsource/space-mono";
+import bricolageWoff2 from "@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2";
+
+const themeBootstrap = `(() => { try { const stored = localStorage.getItem("uwu-theme"); const theme = stored === "dark" || stored === "light" ? stored : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); document.documentElement.classList.toggle("dark", theme === "dark"); } catch {} })();`;
 
 export const middleware: Route.MiddlewareFunction[] = [clerkMiddleware()];
 export const loader = (args: Route.LoaderArgs) => rootAuthLoader(args);
 
 export const links: Route.LinksFunction = () => [
 	{ rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
+	{
+		rel: "preload",
+		href: bricolageWoff2,
+		as: "font",
+		type: "font/woff2",
+		crossOrigin: "anonymous"
+	},
 	{ rel: "stylesheet", href: stylesheet }
 ];
 
@@ -36,9 +49,11 @@ export function Layout({ children }: { children: ReactNode }) {
 				<meta name="viewport" content="width=device-width, initial-scale=1" />
 				<Meta />
 				<Links />
+				<script>{themeBootstrap}</script>
 			</head>
 			<body className="antialiased">
 				{children}
+				<div aria-hidden="true" className="grain-layer" />
 				<ScrollRestoration />
 				<Scripts />
 			</body>

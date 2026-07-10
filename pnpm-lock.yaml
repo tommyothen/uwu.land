@@ -23,6 +23,15 @@ importers:
       '@clerk/react-router':
         specifier: ^3.5.8
         version: 3.5.8(react-dom@19.2.7(react@19.2.7))(react-router@7.18.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)
+      '@fontsource-variable/bricolage-grotesque':
+        specifier: ^5.2.10
+        version: 5.2.10
+      '@fontsource-variable/instrument-sans':
+        specifier: ^5.2.8
+        version: 5.2.8
+      '@fontsource/space-mono':
+        specifier: ^5.2.9
+        version: 5.2.9
       '@uwu/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -983,6 +992,15 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@fontsource-variable/bricolage-grotesque@5.2.10':
+    resolution: {integrity: sha512-5EDsCqgGpKVcJWE4sg9ydli+t5WM97mISYw5lla/Ev4z71FwXh1oN0YUU8xjkRW9+wBCGD9R+ntAvI8G4bUFJg==}
+
+  '@fontsource-variable/instrument-sans@5.2.8':
+    resolution: {integrity: sha512-mTCaukbdIjjoipj2E3Q5XoZM3ZxJWdzyHevf/LG/0PHlfF9Q85pxOM7B7A9MerFyxmRzz5kVlumgIvgDSG4CPg==}
+
+  '@fontsource/space-mono@5.2.9':
+    resolution: {integrity: sha512-b61faFOHEISQ/pD25G+cfGY9o/WW6lRv6hBQQfpWvEJ4y1V+S4gmth95EVyBE2VL3qDYHeVQ8nBzrplzdXTDDg==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -3182,6 +3200,12 @@ snapshots:
     optional: true
 
   '@exodus/bytes@1.15.1': {}
+
+  '@fontsource-variable/bricolage-grotesque@5.2.10': {}
+
+  '@fontsource-variable/instrument-sans@5.2.8': {}
+
+  '@fontsource/space-mono@5.2.9': {}
 
   '@img/colour@1.1.0': {}
 
