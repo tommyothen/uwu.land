@@ -1,0 +1,8 @@
+node_modules
+.turbo
+dist
+.next
+.wrangler
+.dev.vars
+coverage
+*.tsbuildinfo

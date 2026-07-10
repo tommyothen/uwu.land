@@ -1,0 +1,28 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.2.5/schema.json",
+	"root": true,
+	"vcs": {
+		"enabled": true,
+		"useIgnoreFile": true,
+		"clientKind": "git"
+	},
+	"files": {
+		"includes": [
+			"**",
+			"!**/dist",
+			"!**/.next",
+			"!**/.astro",
+			"!**/node_modules",
+			"!**/drizzle"
+		]
+	},
+	"formatter": {
+		"enabled": false
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true
+		}
+	}
+}
