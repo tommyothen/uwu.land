@@ -76,7 +76,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 				{[0, 1].map((i) => (
 					<Skeleton
 						key={i}
-						className="h-14 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800"
+						className="h-14 animate-pulse rounded-lg bg-secondary"
 					/>
 				))}
 			</div>
@@ -85,7 +85,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 
 	if (keys !== null && keys.length === 0) {
 		return (
-			<p className="mt-8 rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+			<p className="mt-8 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
 				No API keys yet. Create one above to call the API.
 			</p>
 		);
@@ -94,29 +94,29 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 	return (
 		<div className="mt-8">
 			{error !== null && (
-				<p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
+				<p role="alert" className="mb-4 text-sm text-destructive">
 					{error}
 				</p>
 			)}
-			<ul className="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+			<ul className="divide-y divide-border rounded-xl border border-border bg-card">
 				{(keys ?? []).map((key) => (
 					<li
 						key={key.id}
 						className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"
 					>
 						<div className="min-w-0">
-							<p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+							<p className="text-sm font-medium text-foreground">
 								{key.name}
 							</p>
-							<p className="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400">
+							<p className="mt-1 font-mono text-xs text-muted-foreground">
 								{key.display_prefix}
 							</p>
 						</div>
 						<div className="flex shrink-0 items-center gap-4 text-sm">
-							<span className="text-zinc-400 dark:text-zinc-500">
+							<span className="text-muted-foreground">
 								Created {new Date(key.created_at).toLocaleDateString()}
 							</span>
-							<span className="text-zinc-500 dark:text-zinc-400">
+							<span className="text-muted-foreground">
 								{key.last_used_at === null
 									? "Never used"
 									: `Last used ${new Date(key.last_used_at).toLocaleDateString()}`}
@@ -127,14 +127,14 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 										type="button"
 										onClick={() => confirmRevoke(key.id)}
 										variant="destructive"
-										className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-red-500"
+										className="rounded-md px-2.5 py-1 text-xs font-medium"
 									>
 										Confirm
 									</Button>
 									<Button
 										type="button"
 										onClick={() => setConfirming(null)}
-										className="text-xs text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100"
+										className="text-xs text-muted-foreground transition hover:text-foreground"
 									>
 										Cancel
 									</Button>
@@ -143,7 +143,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 								<Button
 									type="button"
 									onClick={() => setConfirming(key.id)}
-									className="text-xs text-zinc-500 transition hover:text-red-600 dark:hover:text-red-400"
+									className="text-xs text-muted-foreground transition hover:text-destructive"
 								>
 									Revoke
 								</Button>

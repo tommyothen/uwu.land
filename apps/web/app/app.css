@@ -146,6 +146,18 @@ body {
 	}
 }
 
+/* The one brand nod on the working surface: a 4px airmail hairline (spec §9). */
+.airmail-hairline {
+	height: 4px;
+	background: repeating-linear-gradient(
+		45deg,
+		var(--cloud-1) 0 9px,
+		var(--background) 9px 18px,
+		#da62c4 18px 27px,
+		var(--background) 27px 36px
+	);
+}
+
 /* Return address: mono, two lines, ink at 75%. */
 .return-address {
 	display: flex;

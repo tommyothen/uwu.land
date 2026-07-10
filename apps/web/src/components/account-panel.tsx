@@ -66,7 +66,7 @@ export function AccountPanel() {
 
 	if (error !== null) {
 		return (
-			<p role="alert" className="mt-6 text-sm text-red-600 dark:text-red-400">
+			<p role="alert" className="mt-6 text-sm text-destructive">
 				{error}
 			</p>
 		);
@@ -78,7 +78,7 @@ export function AccountPanel() {
 				{[0, 1].map((i) => (
 					<Skeleton
 						key={i}
-						className="h-20 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800"
+						className="h-20 animate-pulse rounded-lg bg-secondary"
 					/>
 				))}
 			</div>
@@ -87,20 +87,20 @@ export function AccountPanel() {
 
 	return (
 		<div className="mt-6">
-			<p className="text-sm text-zinc-600 dark:text-zinc-400">
+			<p className="text-sm text-muted-foreground">
 				Current plan:{" "}
-				<span className="font-medium capitalize text-zinc-900 dark:text-zinc-100">
+				<span className="font-medium capitalize text-foreground">
 					{me.tier}
 				</span>
 			</p>
-			<Table className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-white text-left text-sm dark:border-zinc-800 dark:bg-zinc-900">
+			<Table className="mt-4 overflow-x-auto rounded-xl border border-border bg-card text-left text-sm">
 				<TableHeader>
-					<TableRow className="border-b border-zinc-200 text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+					<TableRow className="border-b border-border text-muted-foreground">
 						<TableHead className="p-4 font-medium">Limit</TableHead>
 						<TableHead
 								className={`p-4 font-medium capitalize ${
 									me.tier === "free"
-										? "text-zinc-900 dark:text-zinc-100"
+										? "text-foreground"
 										: ""
 								}`}
 						>
@@ -108,11 +108,11 @@ export function AccountPanel() {
 							</TableHead>
 						<TableHead
 								className={`p-4 font-medium ${
-									me.tier === "pro" ? "text-zinc-900 dark:text-zinc-100" : ""
+									me.tier === "pro" ? "text-foreground" : ""
 								}`}
 						>
 								Pro{me.tier === "pro" ? " (you)" : ""}
-								<Badge className="ml-2 rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-normal normal-case text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+								<Badge className="ml-2 rounded-md bg-secondary px-1.5 py-0.5 text-xs font-normal normal-case text-muted-foreground">
 									coming soon
 								</Badge>
 							</TableHead>
@@ -122,9 +122,9 @@ export function AccountPanel() {
 						{ROWS.map((row) => (
 							<TableRow
 								key={row.label}
-								className="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
+								className="border-b border-border last:border-b-0"
 							>
-								<TableCell className="p-4 text-zinc-600 dark:text-zinc-400">
+								<TableCell className="p-4 text-muted-foreground">
 									{row.label}
 								</TableCell>
 								<TableCell className="p-4 tabular-nums">{row.value("free")}</TableCell>
@@ -133,7 +133,7 @@ export function AccountPanel() {
 						))}
 					</TableBody>
 			</Table>
-			<p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
+			<p className="mt-4 text-xs text-muted-foreground">
 				Anonymous shortening stays free forever regardless of plan. Pro
 				pricing lands with the upgrade flow.
 			</p>

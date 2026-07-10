@@ -1,6 +1,7 @@
 import { UserButton } from "@clerk/react-router";
 import { getAuth } from "@clerk/react-router/server";
 import { Link, Outlet, redirect } from "react-router";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Toaster } from "@/components/ui/sonner";
 import type { Route } from "./+types/layout";
 
@@ -21,30 +22,34 @@ export async function loader(args: Route.LoaderArgs) {
 export default function DashboardLayout() {
 	return (
 		<div className="min-h-[100dvh]">
-			<header className="border-b border-zinc-200 dark:border-zinc-800">
+			<header className="border-b border-border">
 				<div className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-6">
 					<div className="flex items-center gap-8">
 						<Link
 							to="/"
-							className="font-mono text-lg font-semibold tracking-tight"
+							className="font-display text-lg font-extrabold tracking-[-0.02em]"
 						>
-							uwu<span className="uwu-gradient">.land</span>
+							<span className="uwu-gradient">UwU.</span>Land
 						</Link>
 						<nav className="flex items-center gap-5 text-sm">
 							{NAV.map((item) => (
 								<Link
 									key={item.href}
 								to={item.href}
-									className="text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+									className="text-muted-foreground transition hover:text-foreground"
 								>
 									{item.label}
 								</Link>
 							))}
 						</nav>
 					</div>
-					<UserButton />
+					<div className="flex items-center gap-3">
+						<ThemeToggle />
+						<UserButton />
+					</div>
 				</div>
 			</header>
+			<div aria-hidden="true" className="airmail-hairline" />
 			<main className="mx-auto w-full max-w-5xl px-6 py-10">
 				<Outlet />
 			</main>

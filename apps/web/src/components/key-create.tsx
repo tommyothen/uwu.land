@@ -64,28 +64,28 @@ export function KeyCreate({
 
 	if (revealed !== null) {
 		return (
-			<div className="rounded-xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-800/60 dark:bg-amber-950/30">
-				<h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+			<div className="rounded-xl border-2 border-foreground bg-card p-5 shadow-[3px_3px_0_var(--shadow-ink)]">
+				<h2 className="text-sm font-semibold text-foreground">
 					{revealed.name}
 				</h2>
-				<p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+				<p className="mt-1 text-sm text-muted-foreground">
 					This is the only time you'll see this key. Store it now.
 				</p>
-				<p className="mt-3 break-all rounded-lg border border-zinc-200 bg-white p-3 font-mono text-sm dark:border-zinc-800 dark:bg-zinc-950">
+				<p className="mt-3 break-all rounded-lg border border-border bg-card p-3 font-mono text-sm">
 					{revealed.secret}
 				</p>
 				<div className="mt-4 flex items-center gap-3">
 					<Button
 						type="button"
 						onClick={() => copySecret(revealed)}
-						className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98]"
+						className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 active:scale-[0.98]"
 					>
 						{copied ? "Copied" : "Copy key"}
 					</Button>
 					<Button
 						type="button"
 						onClick={() => dismiss(revealed)}
-						className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 active:scale-[0.98] dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+						className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition hover:bg-secondary active:scale-[0.98]"
 					>
 						Done
 					</Button>
@@ -97,13 +97,13 @@ export function KeyCreate({
 	return (
 		<form
 			onSubmit={submit}
-			className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
+			className="rounded-xl border border-border bg-card p-5"
 		>
 			<div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
 				<div>
 					<Label
 						htmlFor="key-name"
-						className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+						className="block text-sm font-medium text-foreground"
 					>
 						Key name
 					</Label>
@@ -114,29 +114,29 @@ export function KeyCreate({
 						value={name}
 						onChange={(event) => setName(event.target.value)}
 						placeholder="e.g. my-discord-bot"
-						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
+						className="mt-2 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder-[color:var(--placeholder)] outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/30"
 					/>
 				</div>
 				<Button
 					type="submit"
 					disabled={pending}
-					className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+					className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{pending ? "Creating…" : "Create key"}
 				</Button>
 			</div>
-			<p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+			<p className="mt-3 text-xs text-muted-foreground">
 				Use keys as a Bearer token against the public API. See the{" "}
 				<Link
 					to="/docs"
-					className="font-medium text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-400"
+					className="font-medium text-[color:var(--ring)] transition hover:opacity-80"
 				>
 					API docs
 				</Link>
 				.
 			</p>
 			{error !== null && (
-				<p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
+				<p role="alert" className="mt-3 text-sm text-destructive">
 					{error}
 				</p>
 			)}

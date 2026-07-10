@@ -83,7 +83,7 @@ const ERROR_CODES = [
 
 function Code({ children }: { children: ReactNode }) {
 	return (
-		<pre className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-100 p-4 font-mono text-sm leading-relaxed text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+		<pre className="mt-3 overflow-x-auto rounded-xl border border-border bg-secondary p-4 font-mono text-sm leading-relaxed text-foreground">
 			{children}
 		</pre>
 	);
@@ -110,7 +110,7 @@ export default function DocsPage() {
 				<h1 className="text-3xl font-semibold tracking-tighter">
 					uwu.land API
 				</h1>
-				<p className="mt-3 leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 leading-relaxed text-muted-foreground">
 					A small JSON API for shortening links. The dashboard runs on exactly
 					this API; there are no private endpoints.
 				</p>
@@ -119,22 +119,22 @@ export default function DocsPage() {
 				<Code>https://uwu.land/api/v1</Code>
 
 				<H2 id="authentication">Authentication</H2>
-				<p className="mt-3 leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 leading-relaxed text-muted-foreground">
 					Authenticated endpoints take a Bearer token. Create an API key in the
 					dashboard and send it on every request:
 				</p>
 				<Code>Authorization: Bearer uwu_your_api_key</Code>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Creating a link works without any authentication, rate limited per
 					IP. Key management endpoints only accept a Clerk session token, so a
 					leaked API key can never mint more keys.
 				</p>
 
 				<H2 id="endpoints">Endpoints</H2>
-				<div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+				<div className="mt-3 overflow-x-auto rounded-xl border border-border">
 					<table className="w-full text-left text-sm">
 						<thead>
-							<tr className="border-b border-zinc-200 bg-zinc-100 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+							<tr className="border-b border-border bg-secondary text-muted-foreground">
 								<th className="p-3 font-medium">Endpoint</th>
 								<th className="p-3 font-medium">Auth</th>
 								<th className="p-3 font-medium">Notes</th>
@@ -144,15 +144,15 @@ export default function DocsPage() {
 							{ENDPOINTS.map((endpoint) => (
 								<tr
 									key={`${endpoint.method} ${endpoint.path}`}
-									className="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
+									className="border-b border-border last:border-b-0"
 								>
 									<td className="whitespace-nowrap p-3 font-mono text-xs">
 										{endpoint.method} {endpoint.path}
 									</td>
-									<td className="whitespace-nowrap p-3 text-zinc-600 dark:text-zinc-400">
+									<td className="whitespace-nowrap p-3 text-muted-foreground">
 										{endpoint.auth}
 									</td>
-									<td className="p-3 text-zinc-600 dark:text-zinc-400">
+									<td className="p-3 text-muted-foreground">
 										{endpoint.notes}
 									</td>
 								</tr>
@@ -162,7 +162,7 @@ export default function DocsPage() {
 				</div>
 
 				<H2 id="create-a-link">Create a link</H2>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Anonymous callers may only send <code>url</code>. With a key or
 					session you can also pick a custom <code>slug</code> (3 to 16
 					characters: letters, numbers, underscores, hyphens) and attach an{" "}
@@ -172,7 +172,7 @@ export default function DocsPage() {
   -H "Authorization: Bearer uwu_your_api_key" \\
   -H "Content-Type: application/json" \\
   -d '{"url": "https://example.com/some/long/path", "slug": "my-link"}'`}</Code>
-				<p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm text-muted-foreground">
 					201 response:
 				</p>
 				<Code>{`{
@@ -182,7 +182,7 @@ export default function DocsPage() {
 }`}</Code>
 
 				<H2 id="list-links">List your links</H2>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Newest first, 25 per page. When more pages exist the response
 					includes a <code>cursor</code>; pass it back as{" "}
 					<code>?cursor=</code>. Filter with <code>?external_ref=</code>.
@@ -200,13 +200,13 @@ export default function DocsPage() {
   ],
   "cursor": "eyJjcmVhdGVkX2F0IjoiLi4uIn0"
 }`}</Code>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					<code>GET /links/:slug</code> returns a single object in the same
 					shape. <code>DELETE /links/:slug</code> returns 204 with no body.
 				</p>
 
 				<H2 id="stats">Public stats</H2>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Total clicks for any slug are public and need no authentication.
 				</p>
 				<Code>{`GET /api/v1/links/my-link/stats
@@ -223,7 +223,7 @@ export default function DocsPage() {
 }`}</Code>
 
 				<H2 id="keys">API keys</H2>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Key endpoints require a Clerk session, so use the dashboard. The
 					secret is returned exactly once at creation:
 				</p>
@@ -237,13 +237,13 @@ export default function DocsPage() {
   "secret": "uwu_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
   "display_prefix": "uwu_a1B2c3D4"
 }`}</Code>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					<code>GET /keys</code> lists your keys without secrets.{" "}
 					<code>DELETE /keys/:id</code> revokes one and returns 204.
 				</p>
 
 				<H2 id="external-ref">external_ref: act on behalf of your users</H2>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					If your integration creates links for many end users under one key,
 					tag each link with an opaque <code>external_ref</code> (up to 64
 					characters) and filter by it later. A Discord bot, for example, tags
@@ -254,14 +254,14 @@ export default function DocsPage() {
 				</p>
 
 				<H2 id="errors">Errors</H2>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					All errors share one envelope with a stable <code>code</code>:
 				</p>
 				<Code>{`{ "status": 409, "code": "slug_taken", "message": "Slug is already taken." }`}</Code>
-				<div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+				<div className="mt-3 overflow-x-auto rounded-xl border border-border">
 					<table className="w-full text-left text-sm">
 						<thead>
-							<tr className="border-b border-zinc-200 bg-zinc-100 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+							<tr className="border-b border-border bg-secondary text-muted-foreground">
 								<th className="p-3 font-medium">Code</th>
 								<th className="p-3 font-medium">Meaning</th>
 							</tr>
@@ -270,12 +270,12 @@ export default function DocsPage() {
 							{ERROR_CODES.map(([code, meaning]) => (
 								<tr
 									key={code}
-									className="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
+									className="border-b border-border last:border-b-0"
 								>
 									<td className="whitespace-nowrap p-3 font-mono text-xs">
 										{code}
 									</td>
-									<td className="p-3 text-zinc-600 dark:text-zinc-400">
+									<td className="p-3 text-muted-foreground">
 										{meaning}
 									</td>
 								</tr>
@@ -285,10 +285,10 @@ export default function DocsPage() {
 				</div>
 
 				<H2 id="rate-limits">Rate limits</H2>
-				<div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+				<div className="mt-3 overflow-x-auto rounded-xl border border-border">
 					<table className="w-full text-left text-sm">
 						<thead>
-							<tr className="border-b border-zinc-200 bg-zinc-100 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+							<tr className="border-b border-border bg-secondary text-muted-foreground">
 								<th className="p-3 font-medium">Tier</th>
 								<th className="p-3 font-medium">Links per day</th>
 								<th className="p-3 font-medium">API requests per minute</th>
@@ -299,7 +299,7 @@ export default function DocsPage() {
 							{(["anon", "free", "pro"] as const).map((tier) => (
 								<tr
 									key={tier}
-									className="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
+									className="border-b border-border last:border-b-0"
 								>
 									<td className="p-3 capitalize">
 										{tier === "anon" ? "Anonymous" : tier}
@@ -316,7 +316,7 @@ export default function DocsPage() {
 						</tbody>
 					</table>
 				</div>
-				<p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Anonymous limits apply per IP; account limits apply per key. Hitting
 					a limit returns 429 with code <code>rate_limited</code>.
 				</p>

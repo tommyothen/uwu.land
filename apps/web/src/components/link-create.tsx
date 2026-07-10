@@ -60,13 +60,13 @@ export function LinkCreate({
 	return (
 		<form
 			onSubmit={submit}
-			className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
+			className="rounded-xl border border-border bg-card p-5"
 		>
 			<div className="grid gap-4 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
 				<div>
 					<Label
 						htmlFor="create-url"
-						className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+						className="block text-sm font-medium text-foreground"
 					>
 						URL
 					</Label>
@@ -77,13 +77,13 @@ export function LinkCreate({
 						value={url}
 						onChange={(event) => setUrl(event.target.value)}
 						placeholder="https://example.com/long/link"
-						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
+						className="mt-2 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder-[color:var(--placeholder)] outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/30"
 					/>
 				</div>
 				<div>
 					<Label
 						htmlFor="create-slug"
-						className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+						className="block text-sm font-medium text-foreground"
 					>
 						Custom slug
 					</Label>
@@ -93,35 +93,35 @@ export function LinkCreate({
 						value={slug}
 						onChange={(event) => setSlug(event.target.value)}
 						placeholder="optional"
-						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
+						className="mt-2 w-full rounded-lg border border-border bg-card px-3 py-2 font-mono text-sm text-foreground placeholder-[color:var(--placeholder)] outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/30"
 					/>
 				</div>
 				<Button
 					type="submit"
 					disabled={pending}
-					className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+					className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{pending ? "Creating…" : "Create"}
 				</Button>
 			</div>
-			<p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+			<p className="mt-3 text-xs text-muted-foreground">
 				Slugs are 3 to 16 characters: letters, numbers, underscores, hyphens.
 			</p>
 			{error !== null && (
-				<p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
+				<p role="alert" className="mt-3 text-sm text-destructive">
 					{error}
 				</p>
 			)}
 			{created !== null && (
 				<p className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-					<span className="text-zinc-500 dark:text-zinc-400">Created</span>
+					<span className="text-muted-foreground">Created</span>
 					<span className="font-mono font-medium">
 						{created.short_url.replace(/^https?:\/\//, "")}
 					</span>
 					<Button
 						type="button"
 						onClick={() => copy(created)}
-						className="text-xs font-medium text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-400"
+						className="text-xs font-medium text-[color:var(--ring)] transition hover:opacity-80"
 					>
 						{copied ? "Copied" : "Copy"}
 					</Button>

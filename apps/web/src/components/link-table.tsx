@@ -3,6 +3,7 @@
 import { useAuth } from "@clerk/react-router";
 import type { LinkSummary } from "@uwu/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Stamp } from "@/components/postal/stamp";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -108,7 +109,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 				{[0, 1, 2].map((i) => (
 					<Skeleton
 						key={i}
-						className="h-14 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800"
+						className="h-14 animate-pulse rounded-lg bg-secondary"
 					/>
 				))}
 			</div>
@@ -117,20 +118,27 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 
 	if (links !== null && links.length === 0) {
 		return (
-			<p className="mt-8 rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-				No links yet. Create your first one above.
-			</p>
+			<div className="mt-8 flex flex-col items-center gap-4 rounded-xl border border-dashed border-border p-10 text-center">
+				<Stamp size={40} />
+				<p className="text-sm text-muted-foreground">
+					No links yet. Send your first one from the{" "}
+					<a href="/" className="text-[color:var(--ring)] hover:opacity-80">
+						front desk
+					</a>
+					.
+				</p>
+			</div>
 		);
 	}
 
 	return (
 		<div className="mt-8">
 			{error !== null && (
-				<p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
+				<p role="alert" className="mb-4 text-sm text-destructive">
 					{error}
 				</p>
 			)}
-			<ul className="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+			<ul className="divide-y divide-border rounded-xl border border-border bg-card">
 				{(links ?? []).map((link) => (
 					<li
 						key={link.slug}
@@ -142,33 +150,33 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 									type="button"
 									onClick={() => copyShortUrl(link)}
 									title="Copy short link"
-									className="font-mono text-sm font-medium text-zinc-900 transition hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-400"
+									className="font-mono text-sm font-medium text-foreground transition hover:text-[color:var(--ring)]"
 								>
 									{link.short_url.replace(/^https?:\/\//, "")}
 								</Button>
 								{copiedSlug === link.slug && (
-									<span className="text-xs text-zinc-500 dark:text-zinc-400">
+									<span className="text-xs text-muted-foreground">
 										Copied
 									</span>
 								)}
 								{link.external_ref !== undefined && (
-									<Badge className="rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+									<Badge className="rounded-md bg-secondary px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
 										{link.external_ref}
 									</Badge>
 								)}
 							</div>
 							<p
 								title={link.url}
-								className="mt-1 max-w-md truncate text-sm text-zinc-500 dark:text-zinc-400"
+								className="mt-1 max-w-md truncate text-sm text-muted-foreground"
 							>
 								{link.url}
 							</p>
 						</div>
 						<div className="flex shrink-0 items-center gap-4 text-sm">
-							<span className="text-zinc-500 tabular-nums dark:text-zinc-400">
+							<span className="text-muted-foreground tabular-nums">
 								{link.clicks} {link.clicks === 1 ? "click" : "clicks"}
 							</span>
-							<span className="text-zinc-400 dark:text-zinc-500">
+							<span className="text-muted-foreground">
 								{new Date(link.created_at).toLocaleDateString()}
 							</span>
 							{confirming === link.slug ? (
@@ -177,14 +185,14 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 										type="button"
 										onClick={() => confirmDelete(link.slug)}
 										variant="destructive"
-										className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-red-500"
+										className="rounded-md px-2.5 py-1 text-xs font-medium"
 									>
 										Confirm
 									</Button>
 									<Button
 										type="button"
 										onClick={() => setConfirming(null)}
-										className="text-xs text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100"
+										className="text-xs text-muted-foreground transition hover:text-foreground"
 									>
 										Cancel
 									</Button>
@@ -193,7 +201,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 								<Button
 									type="button"
 									onClick={() => setConfirming(link.slug)}
-									className="text-xs text-zinc-500 transition hover:text-red-600 dark:hover:text-red-400"
+									className="text-xs text-muted-foreground transition hover:text-destructive"
 								>
 									Delete
 								</Button>
@@ -208,7 +216,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 						type="button"
 						onClick={loadMore}
 						disabled={busy}
-						className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+						className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition hover:bg-secondary disabled:opacity-60"
 					>
 						{busy ? "Loading…" : "Load more"}
 					</Button>

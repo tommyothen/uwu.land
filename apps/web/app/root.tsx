@@ -61,9 +61,21 @@ export function Layout({ children }: { children: ReactNode }) {
 	);
 }
 
+const clerkAppearance = {
+	variables: {
+		colorPrimary: "var(--primary)",
+		colorText: "var(--foreground)",
+		colorTextSecondary: "var(--muted-foreground)",
+		colorBackground: "var(--card)",
+		colorInputBackground: "var(--background)",
+		colorInputText: "var(--foreground)",
+		borderRadius: "10px"
+	}
+};
+
 export default function App({ loaderData }: Route.ComponentProps) {
 	return (
-		<ClerkProvider loaderData={loaderData}>
+		<ClerkProvider loaderData={loaderData} appearance={clerkAppearance}>
 			<Outlet />
 		</ClerkProvider>
 	);
