@@ -1,0 +1,10 @@
+# Next.js / OpenNext build output
+/.next/
+/.open-next/
+
+# Cloudflare
+/.wrangler/
+.dev.vars
+
+# Local env
+.env*.local

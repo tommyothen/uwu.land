@@ -2,6 +2,7 @@ node_modules
 .turbo
 dist
 .next
+.open-next
 .wrangler
 .dev.vars
 coverage

@@ -12,3 +12,7 @@ minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260710.1'
   - miniflare@4.20260708.1
   - wrangler@4.110.0
+  - '@clerk/backend@3.11.3'
+  - '@clerk/nextjs@7.5.16'
+  - '@clerk/react@6.12.2'
+  - '@clerk/shared@4.25.2'

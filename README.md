@@ -9,7 +9,7 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 | Path | Purpose |
 | --- | --- |
 | `services/api` | Cloudflare Worker for redirects and `/api/v1`. |
-| `apps/web` | Future Next.js dashboard and landing app. |
+| `apps/web` | Next.js landing + dashboard app for app.uwu.land (OpenNext on Cloudflare). |
 | `packages/shared` | Shared API contract types and tier config. |
 | `packages/db` | Drizzle schema and D1 migrations. |
 | `docs` | Product specs and implementation plans. |

@@ -2,6 +2,24 @@
   "$schema": "https://turborepo.com/schema.json",
   "ui": "tui",
   "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": [
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+        "NEXT_PUBLIC_UWU_API_URL",
+        "CLERK_SECRET_KEY"
+      ],
+      "outputs": [".next/**"]
+    },
+    "build:worker": {
+      "dependsOn": ["^build"],
+      "env": [
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+        "NEXT_PUBLIC_UWU_API_URL",
+        "CLERK_SECRET_KEY"
+      ],
+      "outputs": [".next/**", ".open-next/**"]
+    },
     "lint": {
       "dependsOn": ["^lint"]
     },
