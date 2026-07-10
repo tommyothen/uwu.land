@@ -11,7 +11,10 @@ export default defineConfig({
 		reactRouter()
 	],
 	server: {
-		port: 3000
+		port: 3000,
+		// The worker's CORS allowlist only has localhost:3000 — fail loudly
+		// instead of silently drifting to 3001 when the port is taken.
+		strictPort: true
 	},
 	resolve: {
 		alias: {
