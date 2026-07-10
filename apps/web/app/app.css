@@ -123,3 +123,110 @@ body {
 	mix-blend-mode: soft-light;
 	opacity: 0.35;
 }
+
+/* ── Postal chrome (spec §3, §5) ─────────────────────────────────────── */
+
+/* Airmail stripe: the one edge treatment, top edge only. */
+.airmail-stripe {
+	height: 8px;
+	background: repeating-linear-gradient(
+		45deg,
+		var(--cloud-1) 0 18px,
+		var(--background) 18px 36px,
+		#da62c4 36px 54px,
+		var(--background) 54px 72px
+	);
+}
+
+@media (max-width: 639px) {
+	.airmail-stripe {
+		height: 6px;
+	}
+}
+
+/* Return address: mono, two lines, ink at 75%. */
+.return-address {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1.35;
+	color: color-mix(in srgb, var(--foreground) 75%, transparent);
+}
+
+@media (max-width: 639px) {
+	.return-address {
+		font-size: 8.5px;
+	}
+}
+
+/* The AIR MAIL stamp: dashed circle, text-in-a-circle, rotated 9°. */
+.stamp {
+	--stamp-size: 100px;
+	display: flex;
+	width: var(--stamp-size);
+	height: var(--stamp-size);
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: calc(var(--stamp-size) * 0.05);
+	border: 2px dashed var(--stamp);
+	border-radius: 50%;
+	color: var(--stamp);
+	font-family: var(--font-mono);
+	font-weight: 700;
+	line-height: 1;
+	text-transform: uppercase;
+	transform: rotate(9deg);
+	transition: transform 150ms ease-out;
+	user-select: none;
+}
+
+.stamp:hover {
+	transform: rotate(9deg) scale(0.97);
+}
+
+.stamp-line {
+	font-size: calc(var(--stamp-size) * 0.1);
+	letter-spacing: 0.08em;
+}
+
+.stamp-glyph {
+	font-size: calc(var(--stamp-size) * 0.18);
+	line-height: 1;
+}
+
+/* Cloud field: three riso plates + concentrated ink grain (layer 2). */
+.cloud-field {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 1;
+	height: var(--field-h, clamp(130px, 18vw, 190px));
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.cloud-field::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-image: var(--grain-tile);
+	mix-blend-mode: overlay;
+	opacity: 0.8;
+	pointer-events: none;
+}
+
+.cloud-plate {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	mix-blend-mode: multiply;
+}
+
+.dark .cloud-plate {
+	mix-blend-mode: normal;
+}
