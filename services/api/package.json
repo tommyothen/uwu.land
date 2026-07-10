@@ -10,7 +10,12 @@
     "dev": "wrangler dev --port 8787 --inspector-port 9230",
     "lint": "biome check .",
     "check-types": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ban": "node scripts/banned.mjs ban",
+    "unban": "node scripts/banned.mjs unban",
+    "banned": "node scripts/banned.mjs list",
+    "abuse:top": "node scripts/abuse-top.mjs",
+    "purge:domain": "node scripts/purge-domain.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^3.11.2",

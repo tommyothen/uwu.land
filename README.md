@@ -96,6 +96,16 @@ Stable `ErrorCode` values:
 | `forbidden` | Authenticated caller cannot perform this action. |
 | `key_limit` | Account has reached its non-revoked API key limit. |
 
+## Maintenance
+
+Run these from `services/api`; they operate on remote production infrastructure.
+
+- `pnpm ban example.com` — block a destination domain and its subdomains.
+- `pnpm unban example.com` — remove a domain block.
+- `pnpm banned` — list blocked domains.
+- `pnpm abuse:top -- --days 14` — report destination hosts with the most links in the last N days (default 7).
+- `pnpm purge:domain example.com` — dry-run deletion of links for a domain and subdomains; add `--yes` to delete their D1 rows and UWU/CLICKS KV keys.
+
 ## Decisions
 
 | Date | Decision | Notes |
@@ -104,6 +114,7 @@ Stable `ErrorCode` values:
 | 2026-07-10 | Use Hono for the API Worker | Keep routing small and explicit for Cloudflare Workers. |
 | 2026-07-10 | Use `@cloudflare/vitest-pool-workers` | Exercise KV and Worker behavior inside workerd-backed tests. |
 | 2026-07-10 | Keep KV as the redirect hot path | D1 becomes the metadata plane; redirects stay KV-only. |
+| 2026-07-10 | Anon-lane URL dedup + normalization; anon creates recorded in D1; maintainer ban/abuse CLI scripts | Normalized-URL KV reverse index dedupes anonymous creates only; D1 rows power abuse reporting; blocking stays KV `banned:<domain>` managed via pnpm scripts. |
 | 2026-07-10 | Verify Clerk JWTs in-worker | Use `@clerk/backend` JWT verification with configured issuer and JWKS, without Clerk network calls in tests. |
 | 2026-07-10 | Landing redesign: "Riso Post Office" visual system | Riso grain + postal metaphor on the 2021 brand; Bricolage/Instrument/Space Mono; one GSAP submit choreography; shadcn tokens; spec in docs/superpowers/specs/2026-07-10-riso-post-office-design.md. |
 | 2026-07-10 | apps/web on React Router v7 + @cloudflare/vite-plugin (replacing Next/OpenNext) | app used no Next-specific features; drop the adapter layer and its operational risk (build fork-bomb class bugs, env split-brain). |
