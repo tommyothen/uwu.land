@@ -9,7 +9,7 @@ import { deleteKey, listKeys } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
 export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
-	const { getToken } = useAuth();
+	const { isLoaded, isSignedIn, getToken } = useAuth();
 	const [keys, setKeys] = useState<ApiKeySummary[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [confirming, setConfirming] = useState<string | null>(null);
@@ -17,14 +17,22 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 	const loadedInitial = useRef(false);
 
 	useEffect(() => {
-		if (loadedInitial.current) {
+		// Wait for Clerk to resolve the session; getToken() returns null before
+		// isLoaded and would strand the UI on its loading skeleton.
+		if (!isLoaded || loadedInitial.current) {
 			return;
 		}
 		loadedInitial.current = true;
+		if (!isSignedIn) {
+			return;
+		}
 		let cancelled = false;
 		(async () => {
 			const token = await getToken();
 			if (token === null) {
+				if (!cancelled) {
+					setError("Your session expired. Refresh and sign in again.");
+				}
 				return;
 			}
 			try {
@@ -41,7 +49,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [getToken]);
+	}, [isLoaded, isSignedIn, getToken]);
 
 	useEffect(() => {
 		if (prepend !== undefined && prepend !== seenPrepend.current) {

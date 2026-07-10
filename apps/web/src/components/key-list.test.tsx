@@ -5,7 +5,7 @@ import { deleteKey, listKeys } from "@/lib/api";
 import { KeyList } from "./key-list";
 
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ getToken: async () => "tok" })
+	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: async () => "tok" })
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {

@@ -32,20 +32,28 @@ const ROWS = [
 ];
 
 export function AccountPanel() {
-	const { getToken } = useAuth();
+	const { isLoaded, isSignedIn, getToken } = useAuth();
 	const [me, setMe] = useState<MeResponse | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const loadedInitial = useRef(false);
 
 	useEffect(() => {
-		if (loadedInitial.current) {
+		// Wait for Clerk to resolve the session; getToken() returns null before
+		// isLoaded and would strand the UI on its loading skeleton.
+		if (!isLoaded || loadedInitial.current) {
 			return;
 		}
 		loadedInitial.current = true;
+		if (!isSignedIn) {
+			return;
+		}
 		let cancelled = false;
 		(async () => {
 			const token = await getToken();
 			if (token === null) {
+				if (!cancelled) {
+					setError("Your session expired. Refresh and sign in again.");
+				}
 				return;
 			}
 			try {
@@ -62,7 +70,7 @@ export function AccountPanel() {
 		return () => {
 			cancelled = true;
 		};
-	}, [getToken]);
+	}, [isLoaded, isSignedIn, getToken]);
 
 	if (error !== null) {
 		return (

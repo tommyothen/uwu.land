@@ -7,7 +7,7 @@ import { createKey, UwuApiError } from "@/lib/api";
 import { KeyCreate } from "./key-create";
 
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ getToken: async () => "tok" })
+	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: async () => "tok" })
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {

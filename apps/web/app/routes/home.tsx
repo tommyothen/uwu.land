@@ -24,7 +24,7 @@ export default function Home() {
 			</div>
 
 			<nav
-				className="enter-fade absolute top-4 right-5 z-[4] flex items-center gap-3 font-sans text-[13px] font-semibold sm:top-7 sm:right-[34px]"
+				className="enter-fade absolute top-4 right-5 z-[5] flex items-center gap-3 font-sans text-[13px] font-semibold sm:top-7 sm:right-[34px]"
 				style={{ animationDelay: "230ms" }}
 			>
 				<Link to="/docs" className={navLink}>
@@ -52,7 +52,8 @@ export default function Home() {
 				<Stamp />
 			</div>
 
-			<main className="relative z-[4] flex flex-1 items-center justify-center px-6">
+			{/* Bottom padding keeps the landed result card clear of the promise band. */}
+			<main className="relative z-[4] flex flex-1 items-center justify-center px-6 pb-24">
 				<div className="w-full max-w-[560px] text-center">
 					<Wordmark
 						className="enter text-[clamp(3.5rem,5vw+1.5rem,5.5rem)]"
@@ -62,7 +63,7 @@ export default function Home() {
 						className="enter mt-4 text-[17px] font-medium text-muted-foreground"
 						style={{ animationDelay: "120ms" }}
 					>
-						Long links in. Short links out. That's the whole thing.
+						Long links in. Short links out.
 					</p>
 					<div className="enter mt-9" style={{ animationDelay: "170ms" }}>
 						<ShortenBox />

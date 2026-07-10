@@ -5,7 +5,7 @@ import { deleteLink, listLinks } from "@/lib/api";
 import { LinkTable } from "./link-table";
 
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ getToken: async () => "tok" })
+	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: async () => "tok" })
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {

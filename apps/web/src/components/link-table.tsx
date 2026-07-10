@@ -11,7 +11,7 @@ import { deleteLink, listLinks } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
 export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
-	const { getToken } = useAuth();
+	const { isLoaded, isSignedIn, getToken } = useAuth();
 	const [links, setLinks] = useState<LinkSummary[] | null>(null);
 	const [cursor, setCursor] = useState<string | undefined>(undefined);
 	const [busy, setBusy] = useState(false);
@@ -22,14 +22,22 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 	const loadedInitial = useRef(false);
 
 	useEffect(() => {
-		if (loadedInitial.current) {
+		// Wait for Clerk to resolve the session; getToken() returns null before
+		// isLoaded and would strand the UI on its loading skeleton.
+		if (!isLoaded || loadedInitial.current) {
 			return;
 		}
 		loadedInitial.current = true;
+		if (!isSignedIn) {
+			return;
+		}
 		let cancelled = false;
 		(async () => {
 			const token = await getToken();
 			if (token === null) {
+				if (!cancelled) {
+					setError("Your session expired. Refresh and sign in again.");
+				}
 				return;
 			}
 			try {
@@ -47,7 +55,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [getToken]);
+	}, [isLoaded, isSignedIn, getToken]);
 
 	useEffect(() => {
 		if (prepend !== undefined && prepend !== seenPrepend.current) {

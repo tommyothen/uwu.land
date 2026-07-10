@@ -5,7 +5,7 @@ import { getMe } from "@/lib/api";
 import { AccountPanel } from "./account-panel";
 
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ getToken: async () => "tok" })
+	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: async () => "tok" })
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
