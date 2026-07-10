@@ -1,21 +1,59 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLink, UwuApiError } from "@/lib/api";
 import { ShortenBox } from "./shorten-box";
 
 vi.mock("@/lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/api")>();
-	return {
-		...actual,
-		createLink: vi.fn()
-	};
+	return { ...actual, createLink: vi.fn() };
 });
 
 const createLinkMock = vi.mocked(createLink);
 const writeText = vi.fn();
 
+function setReducedMotion(reduced: boolean) {
+	window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+		matches: reduced,
+		media: query,
+		onchange: null,
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn(),
+		addListener: vi.fn(),
+		removeListener: vi.fn(),
+		dispatchEvent: vi.fn()
+	}));
+}
+
+const link = {
+	slug: "abc12",
+	short_url: "https://uwu.land/abc12",
+	url: "https://example.com/page"
+};
+
+async function flush() {
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+}
+
+async function advance(ms: number) {
+	await act(async () => {
+		vi.advanceTimersByTime(ms);
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+}
+
+function submit(url = "https://example.com/page") {
+	const input = screen.getByLabelText(/url/i);
+	fireEvent.change(input, { target: { value: url } });
+	fireEvent.submit(input.closest("form") as HTMLFormElement);
+}
+
 beforeEach(() => {
+	vi.useFakeTimers();
+	setReducedMotion(false);
 	Object.defineProperty(navigator, "clipboard", {
 		value: { writeText },
 		configurable: true
@@ -23,118 +61,164 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.runOnlyPendingTimers();
+	vi.useRealTimers();
 	createLinkMock.mockReset();
 	writeText.mockReset();
 });
 
-describe("ShortenBox", () => {
-	it("submits the URL anonymously and shows the short link", async () => {
-		createLinkMock.mockResolvedValueOnce({
-			slug: "abc12",
-			short_url: "https://uwu.land/abc12",
-			url: "https://example.com/page"
-		});
-		const user = userEvent.setup();
+describe("ShortenBox submit choreography", () => {
+	it("holds the result until the plane exits on a fast success", async () => {
+		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
+		submit();
+		await flush();
 
-		await user.type(
-			screen.getByLabelText(/url/i),
-			"https://example.com/page{Enter}"
-		);
+		// API is already back, but the plane has not exited yet.
+		expect(screen.queryByText("uwu.land/abc12")).toBeNull();
 
-		expect(createLinkMock).toHaveBeenCalledWith(
-			{ url: "https://example.com/page" },
-			null
-		);
-		expect(await screen.findByText("uwu.land/abc12")).toBeInTheDocument();
+		await advance(750);
+		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
 	});
 
-	it("copies the short URL to the clipboard", async () => {
-		createLinkMock.mockResolvedValueOnce({
-			slug: "abc12",
-			short_url: "https://uwu.land/abc12",
-			url: "https://example.com"
-		});
-		const user = userEvent.setup();
-		// user-event installs its own clipboard stub in setup(); reinstate ours.
-		Object.defineProperty(navigator, "clipboard", {
-			value: { writeText },
-			configurable: true
-		});
+	it("holds at the await label with a static in-transit line on a slow success", async () => {
+		let resolve!: (value: typeof link) => void;
+		createLinkMock.mockImplementationOnce(
+			() => new Promise((r) => (resolve = r))
+		);
 		render(<ShortenBox />);
+		submit();
+		await advance(750);
 
-		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /send it/i }));
-		await user.click(await screen.findByRole("button", { name: /tear \+ copy/i }));
+		expect(screen.getByText("in transit…")).toBeInTheDocument();
+		expect(screen.queryByText("uwu.land/abc12")).toBeNull();
 
-		expect(writeText).toHaveBeenCalledWith("https://uwu.land/abc12");
+		await act(async () => {
+			resolve(link);
+			await Promise.resolve();
+		});
+		await flush();
+		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
 	});
 
-	it("renders friendly copy for rate_limited errors", async () => {
+	it("stamps RETURN TO SENDER, restores focus and keeps the value on failure", async () => {
+		createLinkMock.mockRejectedValueOnce(
+			new UwuApiError({ status: 500, code: "internal", message: "boom" })
+		);
+		render(<ShortenBox />);
+		submit();
+		await advance(750);
+		await advance(1);
+
+		expect(screen.getByText("RETURN TO SENDER")).toBeInTheDocument();
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"Something broke on our end. Not your fault. Give it another go."
+		);
+		const input = screen.getByLabelText(/url/i) as HTMLInputElement;
+		expect(input.value).toBe("https://example.com/page");
+		expect(document.activeElement).toBe(input);
+	});
+
+	it("shows an ink MAILBOX FULL stamp with a 1Hz countdown when retry-after is known", async () => {
 		createLinkMock.mockRejectedValueOnce(
 			new UwuApiError({
 				status: 429,
 				code: "rate_limited",
-				message: "Rate limit exceeded."
-			})
+				message: "slow down",
+				// biome-ignore lint/suspicious/noExplicitAny: exercising the retry-after envelope field
+				retry_after: 42
+			} as any)
 		);
-		const user = userEvent.setup();
 		render(<ShortenBox />);
+		submit();
+		await advance(750);
 
-		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /send it/i }));
+		const stamp = screen.getByText("MAILBOX FULL");
+		expect(stamp).toBeInTheDocument();
+		expect(stamp.className).toContain("rubber-stamp");
+		expect(screen.getByText(/try again in 42s/)).toBeInTheDocument();
+
+		await advance(1000);
+		expect(screen.getByText(/try again in 41s/)).toBeInTheDocument();
+	});
+
+	it("never launches the plane for a client-side invalid URL", async () => {
+		render(<ShortenBox />);
+		submit("not a url");
+		await flush();
+
+		expect(createLinkMock).not.toHaveBeenCalled();
+		expect(screen.getByText("RETURN TO SENDER")).toBeInTheDocument();
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"That doesn't look like a link."
+		);
+	});
+
+	it("copies via the claim ticket and flips the postmark to COPIED", async () => {
+		writeText.mockResolvedValue(undefined);
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		submit();
+		await advance(750);
+		await advance(250);
+
+		const ticket = screen.getByRole("button", { name: "Copy short link" });
+		await act(async () => {
+			fireEvent.click(ticket);
+			await Promise.resolve();
+		});
+
+		expect(writeText).toHaveBeenCalledWith("https://uwu.land/abc12");
+		expect(screen.getByText("copied!")).toBeInTheDocument();
+		expect(screen.getByText("COPIED")).toBeInTheDocument();
+	});
+
+	it("announces the ready link on an aria-live region", async () => {
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		submit();
+		await advance(750);
 
 		expect(
-			await screen.findByText(
-				"Daily anonymous limit reached. Try again tomorrow, or sign up for more."
-			)
+			screen.getByText("Your short link is ready: uwu.land/abc12")
 		).toBeInTheDocument();
 	});
 
-	it("disables submit while the request is pending", async () => {
-		let resolve: (value: {
-			slug: string;
-			short_url: string;
-			url: string;
-		}) => void = () => {};
-		createLinkMock.mockImplementationOnce(
-			() =>
-				new Promise((r) => {
-					resolve = r;
-				})
-		);
-		const user = userEvent.setup();
-		render(<ShortenBox />);
-
-		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /send it/i }));
-
-		expect(screen.getByRole("button", { name: /in transit/i })).toBeDisabled();
-		resolve({
-			slug: "a",
-			short_url: "https://uwu.land/a",
-			url: "https://example.com"
-		});
-		await waitFor(() =>
-			expect(screen.getByText("uwu.land/a")).toBeInTheDocument()
-		);
+	it("survives an unmount mid-flight", async () => {
+		createLinkMock.mockImplementationOnce(() => new Promise(() => {}));
+		const { unmount } = render(<ShortenBox />);
+		submit();
+		await flush();
+		expect(() => unmount()).not.toThrow();
+		await advance(1000);
 	});
 
-	it("offers shorten-another after success and returns to the form", async () => {
-		createLinkMock.mockResolvedValueOnce({
-			slug: "abc12",
-			short_url: "https://uwu.land/abc12",
-			url: "https://example.com"
-		});
-		const user = userEvent.setup();
+	it("rebuilds cleanly on a resubmit after an error", async () => {
+		createLinkMock
+			.mockRejectedValueOnce(
+				new UwuApiError({ status: 500, code: "internal", message: "boom" })
+			)
+			.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
+		submit();
+		await advance(750);
+		await advance(1);
+		expect(screen.getByText("RETURN TO SENDER")).toBeInTheDocument();
 
-		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /send it/i }));
-		await user.click(
-			await screen.findByRole("button", { name: /send another/i })
-		);
+		submit();
+		await advance(750);
+		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
+	});
 
-		expect(screen.getByLabelText(/url/i)).toBeInTheDocument();
+	it("crossfades straight to the result under reduced motion (no plane, no in-transit)", async () => {
+		setReducedMotion(true);
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		submit();
+		await flush();
+		await advance(1);
+
+		expect(screen.queryByText("in transit…")).toBeNull();
+		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
 	});
 });
