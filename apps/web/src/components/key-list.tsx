@@ -3,6 +3,8 @@
 import { useAuth } from "@clerk/react-router";
 import type { ApiKeySummary } from "@uwu/shared";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { deleteKey, listKeys } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
@@ -72,7 +74,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 		return (
 			<div className="mt-8 grid gap-3" aria-hidden>
 				{[0, 1].map((i) => (
-					<div
+					<Skeleton
 						key={i}
 						className="h-14 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800"
 					/>
@@ -121,29 +123,30 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 							</span>
 							{confirming === key.id ? (
 								<span className="flex items-center gap-2">
-									<button
+									<Button
 										type="button"
 										onClick={() => confirmRevoke(key.id)}
+										variant="destructive"
 										className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-red-500"
 									>
 										Confirm
-									</button>
-									<button
+									</Button>
+									<Button
 										type="button"
 										onClick={() => setConfirming(null)}
 										className="text-xs text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100"
 									>
 										Cancel
-									</button>
+									</Button>
 								</span>
 							) : (
-								<button
+								<Button
 									type="button"
 									onClick={() => setConfirming(key.id)}
 									className="text-xs text-zinc-500 transition hover:text-red-600 dark:hover:text-red-400"
 								>
 									Revoke
-								</button>
+								</Button>
 							)}
 						</div>
 					</li>

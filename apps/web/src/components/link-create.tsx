@@ -1,6 +1,9 @@
 import { useAuth } from "@clerk/react-router";
 import type { CreateLinkResponse } from "@uwu/shared";
 import { type FormEvent, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { createLink } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
@@ -61,13 +64,13 @@ export function LinkCreate({
 		>
 			<div className="grid gap-4 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
 				<div>
-					<label
+					<Label
 						htmlFor="create-url"
 						className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
 					>
 						URL
-					</label>
-					<input
+					</Label>
+					<Input
 						id="create-url"
 						type="url"
 						required
@@ -78,13 +81,13 @@ export function LinkCreate({
 					/>
 				</div>
 				<div>
-					<label
+					<Label
 						htmlFor="create-slug"
 						className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
 					>
 						Custom slug
-					</label>
-					<input
+					</Label>
+					<Input
 						id="create-slug"
 						type="text"
 						value={slug}
@@ -93,13 +96,13 @@ export function LinkCreate({
 						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
 					/>
 				</div>
-				<button
+				<Button
 					type="submit"
 					disabled={pending}
 					className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{pending ? "Creating…" : "Create"}
-				</button>
+				</Button>
 			</div>
 			<p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
 				Slugs are 3 to 16 characters: letters, numbers, underscores, hyphens.
@@ -115,13 +118,13 @@ export function LinkCreate({
 					<span className="font-mono font-medium">
 						{created.short_url.replace(/^https?:\/\//, "")}
 					</span>
-					<button
+					<Button
 						type="button"
 						onClick={() => copy(created)}
 						className="text-xs font-medium text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-400"
 					>
 						{copied ? "Copied" : "Copy"}
-					</button>
+					</Button>
 				</p>
 			)}
 		</form>

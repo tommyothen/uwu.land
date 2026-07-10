@@ -3,6 +3,9 @@
 import { useAuth } from "@clerk/react-router";
 import type { LinkSummary } from "@uwu/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { deleteLink, listLinks } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
@@ -103,7 +106,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 		return (
 			<div className="mt-8 grid gap-3" aria-hidden>
 				{[0, 1, 2].map((i) => (
-					<div
+					<Skeleton
 						key={i}
 						className="h-14 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800"
 					/>
@@ -135,23 +138,23 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 					>
 						<div className="min-w-0">
 							<div className="flex flex-wrap items-center gap-2">
-								<button
+								<Button
 									type="button"
 									onClick={() => copyShortUrl(link)}
 									title="Copy short link"
 									className="font-mono text-sm font-medium text-zinc-900 transition hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-400"
 								>
 									{link.short_url.replace(/^https?:\/\//, "")}
-								</button>
+								</Button>
 								{copiedSlug === link.slug && (
 									<span className="text-xs text-zinc-500 dark:text-zinc-400">
 										Copied
 									</span>
 								)}
 								{link.external_ref !== undefined && (
-									<span className="rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+									<Badge className="rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
 										{link.external_ref}
-									</span>
+									</Badge>
 								)}
 							</div>
 							<p
@@ -170,29 +173,30 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 							</span>
 							{confirming === link.slug ? (
 								<span className="flex items-center gap-2">
-									<button
+									<Button
 										type="button"
 										onClick={() => confirmDelete(link.slug)}
+										variant="destructive"
 										className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-red-500"
 									>
 										Confirm
-									</button>
-									<button
+									</Button>
+									<Button
 										type="button"
 										onClick={() => setConfirming(null)}
 										className="text-xs text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100"
 									>
 										Cancel
-									</button>
+									</Button>
 								</span>
 							) : (
-								<button
+								<Button
 									type="button"
 									onClick={() => setConfirming(link.slug)}
 									className="text-xs text-zinc-500 transition hover:text-red-600 dark:hover:text-red-400"
 								>
 									Delete
-								</button>
+								</Button>
 							)}
 						</div>
 					</li>
@@ -200,14 +204,14 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 			</ul>
 			{cursor !== undefined && (
 				<div className="mt-4 flex justify-center">
-					<button
+					<Button
 						type="button"
 						onClick={loadMore}
 						disabled={busy}
 						className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
 					>
 						{busy ? "Loading…" : "Load more"}
-					</button>
+					</Button>
 				</div>
 			)}
 		</div>

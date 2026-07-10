@@ -2,6 +2,9 @@ import { useAuth } from "@clerk/react-router";
 import { type CreateKeyResponse, TIERS } from "@uwu/shared";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { createKey, UwuApiError } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
@@ -72,20 +75,20 @@ export function KeyCreate({
 					{revealed.secret}
 				</p>
 				<div className="mt-4 flex items-center gap-3">
-					<button
+					<Button
 						type="button"
 						onClick={() => copySecret(revealed)}
 						className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98]"
 					>
 						{copied ? "Copied" : "Copy key"}
-					</button>
-					<button
+					</Button>
+					<Button
 						type="button"
 						onClick={() => dismiss(revealed)}
 						className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 active:scale-[0.98] dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
 					>
 						Done
-					</button>
+					</Button>
 				</div>
 			</div>
 		);
@@ -98,13 +101,13 @@ export function KeyCreate({
 		>
 			<div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
 				<div>
-					<label
+					<Label
 						htmlFor="key-name"
 						className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
 					>
 						Key name
-					</label>
-					<input
+					</Label>
+					<Input
 						id="key-name"
 						type="text"
 						required
@@ -114,13 +117,13 @@ export function KeyCreate({
 						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
 					/>
 				</div>
-				<button
+				<Button
 					type="submit"
 					disabled={pending}
 					className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{pending ? "Creating…" : "Create key"}
-				</button>
+				</Button>
 			</div>
 			<p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
 				Use keys as a Bearer token against the public API. See the{" "}
