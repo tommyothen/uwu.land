@@ -21,12 +21,28 @@ anonymous shortening, Clerk-authenticated dashboard (links, API keys, account),
 and the public API docs at `/docs`. It is an ordinary consumer of `/api/v1`,
 calling it client-side with Clerk session JWTs.
 
-Local dev:
+Local dev (`next dev` reads `.env.local`, NOT `.dev.vars` — that file only feeds
+`wrangler`-based preview/deploy):
 
 ```sh
-cp apps/web/.dev.vars.example apps/web/.dev.vars  # then fill in real Clerk keys
+# apps/web/.env.local — fill in your Clerk app's keys:
+#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+#   CLERK_SECRET_KEY=sk_test_...
+#   NEXT_PUBLIC_UWU_API_URL=http://localhost:8787   # local worker; omit for prod
+
+# terminal 1 — the API worker (local KV/D1 simulation):
+cd services/api
+pnpm exec wrangler d1 migrations apply uwu-land --local   # first run only
+pnpm exec wrangler dev --port 8787
+
+# terminal 2 — the web app:
 pnpm --filter @uwu/web dev
 ```
+
+The worker verifies dashboard JWTs against `CLERK_ISSUER`: for local dev put
+`CLERK_ISSUER=https://<your-subdomain>.clerk.accounts.dev` (your Clerk app's
+Frontend API URL) in `services/api/.dev.vars` — wrangler DOES read `.dev.vars`;
+the Next app is the odd one out.
 
 Build and deploy (Cloudflare Workers via OpenNext):
 
