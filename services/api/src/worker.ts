@@ -36,7 +36,7 @@ export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> 
 	app.use(
 		"/api/v1/*",
 		cors({
-			origin: "https://app.uwu.land",
+			origin: ["https://app.uwu.land", "http://localhost:3000"],
 			allowMethods: ["GET", "POST", "OPTIONS", "DELETE"]
 		})
 	);
