@@ -8,6 +8,8 @@ export interface Env {
 	UWU: KVNamespace;
 	CLICKS: KVNamespace;
 	CLICK_EVENTS: AnalyticsEngineDataset;
+	DB: D1Database;
+	CLERK_ISSUER?: string;
 }
 
 export interface WorkerOptions {

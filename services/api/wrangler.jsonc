@@ -9,6 +9,9 @@
   "analytics_engine_datasets": [
     { "binding": "CLICK_EVENTS", "dataset": "TODO-ae-dataset" }
   ],
+  "vars": {
+    "CLERK_ISSUER": "TODO-clerk-issuer"
+  },
   "d1_databases": [
     {
       "binding": "DB",

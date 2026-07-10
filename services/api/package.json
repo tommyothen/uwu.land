@@ -12,7 +12,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clerk/backend": "^3.11.2",
+    "@uwu/db": "workspace:*",
     "@uwu/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.28",
     "nanoid": "^5.1.16",
     "zod": "^4.4.3"
