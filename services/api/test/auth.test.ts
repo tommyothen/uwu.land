@@ -108,7 +108,11 @@ function bearer(secret: string, url = "https://uwu.land/api/v1/me"): Request {
 	});
 }
 
-async function createJwt(userId = "user_jwt"): Promise<{
+async function createJwt(
+	userId = "user_jwt",
+	iss = issuer,
+	kid = "test-key-1"
+): Promise<{
 	jwt: string;
 	jwks: TestJwks;
 }> {
@@ -122,7 +126,6 @@ async function createJwt(userId = "user_jwt"): Promise<{
 		true,
 		["sign", "verify"]
 	)) as CryptoKeyPair;
-	const kid = "test-key-1";
 	const publicJwk = (await crypto.subtle.exportKey(
 		"jwk",
 		keyPair.publicKey
@@ -133,7 +136,7 @@ async function createJwt(userId = "user_jwt"): Promise<{
 		aud: "uwu-land",
 		exp: now + 300,
 		iat: now,
-		iss: issuer,
+		iss,
 		nbf: now - 5,
 		sub: userId
 	};
@@ -296,6 +299,101 @@ describe("auth middleware", () => {
 				tier: "free"
 			}
 		]);
+	});
+
+	it("fetches the issuer JWKS when none is injected", async () => {
+		const iss = "https://fetch-once.clerk.test";
+		const { jwt, jwks } = await createJwt("user_fetched", iss);
+		const fetched: string[] = [];
+
+		const auth = await resolveAuth(
+			bearer(jwt),
+			env as Env,
+			createExecutionContext(),
+			{
+				clerkIssuer: iss,
+				fetchJwks: async (url) => {
+					fetched.push(url);
+					return jwks;
+				}
+			}
+		);
+
+		expect(auth).toEqual({
+			kind: "session",
+			tier: "free",
+			userId: "user_fetched"
+		});
+		expect(fetched).toEqual([`${iss}/.well-known/jwks.json`]);
+	});
+
+	it("caches the fetched JWKS across requests", async () => {
+		const iss = "https://cache.clerk.test";
+		const { jwt, jwks } = await createJwt("user_cached", iss);
+		let fetchCount = 0;
+		const options = {
+			clerkIssuer: iss,
+			fetchJwks: async () => {
+				fetchCount++;
+				return jwks;
+			}
+		};
+
+		await resolveAuth(bearer(jwt), env as Env, createExecutionContext(), options);
+		await resolveAuth(bearer(jwt), env as Env, createExecutionContext(), options);
+
+		expect(fetchCount).toBe(1);
+	});
+
+	it("refetches the JWKS when the kid is unknown, then rejects if still missing", async () => {
+		const iss = "https://rotate.clerk.test";
+		const oldKey = await createJwt("user_old", iss, "kid-old");
+		const newKey = await createJwt("user_new", iss, "kid-new");
+		// The issuer serves the old key first, then rotates to the new key.
+		const served = [oldKey.jwks, newKey.jwks, newKey.jwks];
+		let fetchCount = 0;
+		const options = {
+			clerkIssuer: iss,
+			fetchJwks: async () => {
+				const next = served[fetchCount];
+				fetchCount++;
+				if (next === undefined) {
+					throw new Error("unexpected extra fetch");
+				}
+				return next;
+			}
+		};
+
+		// Primes the cache with the old JWKS.
+		await resolveAuth(
+			bearer(oldKey.jwt),
+			env as Env,
+			createExecutionContext(),
+			options
+		);
+		expect(fetchCount).toBe(1);
+
+		// New kid misses the cache, triggering one refetch that finds it.
+		const auth = await resolveAuth(
+			bearer(newKey.jwt),
+			env as Env,
+			createExecutionContext(),
+			options
+		);
+		expect(auth).toMatchObject({ kind: "session", userId: "user_new" });
+		expect(fetchCount).toBe(2);
+
+		// A kid the issuer never serves fails after exactly one more refetch.
+		const unknownKey = await createJwt("user_unknown", iss, "kid-never");
+		await expect(
+			resolveAuth(
+				bearer(unknownKey.jwt),
+				env as Env,
+				createExecutionContext(),
+				options
+			)
+		).rejects.toThrow("Unauthorized");
+		expect(fetchCount).toBe(3);
 	});
 
 	it("rejects invalid Clerk session JWTs with the error envelope", async () => {

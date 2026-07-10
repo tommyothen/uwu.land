@@ -33,6 +33,7 @@ export type AuthPrincipal =
 export interface AuthOptions {
 	clerkIssuer?: string;
 	jwks?: TestJwks;
+	fetchJwks?: (url: string) => Promise<TestJwks>;
 	now?: () => Date;
 }
 
@@ -130,7 +131,10 @@ async function resolveClerkSession(
 	options: AuthOptions
 ): Promise<AuthPrincipal> {
 	const issuer = options.clerkIssuer ?? env.CLERK_ISSUER ?? DEFAULT_CLERK_ISSUER;
-	const key = findJwk(token, options.jwks);
+	const key =
+		options.jwks === undefined
+			? await findRemoteJwk(token, issuer, options)
+			: findJwk(token, options.jwks);
 	let payload: Awaited<ReturnType<typeof verifyJwt>>;
 	try {
 		payload = await verifyJwt(token, {
@@ -189,18 +193,54 @@ function shouldStampLastUsed(lastUsedAt: Date | null, now: Date): boolean {
 	);
 }
 
-function findJwk(token: string, jwks: TestJwks | undefined): JsonWebKey {
-	if (jwks === undefined) {
-		throw new AuthError();
-	}
-
-	const header = decodeJwtPart(token.split(".")[0]);
-	const kid = typeof header.kid === "string" ? header.kid : null;
-	const key = jwks.keys.find((candidate) => candidate.kid === kid);
-	if (key === undefined) {
+function findJwk(token: string, jwks: TestJwks): JsonWebKey {
+	const key = tryFindJwk(token, jwks);
+	if (key === null) {
 		throw new AuthError();
 	}
 	return key;
+}
+
+function tryFindJwk(token: string, jwks: TestJwks): JsonWebKey | null {
+	const header = decodeJwtPart(token.split(".")[0]);
+	const kid = typeof header.kid === "string" ? header.kid : null;
+	return jwks.keys.find((candidate) => candidate.kid === kid) ?? null;
+}
+
+// Cached per isolate; a kid miss triggers one refetch so key rotation works.
+const jwksCache = new Map<string, TestJwks>();
+
+async function findRemoteJwk(
+	token: string,
+	issuer: string,
+	options: AuthOptions
+): Promise<JsonWebKey> {
+	const url = `${issuer}/.well-known/jwks.json`;
+	const cached = jwksCache.get(url);
+	if (cached !== undefined) {
+		const key = tryFindJwk(token, cached);
+		if (key !== null) {
+			return key;
+		}
+	}
+
+	const fetchJwks = options.fetchJwks ?? defaultFetchJwks;
+	let fresh: TestJwks;
+	try {
+		fresh = await fetchJwks(url);
+	} catch {
+		throw new AuthError();
+	}
+	jwksCache.set(url, fresh);
+	return findJwk(token, fresh);
+}
+
+async function defaultFetchJwks(url: string): Promise<TestJwks> {
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new AuthError();
+	}
+	return (await response.json()) as TestJwks;
 }
 
 function decodeJwtPart(part: string | undefined): Record<string, unknown> {
