@@ -64,8 +64,8 @@ describe("ShortenBox", () => {
 		render(<ShortenBox />);
 
 		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /shorten/i }));
-		await user.click(await screen.findByRole("button", { name: /copy/i }));
+		await user.click(screen.getByRole("button", { name: /send it/i }));
+		await user.click(await screen.findByRole("button", { name: /tear \+ copy/i }));
 
 		expect(writeText).toHaveBeenCalledWith("https://uwu.land/abc12");
 	});
@@ -82,7 +82,7 @@ describe("ShortenBox", () => {
 		render(<ShortenBox />);
 
 		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /shorten/i }));
+		await user.click(screen.getByRole("button", { name: /send it/i }));
 
 		expect(
 			await screen.findByText(
@@ -107,9 +107,9 @@ describe("ShortenBox", () => {
 		render(<ShortenBox />);
 
 		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /shorten/i }));
+		await user.click(screen.getByRole("button", { name: /send it/i }));
 
-		expect(screen.getByRole("button", { name: /shorten/i })).toBeDisabled();
+		expect(screen.getByRole("button", { name: /in transit/i })).toBeDisabled();
 		resolve({
 			slug: "a",
 			short_url: "https://uwu.land/a",
@@ -130,9 +130,9 @@ describe("ShortenBox", () => {
 		render(<ShortenBox />);
 
 		await user.type(screen.getByLabelText(/url/i), "https://example.com");
-		await user.click(screen.getByRole("button", { name: /shorten/i }));
+		await user.click(screen.getByRole("button", { name: /send it/i }));
 		await user.click(
-			await screen.findByRole("button", { name: /shorten another/i })
+			await screen.findByRole("button", { name: /send another/i })
 		);
 
 		expect(screen.getByLabelText(/url/i)).toBeInTheDocument();

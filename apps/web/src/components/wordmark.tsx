@@ -1,16 +1,21 @@
 /**
- * The uwu.land wordmark, restored from the original design: an extra-bold
- * "UwU." filled with the animated gradient, followed by plain "Land".
+ * The uwu.land wordmark (spec §2): "UwU." in Bricolage 800 with the one static
+ * gradient fill, "Land" in Bricolage 500 ink. One line, tracking -0.02em.
  */
-export function Wordmark({ className = "" }: { className?: string }) {
+export function Wordmark({
+	className = "",
+	style
+}: {
+	className?: string;
+	style?: React.CSSProperties;
+}) {
 	return (
 		<h1
-			className={`pointer-events-none select-none font-normal leading-none tracking-tight text-gray-800 dark:text-slate-500 ${className}`}
+			style={style}
+			className={`pointer-events-none font-display leading-none tracking-[-0.02em] text-foreground select-none ${className}`.trim()}
 		>
-			<span className="uwu-gradient">
-				<span className="font-black">UwU</span>.
-			</span>
-			Land
+			<span className="uwu-gradient font-extrabold">UwU.</span>
+			<span className="font-medium">Land</span>
 		</h1>
 	);
 }
