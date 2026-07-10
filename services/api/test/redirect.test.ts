@@ -56,6 +56,19 @@ describe("redirects", () => {
 		expect(response.headers.get("location")).toBe("https://app.uwu.land/404");
 	});
 
+	it("never treats bookkeeping keys as slugs", async () => {
+		await env.UWU.put("ratelimit:anon:1.2.3.4", JSON.stringify({ count: 3, resetAt: 1 }));
+
+		const response = await workerFetch(
+			new Request("https://uwu.land/ratelimit%3Aanon%3A1.2.3.4"),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe("https://app.uwu.land/404");
+	});
+
 	it("does not treat API paths as slugs", async () => {
 		await env.UWU.put("api", "https://example.com/wrong");
 		const response = await workerFetch(
@@ -68,3 +81,4 @@ describe("redirects", () => {
 		expect(response.headers.get("location")).toBeNull();
 	});
 });
+

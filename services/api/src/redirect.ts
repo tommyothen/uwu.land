@@ -1,11 +1,19 @@
 import type { Context } from "hono";
 import { errorResponse } from "./errors";
+import { SLUG_RE } from "./slugs";
 import type { Env } from "./worker";
 
 export async function redirectSlug(c: Context<{ Bindings: Env }>): Promise<Response> {
 	const slug = c.req.param("slug");
 	if (slug === undefined) {
 		return errorResponse(404, "not_found", "Link not found.");
+	}
+
+	// Every slug ever issued (v1 and v2) matches SLUG_RE. The UWU namespace also
+	// holds colon-prefixed bookkeeping keys (ratelimit:, banned:, later meta:);
+	// gating on the regex keeps a crafted path from ever reading those.
+	if (!SLUG_RE.test(slug)) {
+		return c.redirect("https://app.uwu.land/404", 302);
 	}
 
 	const url = await c.env.UWU.get(slug);
