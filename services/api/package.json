@@ -10,7 +10,7 @@
     "dev": "wrangler dev --port 8787 --inspector-port 9230",
     "lint": "biome check .",
     "check-types": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/*.node-tests.mjs",
     "ban": "node scripts/banned.mjs ban",
     "unban": "node scripts/banned.mjs unban",
     "banned": "node scripts/banned.mjs list",
