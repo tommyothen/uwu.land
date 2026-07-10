@@ -4,4 +4,10 @@ packages:
   - "services/*"
 allowBuilds:
   esbuild: true
+  sharp: true
   workerd: true
+minimumReleaseAgeExclude:
+  - '@cloudflare/vitest-pool-workers@0.18.4'
+  - '@cloudflare/workers-types@5.20260710.1'
+  - miniflare@4.20260708.1
+  - wrangler@4.110.0

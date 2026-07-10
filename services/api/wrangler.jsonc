@@ -1,0 +1,12 @@
+{
+  "name": "uwu-land-api",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-01",
+  "kv_namespaces": [
+    { "binding": "UWU", "id": "TODO-kv-id-uwu" },
+    { "binding": "CLICKS", "id": "TODO-kv-id-clicks" }
+  ],
+  "analytics_engine_datasets": [
+    { "binding": "CLICK_EVENTS", "dataset": "TODO-ae-dataset" }
+  ]
+}
