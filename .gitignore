@@ -7,3 +7,6 @@ dist
 .dev.vars
 coverage
 *.tsbuildinfo
+
+# brainstorm mockups
+.superpowers/
