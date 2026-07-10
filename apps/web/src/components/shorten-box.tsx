@@ -11,6 +11,36 @@ type State =
 	| { phase: "success"; link: CreateLinkResponse; copied: boolean }
 	| { phase: "error"; message: string };
 
+function PaperPlaneIcon() {
+	return (
+		<svg
+			aria-hidden="true"
+			viewBox="0 0 16 16"
+			className="h-5 w-5 fill-current transition ease-in-out motion-safe:group-hover:scale-110"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<path d="M14.082 2.182a.5.5 0 0 1 .103.557L8.528 15.467a.5.5 0 0 1-.917-.007L5.57 10.694.803 8.652a.5.5 0 0 1-.006-.916l12.728-5.657a.5.5 0 0 1 .556.103zM2.25 8.184l3.897 1.67a.5.5 0 0 1 .262.263l1.67 3.897L12.743 3.52 2.25 8.184z" />
+		</svg>
+	);
+}
+
+function SpinnerIcon() {
+	return (
+		<svg
+			aria-hidden="true"
+			viewBox="0 0 16 16"
+			className="h-5 w-5 animate-spin fill-current"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<path
+				fillRule="evenodd"
+				d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"
+			/>
+			<path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" />
+		</svg>
+	);
+}
+
 export function ShortenBox() {
 	const [state, setState] = useState<State>({ phase: "idle" });
 	const [url, setUrl] = useState("");
@@ -42,28 +72,25 @@ export function ShortenBox() {
 	if (state.phase === "success") {
 		const display = state.link.short_url.replace(/^https?:\/\//, "");
 		return (
-			<div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-				<p className="text-sm text-zinc-500 dark:text-zinc-400">
+			<div className="rounded-lg border border-slate-200 bg-white/90 p-5 text-left shadow-sm backdrop-blur-sm dark:border-slate-700 dark:bg-gray-700/90">
+				<p className="text-xs text-slate-500 dark:text-slate-400">
 					Your short link is ready
 				</p>
-				<p className="mt-2 break-all font-mono text-xl font-medium text-zinc-900 dark:text-zinc-50">
+				<p className="mt-1 break-all font-mono text-lg font-medium text-slate-900 dark:text-white">
 					{display}
 				</p>
-				<p className="mt-1 truncate text-sm text-zinc-500 dark:text-zinc-400">
-					{state.link.url}
-				</p>
-				<div className="mt-5 flex flex-wrap items-center gap-3">
+				<div className="mt-4 flex flex-wrap items-center gap-3">
 					<button
 						type="button"
 						onClick={() => copy(state.link)}
-						className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-600 active:scale-[0.98]"
+						className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98]"
 					>
 						{state.copied ? "Copied" : "Copy link"}
 					</button>
 					<button
 						type="button"
 						onClick={reset}
-						className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 active:scale-[0.98] dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+						className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 active:scale-[0.98] dark:border-slate-600 dark:text-slate-200 dark:hover:bg-gray-600"
 					>
 						Shorten another
 					</button>
@@ -74,41 +101,33 @@ export function ShortenBox() {
 
 	const pending = state.phase === "pending";
 	return (
-		<form
-			onSubmit={submit}
-			className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
-		>
-			<label
-				htmlFor="shorten-url"
-				className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
-			>
+		<form onSubmit={submit}>
+			<label htmlFor="shorten-url" className="sr-only">
 				URL to shorten
 			</label>
-			<div className="mt-2 flex flex-col gap-3 sm:flex-row">
+			<div className="relative">
 				<input
 					id="shorten-url"
 					type="url"
 					required
 					value={url}
 					onChange={(event) => setUrl(event.target.value)}
-					placeholder="https://example.com/a/very/long/link"
-					className="w-full flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
+					placeholder="https://verylongsite.com"
+					className="block w-full rounded-lg border border-slate-300 bg-white/90 py-3 pr-14 pl-4 text-slate-900 shadow-sm backdrop-blur-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-600 dark:bg-gray-700/90 dark:text-white dark:placeholder:text-slate-400"
 				/>
 				<button
 					type="submit"
 					disabled={pending}
-					className="rounded-lg bg-rose-700 px-5 py-2 text-sm font-medium text-white transition hover:bg-rose-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+					aria-label="Shorten link"
+					className="group absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-lg bg-slate-200 text-slate-700 transition hover:bg-slate-300 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-600 dark:text-slate-100 dark:hover:bg-gray-500"
 				>
-					{pending ? "Shortening…" : "Shorten"}
+					{pending ? <SpinnerIcon /> : <PaperPlaneIcon />}
 				</button>
 			</div>
-			<p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-				No account needed. Random slug, permanent link.
-			</p>
 			{state.phase === "error" && (
 				<p
 					role="alert"
-					className="mt-3 text-sm text-rose-700 dark:text-rose-400"
+					className="mt-3 text-sm text-red-600 dark:text-red-400"
 				>
 					{state.message}
 				</p>
