@@ -18,6 +18,8 @@ import {
 } from "./auth";
 import { isBannedHostname } from "./banned";
 import { errorResponse } from "./errors";
+import { hashKey } from "./keys";
+import { normalizeUrl } from "./normalize";
 import { KvFixedWindow } from "./rate-limit";
 import {
 	generateSlug,
@@ -90,9 +92,24 @@ export async function createLink(
 	}
 
 	if (auth.kind === "anon") {
+		const urlHash = await hashKey(normalizeUrl(destination.toString()));
+		const urlMapKey = `urlmap:${urlHash}`;
+		const mappedSlug = await c.env.UWU.get(urlMapKey);
+		if (mappedSlug !== null && (await c.env.UWU.get(mappedSlug)) !== null) {
+			return Response.json(
+				{
+					slug: mappedSlug,
+					short_url: `https://uwu.land/${mappedSlug}`,
+					url: destination.toString()
+				} satisfies CreateLinkResponse,
+				{ status: 201 }
+			);
+		}
+
 		const slug = await generateSlug(c.env.UWU, options.generateId);
 		await c.env.UWU.put(slug, destination.toString());
 		await c.env.CLICKS.put(slug, "0");
+		await c.env.UWU.put(urlMapKey, slug);
 
 		const response: CreateLinkResponse = {
 			slug,
