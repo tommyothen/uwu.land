@@ -14,6 +14,31 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 | `packages/db` | Drizzle schema and D1 migrations. |
 | `docs` | Product specs and implementation plans. |
 
+## Web app
+
+`apps/web` is the Next.js App Router app for app.uwu.land: landing page with
+anonymous shortening, Clerk-authenticated dashboard (links, API keys, account),
+and the public API docs at `/docs`. It is an ordinary consumer of `/api/v1`,
+calling it client-side with Clerk session JWTs.
+
+Local dev:
+
+```sh
+cp apps/web/.dev.vars.example apps/web/.dev.vars  # then fill in real Clerk keys
+pnpm --filter @uwu/web dev
+```
+
+Build and deploy (Cloudflare Workers via OpenNext):
+
+```sh
+pnpm --filter @uwu/web build         # next build (per-commit verification)
+pnpm --filter @uwu/web build:worker  # OpenNext worker bundle in .open-next/
+pnpm --filter @uwu/web deploy        # wrangler deploy of the bundle
+```
+
+Env vars: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, and
+`NEXT_PUBLIC_UWU_API_URL` (defaults to `https://uwu.land` when unset).
+
 ## API
 
 The public JSON API is versioned under `/api/v1`. Authenticated endpoints accept `Authorization: Bearer ...` with either an uwu.land API key or a Clerk session JWT.
@@ -61,6 +86,7 @@ Stable `ErrorCode` values:
 | 2026-07-10 | Use `@cloudflare/vitest-pool-workers` | Exercise KV and Worker behavior inside workerd-backed tests. |
 | 2026-07-10 | Keep KV as the redirect hot path | D1 becomes the metadata plane; redirects stay KV-only. |
 | 2026-07-10 | Verify Clerk JWTs in-worker | Use `@clerk/backend` JWT verification with configured issuer and JWKS, without Clerk network calls in tests. |
+| 2026-07-10 | apps/web = Next.js App Router on Cloudflare Workers via @opennextjs/cloudflare | Clerk components for auth UI; dashboard calls the public /api/v1 with Clerk JWTs (no private endpoints). |
 
 ## License
 
