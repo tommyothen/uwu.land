@@ -9,8 +9,7 @@ import type {
 	MeResponse
 } from "@uwu/shared";
 
-const API_BASE =
-	process.env.NEXT_PUBLIC_UWU_API_URL ?? "https://uwu.land";
+const API_BASE = import.meta.env.VITE_UWU_API_URL ?? "https://uwu.land";
 
 export class UwuApiError extends Error {
 	constructor(public readonly error: ApiError) {

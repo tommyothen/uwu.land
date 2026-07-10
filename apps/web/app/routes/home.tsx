@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "react-router";
 import { ShortenBox } from "@/components/shorten-box";
 import { SiteHeader } from "@/components/site-header";
 
@@ -56,7 +56,7 @@ export default function Home() {
 									</p>
 									{cap.link && (
 										<Link
-											href={cap.link.href}
+								to={cap.link.href}
 											className="mt-3 inline-block text-sm font-medium text-rose-700 transition hover:text-rose-600 dark:text-rose-400"
 										>
 											{cap.link.label}
@@ -73,7 +73,7 @@ export default function Home() {
 					<p>MIT licensed.</p>
 					<div className="flex gap-5">
 						<Link
-							href="/docs"
+							to="/docs"
 							className="transition hover:text-zinc-900 dark:hover:text-zinc-100"
 						>
 							API docs

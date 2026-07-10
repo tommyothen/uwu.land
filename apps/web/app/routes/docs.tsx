@@ -1,13 +1,16 @@
 import { TIERS } from "@uwu/shared";
-import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { SiteHeader } from "@/components/site-header";
+import type { Route } from "./+types/docs";
 
-export const metadata: Metadata = {
-	title: "API docs | uwu.land",
-	description:
-		"Everything you need to shorten, list, and delete links with the uwu.land public API."
-};
+export const meta: Route.MetaFunction = () => [
+	{ title: "API docs | uwu.land" },
+	{
+		name: "description",
+		content:
+			"Everything you need to shorten, list, and delete links with the uwu.land public API."
+	}
+];
 
 const ENDPOINTS = [
 	{
