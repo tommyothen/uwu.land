@@ -3,8 +3,8 @@ import { UwuApiError } from "./api";
 /** Friendly copy for stable API error codes. */
 const ERROR_COPY: Record<string, string> = {
 	rate_limited:
-		"Daily anonymous limit reached — try again tomorrow or sign up for more.",
-	slug_taken: "That slug is already taken — try another one.",
+		"Daily anonymous limit reached. Try again tomorrow, or sign up for more.",
+	slug_taken: "That slug is already taken. Try another one.",
 	slug_reserved: "That slug is reserved and can't be used.",
 	url_banned: "That destination isn't allowed on uwu.land.",
 	invalid_body: "That doesn't look like a valid URL or slug.",
