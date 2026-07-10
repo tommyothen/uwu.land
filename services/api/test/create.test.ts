@@ -3,8 +3,9 @@ import {
 	env,
 	waitOnExecutionContext
 } from "cloudflare:test";
-import { apiKeys, users } from "@uwu/db/schema";
+import { apiKeys, links, users } from "@uwu/db/schema";
 import { TIERS } from "@uwu/shared";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
 import { hashKey } from "../src/keys";
@@ -232,6 +233,48 @@ describe("anonymous link creation", () => {
 		expect((await first.json<{ slug: string }>()).slug).toBe(
 			(await second.json<{ slug: string }>()).slug
 		);
+	});
+
+	it("records an anonymous create in D1 for abuse visibility", async () => {
+		const response = await workerFetch(
+			createRequest({ url: "https://example.com/recorded" }, "203.0.113.47"),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ slug: string }>();
+		const [row] = await drizzle(env.DB)
+			.select()
+			.from(links)
+			.where(eq(links.slug, body.slug))
+			.all();
+
+		expect(row).toMatchObject({
+			slug: body.slug,
+			url: "https://example.com/recorded",
+			ownerId: null,
+			externalRef: null,
+			source: "web-anon"
+		});
+	});
+
+	it("does not add a second D1 row for an anonymous dedup hit", async () => {
+		await workerFetch(
+			createRequest({ url: "https://example.com/only-once" }, "203.0.113.48"),
+			env as Env,
+			createExecutionContext()
+		);
+		await workerFetch(
+			createRequest({ url: "HTTPS://EXAMPLE.com/only-once#fragment" }, "203.0.113.49"),
+			env as Env,
+			createExecutionContext()
+		);
+		const rows = await drizzle(env.DB)
+			.select()
+			.from(links)
+			.where(eq(links.url, "https://example.com/only-once"))
+			.all();
+
+		expect(rows).toHaveLength(1);
 	});
 
 	it("keeps distinct anonymous URLs separate", async () => {

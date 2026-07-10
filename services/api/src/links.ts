@@ -107,6 +107,16 @@ export async function createLink(
 		}
 
 		const slug = await generateSlug(c.env.UWU, options.generateId);
+		await drizzle(c.env.DB)
+			.insert(linksTable)
+			.values({
+				slug,
+				url: destination.toString(),
+				ownerId: null,
+				externalRef: null,
+				source: "web-anon"
+			})
+			.run();
 		await c.env.UWU.put(slug, destination.toString());
 		await c.env.CLICKS.put(slug, "0");
 		await c.env.UWU.put(urlMapKey, slug);
