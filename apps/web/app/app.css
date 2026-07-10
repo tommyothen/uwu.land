@@ -405,6 +405,14 @@ body {
 	letter-spacing: 0.03em;
 }
 
+.rubber-stamp--lg {
+	gap: 3px;
+	padding: 8px 16px;
+	border-width: 2px;
+	font-size: clamp(13px, 2.4vw, 18px);
+	letter-spacing: 0.06em;
+}
+
 .rubber-stamp[data-animate="true"] {
 	animation: rubber-press 160ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
