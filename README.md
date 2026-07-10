@@ -11,8 +11,46 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 | `services/api` | Cloudflare Worker for redirects and `/api/v1`. |
 | `apps/web` | Future Next.js dashboard and landing app. |
 | `packages/shared` | Shared API contract types and tier config. |
-| `packages/db` | Future Drizzle schema and D1 helpers. |
+| `packages/db` | Drizzle schema and D1 migrations. |
 | `docs` | Product specs and implementation plans. |
+
+## API
+
+The public JSON API is versioned under `/api/v1`. Authenticated endpoints accept `Authorization: Bearer ...` with either an uwu.land API key or a Clerk session JWT.
+
+| Endpoint | Auth | Notes |
+| --- | --- | --- |
+| `POST /api/v1/links` | Optional | Create a short link. Anonymous requests get random slugs only. Authenticated requests may use custom `slug` and `external_ref`. |
+| `GET /api/v1/links` | Required | List owned links newest-first, cursor paginated, with optional `?external_ref=` filtering and total clicks. |
+| `GET /api/v1/links/:slug` | Required, owner | Fetch owned link detail. |
+| `GET /api/v1/links/:slug/stats` | None | Public total click count for a slug. |
+| `DELETE /api/v1/links/:slug` | Required, owner | Delete an owned D1 row and its KV redirect/click keys. Anonymous links cannot be deleted via API. |
+| `GET /api/v1/me` | Required | Return user id, tier, and limits. |
+| `POST /api/v1/keys` | Clerk session only | Create an API key. The secret is shown once in the response. |
+| `GET /api/v1/keys` | Clerk session only | List non-revoked API keys without hashes or secrets. |
+| `DELETE /api/v1/keys/:id` | Clerk session only | Revoke an API key. API keys cannot manage keys. |
+
+### Errors
+
+Error responses use a stable JSON envelope:
+
+```json
+{ "status": 400, "code": "invalid_body", "message": "Invalid request body." }
+```
+
+Stable `ErrorCode` values:
+
+| Code | Meaning |
+| --- | --- |
+| `invalid_body` | Request body, URL, slug, or cursor validation failed. |
+| `slug_taken` | Requested slug already exists in D1 or pre-v2 KV. |
+| `slug_reserved` | Requested slug is reserved, such as `api`. |
+| `url_banned` | Destination hostname is banned. |
+| `rate_limited` | Tier or anonymous rate limit exceeded. |
+| `not_found` | Requested link or API key does not exist. |
+| `unauthorized` | Authentication is missing or invalid. |
+| `forbidden` | Authenticated caller cannot perform this action. |
+| `key_limit` | Account has reached its non-revoked API key limit. |
 
 ## Decisions
 
@@ -22,6 +60,7 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 | 2026-07-10 | Use Hono for the API Worker | Keep routing small and explicit for Cloudflare Workers. |
 | 2026-07-10 | Use `@cloudflare/vitest-pool-workers` | Exercise KV and Worker behavior inside workerd-backed tests. |
 | 2026-07-10 | Keep KV as the redirect hot path | D1 becomes the metadata plane; redirects stay KV-only. |
+| 2026-07-10 | Verify Clerk JWTs in-worker | Use `@clerk/backend` JWT verification with configured issuer and JWKS, without Clerk network calls in tests. |
 
 ## License
 
