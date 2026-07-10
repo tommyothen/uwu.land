@@ -10,7 +10,12 @@ import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { AuthError, type AuthPrincipal, resolveAuth } from "./auth";
+import {
+	AuthError,
+	type AuthOptions,
+	type AuthPrincipal,
+	resolveAuth
+} from "./auth";
 import { isBannedHostname } from "./banned";
 import { errorResponse } from "./errors";
 import { KvFixedWindow } from "./rate-limit";
@@ -39,13 +44,14 @@ type LinkRow = typeof linksTable.$inferSelect;
 
 export interface LinkHandlersOptions {
 	generateId?: IdGenerator;
+	auth?: AuthOptions;
 }
 
 export async function createLink(
 	c: Context<{ Bindings: Env }>,
 	options: LinkHandlersOptions = {}
 ): Promise<Response> {
-	const auth = await authOrResponse(c);
+	const auth = await authOrResponse(c, options.auth);
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -132,9 +138,10 @@ export async function createLink(
 }
 
 export async function listLinks(
-	c: Context<{ Bindings: Env }>
+	c: Context<{ Bindings: Env }>,
+	options: LinkHandlersOptions = {}
 ): Promise<Response> {
-	const auth = await requireAuth(c);
+	const auth = await requireAuth(c, options.auth);
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -182,8 +189,11 @@ export async function listLinks(
 	return Response.json(response);
 }
 
-export async function getLink(c: Context<{ Bindings: Env }>): Promise<Response> {
-	const auth = await requireAuth(c);
+export async function getLink(
+	c: Context<{ Bindings: Env }>,
+	options: LinkHandlersOptions = {}
+): Promise<Response> {
+	const auth = await requireAuth(c, options.auth);
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -205,9 +215,10 @@ export async function getLink(c: Context<{ Bindings: Env }>): Promise<Response> 
 }
 
 export async function deleteLink(
-	c: Context<{ Bindings: Env }>
+	c: Context<{ Bindings: Env }>,
+	options: LinkHandlersOptions = {}
 ): Promise<Response> {
-	const auth = await requireAuth(c);
+	const auth = await requireAuth(c, options.auth);
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -233,8 +244,11 @@ export async function deleteLink(
 	return new Response(null, { status: 204 });
 }
 
-export async function me(c: Context<{ Bindings: Env }>): Promise<Response> {
-	const auth = await requireAuth(c);
+export async function me(
+	c: Context<{ Bindings: Env }>,
+	options: LinkHandlersOptions = {}
+): Promise<Response> {
+	const auth = await requireAuth(c, options.auth);
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -266,10 +280,11 @@ export async function linkStats(
 }
 
 async function authOrResponse(
-	c: Context<{ Bindings: Env }>
+	c: Context<{ Bindings: Env }>,
+	options?: AuthOptions
 ): Promise<AuthPrincipal | Response> {
 	try {
-		return await resolveAuth(c.req.raw, c.env, c.executionCtx);
+		return await resolveAuth(c.req.raw, c.env, c.executionCtx, options);
 	} catch (error) {
 		if (error instanceof AuthError) {
 			return errorResponse(401, "unauthorized", "Unauthorized.");
@@ -279,9 +294,10 @@ async function authOrResponse(
 }
 
 async function requireAuth(
-	c: Context<{ Bindings: Env }>
+	c: Context<{ Bindings: Env }>,
+	options?: AuthOptions
 ): Promise<AuthenticatedPrincipal | Response> {
-	const auth = await authOrResponse(c);
+	const auth = await authOrResponse(c, options);
 	if (auth instanceof Response) {
 		return auth;
 	}

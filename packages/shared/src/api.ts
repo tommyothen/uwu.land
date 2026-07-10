@@ -38,4 +38,5 @@ export type ErrorCode =
 	| "rate_limited"
 	| "not_found"
 	| "unauthorized"
-	| "forbidden";
+	| "forbidden"
+	| "key_limit";
