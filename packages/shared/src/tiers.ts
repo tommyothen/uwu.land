@@ -9,8 +9,8 @@ export interface TierLimits {
 
 export const TIERS = {
 	anon: {
-		createPerDay: 30,
-		apiPerMin: 10,
+		createPerDay: 15,
+		apiPerMin: 3,
 		apiKeys: 0
 	},
 	free: {

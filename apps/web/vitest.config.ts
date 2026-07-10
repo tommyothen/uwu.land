@@ -13,6 +13,10 @@ export default defineConfig({
 	test: {
 		environment: "jsdom",
 		globals: true,
-		setupFiles: ["./vitest.setup.ts"]
+		setupFiles: ["./vitest.setup.ts"],
+		// Pin env the suite depends on so a developer's .env.local can't leak in.
+		env: {
+			VITE_UWU_API_URL: "https://uwu.land"
+		}
 	}
 });

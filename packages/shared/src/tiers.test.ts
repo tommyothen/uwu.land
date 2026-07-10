@@ -3,8 +3,8 @@ import { limitsFor, TIERS } from "./tiers";
 
 describe("tier limits", () => {
 	it("defines the anonymous limits", () => {
-		expect(TIERS.anon.createPerDay).toBe(30);
-		expect(TIERS.anon.apiPerMin).toBe(10);
+		expect(TIERS.anon.createPerDay).toBe(15);
+		expect(TIERS.anon.apiPerMin).toBe(3);
 		expect(limitsFor("anon")).toBe(TIERS.anon);
 	});
 

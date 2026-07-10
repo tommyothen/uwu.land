@@ -3,6 +3,7 @@ import {
 	env,
 	waitOnExecutionContext
 } from "cloudflare:test";
+import { TIERS } from "@uwu/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/worker";
 import worker, { createWorker } from "../src/worker";
@@ -98,8 +99,8 @@ describe("anonymous link creation", () => {
 		expect(body.code).toBe("invalid_body");
 	});
 
-	it("rate limits the 31st create from one IP in a day", async () => {
-		for (let i = 0; i < 30; i++) {
+	it("rate limits the create after the anon daily limit from one IP", async () => {
+		for (let i = 0; i < TIERS.anon.createPerDay; i++) {
 			const response = await workerFetch(
 				createRequest({ url: `https://example.com/${i}` }, "203.0.113.31"),
 				env as Env,
