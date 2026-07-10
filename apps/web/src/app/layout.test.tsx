@@ -1,6 +1,11 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { describe, expect, it, vi } from "vitest";
 import RootLayout from "./layout";
+
+vi.mock("@clerk/nextjs", () => ({
+	ClerkProvider: ({ children }: { children: ReactNode }) => children
+}));
 
 describe("RootLayout", () => {
 	it("renders its children without crashing", () => {
