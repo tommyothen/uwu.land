@@ -4,26 +4,26 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --port 3000",
-    "build": "next build",
-    "build:worker": "opennextjs-cloudflare build",
-    "deploy": "opennextjs-cloudflare deploy",
-    "preview": "opennextjs-cloudflare preview",
+    "dev": "vite --port 3000",
+    "build": "react-router build",
+    "deploy": "wrangler deploy",
+    "preview": "vite preview --port 3000",
     "lint": "biome check .",
-    "check-types": "tsc --noEmit",
+    "check-types": "react-router typegen && tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.5.16",
+    "@clerk/react-router": "^3.5.8",
     "@uwu/shared": "workspace:*",
-    "geist": "^1.7.2",
-    "next": "^15.5.20",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-router": "^7.18.1"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.1",
-    "@tailwindcss/postcss": "^4.3.2",
+    "@cloudflare/vite-plugin": "^1.44.0",
+    "@cloudflare/workers-types": "^5.20260710.1",
+    "@react-router/dev": "^7.18.1",
+    "@tailwindcss/vite": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -33,6 +33,7 @@
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.2",
     "typescript": "^5.8.3",
+    "vite": "^7.3.6",
     "vitest": "^4.1.10",
     "wrangler": "^4.110.0"
   }

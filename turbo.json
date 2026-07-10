@@ -5,20 +5,11 @@
     "build": {
       "dependsOn": ["^build"],
       "env": [
-        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
-        "NEXT_PUBLIC_UWU_API_URL",
+        "VITE_CLERK_PUBLISHABLE_KEY",
+        "VITE_UWU_API_URL",
         "CLERK_SECRET_KEY"
       ],
-      "outputs": [".next/**"]
-    },
-    "build:worker": {
-      "dependsOn": ["^build"],
-      "env": [
-        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
-        "NEXT_PUBLIC_UWU_API_URL",
-        "CLERK_SECRET_KEY"
-      ],
-      "outputs": [".next/**", ".open-next/**"]
+      "outputs": ["build/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]

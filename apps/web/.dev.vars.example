@@ -2,10 +2,10 @@
 # replace them with a real Clerk app's keys before running against live auth.
 
 # Clerk publishable key (public). Documented dummy value = base64("clerk.example.com$").
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
 
 # Clerk secret key (server-side only, never exposed to the browser).
 CLERK_SECRET_KEY=sk_test_placeholder
 
 # Base URL of the uwu.land worker API. Defaults to https://uwu.land when unset.
-NEXT_PUBLIC_UWU_API_URL=https://uwu.land
+VITE_UWU_API_URL=https://uwu.land

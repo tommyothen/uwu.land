@@ -1,6 +1,7 @@
-# Next.js / OpenNext build output
-/.next/
-/.open-next/
+# React Router / Vite build output
+/build/
+/\.react-router/
+/node_modules/.vite/
 
 # Cloudflare
 /.wrangler/

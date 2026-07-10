@@ -2,20 +2,25 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "allowJs": true,
     "incremental": true,
-    "plugins": [{ "name": "next" }],
+		"rootDirs": [".", ".react-router/types"],
     "paths": {
       "@/*": ["./src/*"]
     },
-    "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
+    "types": [
+      "@cloudflare/workers-types",
+      "node",
+      "vite/client",
+      "vitest/globals",
+      "@testing-library/jest-dom"
+    ]
   },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    ".react-router/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".next", ".open-next"]
+  "exclude": ["node_modules", "build"]
 }

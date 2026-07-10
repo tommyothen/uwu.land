@@ -1,13 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "uwu-web",
-  "main": ".open-next/worker.js",
+  "main": "./workers/app.ts",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
-  "assets": {
-    "directory": ".open-next/assets",
-    "binding": "ASSETS"
-  }
   // app.uwu.land is pointed at this worker manually at cutover (see TODO.md).
   // "routes": [{ "pattern": "app.uwu.land", "custom_domain": true }]
 }
