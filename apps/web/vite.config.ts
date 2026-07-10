@@ -11,6 +11,9 @@ export default defineConfig({
 		reactRouter()
 	],
 	server: {
+		// IPv4 loopback explicitly: node's "localhost" default binds only [::1],
+		// which breaks plain `ssh -L 3000:localhost:3000` tunnels.
+		host: "127.0.0.1",
 		port: 3000,
 		// The worker's CORS allowlist only has localhost:3000 — fail loudly
 		// instead of silently drifting to 3001 when the port is taken.

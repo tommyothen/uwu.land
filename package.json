@@ -2,6 +2,7 @@
   "name": "uwu.land",
   "private": true,
   "scripts": {
+    "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "check-types": "turbo run check-types"
