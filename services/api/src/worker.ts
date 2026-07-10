@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { createAnonymousLink, linkStats } from "./links";
+import {
+	createLink,
+	deleteLink,
+	getLink,
+	linkStats,
+	listLinks,
+	me
+} from "./links";
 import { redirectSlug } from "./redirect";
 import type { IdGenerator } from "./slugs";
 
@@ -28,8 +35,12 @@ export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> 
 	);
 
 	app.get("/", (c) => c.redirect("https://app.uwu.land", 302));
-	app.post("/api/v1/links", (c) => createAnonymousLink(c, options));
+	app.post("/api/v1/links", (c) => createLink(c, options));
+	app.get("/api/v1/links", listLinks);
 	app.get("/api/v1/links/:slug/stats", linkStats);
+	app.get("/api/v1/links/:slug", getLink);
+	app.delete("/api/v1/links/:slug", deleteLink);
+	app.get("/api/v1/me", me);
 
 	app.get("/favicon.ico", (c) => c.notFound());
 	app.get("/robots.txt", (c) => c.notFound());

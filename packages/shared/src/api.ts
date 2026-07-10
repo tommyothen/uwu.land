@@ -10,6 +10,20 @@ export interface CreateLinkResponse {
 	url: string;
 }
 
+export interface LinkSummary {
+	slug: string;
+	short_url: string;
+	url: string;
+	clicks: number;
+	external_ref?: string;
+	created_at: string;
+}
+
+export interface ListLinksResponse {
+	links: LinkSummary[];
+	cursor?: string;
+}
+
 export interface ApiError {
 	status: number;
 	code: string;

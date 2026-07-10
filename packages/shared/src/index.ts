@@ -2,7 +2,9 @@ export type {
 	ApiError,
 	CreateLinkRequest,
 	CreateLinkResponse,
-	ErrorCode
+	ErrorCode,
+	LinkSummary,
+	ListLinksResponse
 } from "./api";
 export type { TierKey, TierLimits } from "./tiers";
 export { limitsFor, TIERS } from "./tiers";
