@@ -61,7 +61,7 @@ export function KeyCreate({
 
 	if (revealed !== null) {
 		return (
-			<div className="rounded-xl border border-rose-200 bg-rose-50 p-5 dark:border-rose-900/60 dark:bg-rose-950/30">
+			<div className="rounded-xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-800/60 dark:bg-amber-950/30">
 				<h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
 					{revealed.name}
 				</h2>
@@ -75,7 +75,7 @@ export function KeyCreate({
 					<button
 						type="button"
 						onClick={() => copySecret(revealed)}
-						className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-600 active:scale-[0.98]"
+						className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98]"
 					>
 						{copied ? "Copied" : "Copy key"}
 					</button>
@@ -111,13 +111,13 @@ export function KeyCreate({
 						value={name}
 						onChange={(event) => setName(event.target.value)}
 						placeholder="e.g. my-discord-bot"
-						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
+						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
 					/>
 				</div>
 				<button
 					type="submit"
 					disabled={pending}
-					className="rounded-lg bg-rose-700 px-5 py-2 text-sm font-medium text-white transition hover:bg-rose-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+					className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{pending ? "Creating…" : "Create key"}
 				</button>
@@ -126,14 +126,14 @@ export function KeyCreate({
 				Use keys as a Bearer token against the public API. See the{" "}
 				<Link
 					to="/docs"
-					className="font-medium text-rose-700 transition hover:text-rose-600 dark:text-rose-400"
+					className="font-medium text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-400"
 				>
 					API docs
 				</Link>
 				.
 			</p>
 			{error !== null && (
-				<p role="alert" className="mt-3 text-sm text-rose-700 dark:text-rose-400">
+				<p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
 					{error}
 				</p>
 			)}

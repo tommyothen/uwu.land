@@ -92,7 +92,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 	return (
 		<div className="mt-8">
 			{error !== null && (
-				<p role="alert" className="mb-4 text-sm text-rose-700 dark:text-rose-400">
+				<p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
 					{error}
 				</p>
 			)}
@@ -124,7 +124,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 									<button
 										type="button"
 										onClick={() => confirmRevoke(key.id)}
-										className="rounded-md bg-rose-700 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-rose-600"
+										className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-red-500"
 									>
 										Confirm
 									</button>
@@ -140,7 +140,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 								<button
 									type="button"
 									onClick={() => setConfirming(key.id)}
-									className="text-xs text-zinc-500 transition hover:text-rose-700 dark:hover:text-rose-400"
+									className="text-xs text-zinc-500 transition hover:text-red-600 dark:hover:text-red-400"
 								>
 									Revoke
 								</button>

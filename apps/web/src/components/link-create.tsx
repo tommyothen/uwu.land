@@ -74,7 +74,7 @@ export function LinkCreate({
 						value={url}
 						onChange={(event) => setUrl(event.target.value)}
 						placeholder="https://example.com/long/link"
-						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
+						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
 					/>
 				</div>
 				<div>
@@ -90,13 +90,13 @@ export function LinkCreate({
 						value={slug}
 						onChange={(event) => setSlug(event.target.value)}
 						placeholder="optional"
-						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
+						className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-500"
 					/>
 				</div>
 				<button
 					type="submit"
 					disabled={pending}
-					className="rounded-lg bg-rose-700 px-5 py-2 text-sm font-medium text-white transition hover:bg-rose-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+					className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{pending ? "Creating…" : "Create"}
 				</button>
@@ -105,7 +105,7 @@ export function LinkCreate({
 				Slugs are 3 to 16 characters: letters, numbers, underscores, hyphens.
 			</p>
 			{error !== null && (
-				<p role="alert" className="mt-3 text-sm text-rose-700 dark:text-rose-400">
+				<p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
 					{error}
 				</p>
 			)}
@@ -118,7 +118,7 @@ export function LinkCreate({
 					<button
 						type="button"
 						onClick={() => copy(created)}
-						className="text-xs font-medium text-rose-700 transition hover:text-rose-600 dark:text-rose-400"
+						className="text-xs font-medium text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-400"
 					>
 						{copied ? "Copied" : "Copy"}
 					</button>

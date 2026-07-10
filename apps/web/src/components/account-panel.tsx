@@ -56,7 +56,7 @@ export function AccountPanel() {
 
 	if (error !== null) {
 		return (
-			<p role="alert" className="mt-6 text-sm text-rose-700 dark:text-rose-400">
+			<p role="alert" className="mt-6 text-sm text-red-600 dark:text-red-400">
 				{error}
 			</p>
 		);

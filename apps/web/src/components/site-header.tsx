@@ -8,7 +8,7 @@ export function SiteHeader() {
 				to="/"
 				className="font-mono text-lg font-semibold tracking-tight"
 			>
-				uwu<span className="text-rose-700 dark:text-rose-400">.land</span>
+				uwu<span className="uwu-gradient">.land</span>
 			</Link>
 			<nav className="flex items-center gap-5 text-sm">
 				<Link
@@ -26,7 +26,7 @@ export function SiteHeader() {
 					</Link>
 					<Link
 						to="/sign-up"
-						className="rounded-lg bg-rose-700 px-3.5 py-1.5 font-medium text-white transition hover:bg-rose-600"
+						className="rounded-lg bg-indigo-600 px-3.5 py-1.5 font-medium text-white transition hover:bg-indigo-500"
 					>
 						Sign up
 					</Link>
@@ -34,7 +34,7 @@ export function SiteHeader() {
 				<Show when="signed-in">
 					<Link
 						to="/dashboard"
-						className="rounded-lg bg-rose-700 px-3.5 py-1.5 font-medium text-white transition hover:bg-rose-600"
+						className="rounded-lg bg-indigo-600 px-3.5 py-1.5 font-medium text-white transition hover:bg-indigo-500"
 					>
 						Dashboard
 					</Link>

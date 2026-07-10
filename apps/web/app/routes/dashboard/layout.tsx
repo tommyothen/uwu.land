@@ -27,7 +27,7 @@ export default function DashboardLayout() {
 							to="/"
 							className="font-mono text-lg font-semibold tracking-tight"
 						>
-							uwu<span className="text-rose-700 dark:text-rose-400">.land</span>
+							uwu<span className="uwu-gradient">.land</span>
 						</Link>
 						<nav className="flex items-center gap-5 text-sm">
 							{NAV.map((item) => (

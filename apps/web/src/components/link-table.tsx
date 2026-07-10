@@ -123,7 +123,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 	return (
 		<div className="mt-8">
 			{error !== null && (
-				<p role="alert" className="mb-4 text-sm text-rose-700 dark:text-rose-400">
+				<p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
 					{error}
 				</p>
 			)}
@@ -139,7 +139,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 									type="button"
 									onClick={() => copyShortUrl(link)}
 									title="Copy short link"
-									className="font-mono text-sm font-medium text-zinc-900 transition hover:text-rose-700 dark:text-zinc-100 dark:hover:text-rose-400"
+									className="font-mono text-sm font-medium text-zinc-900 transition hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-400"
 								>
 									{link.short_url.replace(/^https?:\/\//, "")}
 								</button>
@@ -173,7 +173,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 									<button
 										type="button"
 										onClick={() => confirmDelete(link.slug)}
-										className="rounded-md bg-rose-700 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-rose-600"
+										className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-red-500"
 									>
 										Confirm
 									</button>
@@ -189,7 +189,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 								<button
 									type="button"
 									onClick={() => setConfirming(link.slug)}
-									className="text-xs text-zinc-500 transition hover:text-rose-700 dark:hover:text-rose-400"
+									className="text-xs text-zinc-500 transition hover:text-red-600 dark:hover:text-red-400"
 								>
 									Delete
 								</button>
