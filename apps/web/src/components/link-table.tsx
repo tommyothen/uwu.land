@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/react-router";
 import type { LinkSummary } from "@uwu/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteLink, listLinks } from "@/lib/api";

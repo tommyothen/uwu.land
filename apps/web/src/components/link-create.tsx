@@ -1,6 +1,4 @@
-"use client";
-
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/react-router";
 import type { CreateLinkResponse } from "@uwu/shared";
 import { type FormEvent, useState } from "react";
 import { createLink } from "@/lib/api";

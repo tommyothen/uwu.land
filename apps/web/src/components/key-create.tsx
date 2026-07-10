@@ -1,9 +1,7 @@
-"use client";
-
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/react-router";
 import { type CreateKeyResponse, TIERS } from "@uwu/shared";
-import Link from "next/link";
 import { type FormEvent, useState } from "react";
+import { Link } from "react-router";
 import { createKey, UwuApiError } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
@@ -127,7 +125,7 @@ export function KeyCreate({
 			<p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
 				Use keys as a Bearer token against the public API. See the{" "}
 				<Link
-					href="/docs"
+					to="/docs"
 					className="font-medium text-rose-700 transition hover:text-rose-600 dark:text-rose-400"
 				>
 					API docs

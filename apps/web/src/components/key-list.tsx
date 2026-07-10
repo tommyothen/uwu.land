@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/react-router";
 import type { ApiKeySummary } from "@uwu/shared";
 import { useEffect, useRef, useState } from "react";
 import { deleteKey, listKeys } from "@/lib/api";

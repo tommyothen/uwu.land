@@ -1,5 +1,3 @@
-"use client";
-
 import type { CreateLinkResponse, LinkSummary } from "@uwu/shared";
 import { useState } from "react";
 import { LinkCreate } from "@/components/link-create";

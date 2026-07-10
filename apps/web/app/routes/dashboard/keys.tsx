@@ -1,5 +1,3 @@
-"use client";
-
 import type { ApiKeySummary, CreateKeyResponse } from "@uwu/shared";
 import { useState } from "react";
 import { KeyCreate } from "@/components/key-create";
