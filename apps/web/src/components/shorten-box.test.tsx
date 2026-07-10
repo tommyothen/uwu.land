@@ -173,6 +173,26 @@ describe("ShortenBox submit choreography", () => {
 		expect(screen.getByText("COPIED")).toBeInTheDocument();
 	});
 
+	it("stacks the result inside the fixed-size envelope shell (zero-CLS contract)", async () => {
+		createLinkMock.mockResolvedValueOnce(link);
+		const { container } = render(<ShortenBox />);
+		// Idle: the shell holds the form; the reserve keeps its footprint from first paint.
+		expect(container.querySelector(".envelope-shell > form")).not.toBeNull();
+
+		submit();
+		await advance(750);
+		await advance(250);
+
+		// Landed: the result is a direct child of the shell via `.result-stack`, which the
+		// stylesheet absolutely stacks over the (now-hidden) form so the swap shifts nothing.
+		const shell = container.querySelector(".envelope-shell");
+		const stack = shell?.querySelector(":scope > .result-stack");
+		expect(stack).not.toBeNull();
+		expect(stack?.querySelector(".result-card")).not.toBeNull();
+		// Only one of form/result occupies the shell at a time.
+		expect(container.querySelector(".envelope-shell > form")).toBeNull();
+	});
+
 	it("announces the ready link on an aria-live region", async () => {
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);

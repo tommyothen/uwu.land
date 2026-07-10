@@ -395,7 +395,7 @@ export function ShortenBox() {
 			)}
 
 			{showResult && link && (
-				<div className="relative">
+				<div className="result-stack">
 					<div className="result-card relative rounded-[14px] border-2 border-foreground bg-card p-5 text-left shadow-[5px_5px_0_var(--shadow-ink)]">
 						<RubberStamp
 							lines={[torn ? "COPIED" : "DELIVERED"]}

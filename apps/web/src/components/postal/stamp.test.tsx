@@ -21,4 +21,11 @@ describe("Stamp", () => {
 		const stamp = container.firstElementChild as HTMLElement;
 		expect(stamp.style.getPropertyValue("--stamp-size")).toBe("64px");
 	});
+
+	it("sets no inline --stamp-size without a size prop, so an ancestor's value (e.g. the responsive .landing-stamp breakpoints) is inherited instead of shadowed", () => {
+		const { container } = render(<Stamp />);
+		const stamp = container.firstElementChild as HTMLElement;
+		expect(stamp.getAttribute("style")).toBeNull();
+		expect(stamp.style.getPropertyValue("--stamp-size")).toBe("");
+	});
 });
