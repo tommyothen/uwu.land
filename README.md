@@ -9,26 +9,25 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 | Path | Purpose |
 | --- | --- |
 | `services/api` | Cloudflare Worker for redirects and `/api/v1`. |
-| `apps/web` | Next.js landing + dashboard app for app.uwu.land (OpenNext on Cloudflare). |
+| `apps/web` | React Router v7 landing + dashboard app for app.uwu.land (Cloudflare Workers). |
 | `packages/shared` | Shared API contract types and tier config. |
 | `packages/db` | Drizzle schema and D1 migrations. |
 | `docs` | Product specs and implementation plans. |
 
 ## Web app
 
-`apps/web` is the Next.js App Router app for app.uwu.land: landing page with
+`apps/web` is the React Router v7 framework-mode app for app.uwu.land: landing page with
 anonymous shortening, Clerk-authenticated dashboard (links, API keys, account),
 and the public API docs at `/docs`. It is an ordinary consumer of `/api/v1`,
 calling it client-side with Clerk session JWTs.
 
-Local dev (`next dev` reads `.env.local`, NOT `.dev.vars` — that file only feeds
-`wrangler`-based preview/deploy):
+Local dev (Vite reads `.env.local`; `.dev.vars` is not used by the web app):
 
 ```sh
 # apps/web/.env.local — fill in your Clerk app's keys:
-#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+#   VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
 #   CLERK_SECRET_KEY=sk_test_...
-#   NEXT_PUBLIC_UWU_API_URL=http://localhost:8787   # local worker; omit for prod
+#   VITE_UWU_API_URL=http://localhost:8787   # local worker; omit for prod
 
 # terminal 1 — the API worker (local KV/D1 simulation):
 cd services/api
@@ -42,18 +41,17 @@ pnpm --filter @uwu/web dev
 The worker verifies dashboard JWTs against `CLERK_ISSUER`: for local dev put
 `CLERK_ISSUER=https://<your-subdomain>.clerk.accounts.dev` (your Clerk app's
 Frontend API URL) in `services/api/.dev.vars` — wrangler DOES read `.dev.vars`;
-the Next app is the odd one out.
+the Vite app is the odd one out.
 
-Build and deploy (Cloudflare Workers via OpenNext):
+Build and deploy (Cloudflare Workers via React Router and the Cloudflare Vite plugin):
 
 ```sh
-pnpm --filter @uwu/web build         # next build (per-commit verification)
-pnpm --filter @uwu/web build:worker  # OpenNext worker bundle in .open-next/
-pnpm --filter @uwu/web deploy        # wrangler deploy of the bundle
+pnpm --filter @uwu/web build         # React Router production build in build/
+pnpm --filter @uwu/web deploy        # plain wrangler deploy
 ```
 
-Env vars: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, and
-`NEXT_PUBLIC_UWU_API_URL` (defaults to `https://uwu.land` when unset).
+Env vars: `VITE_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, and
+`VITE_UWU_API_URL` (defaults to `https://uwu.land` when unset).
 
 ## API
 
@@ -102,7 +100,7 @@ Stable `ErrorCode` values:
 | 2026-07-10 | Use `@cloudflare/vitest-pool-workers` | Exercise KV and Worker behavior inside workerd-backed tests. |
 | 2026-07-10 | Keep KV as the redirect hot path | D1 becomes the metadata plane; redirects stay KV-only. |
 | 2026-07-10 | Verify Clerk JWTs in-worker | Use `@clerk/backend` JWT verification with configured issuer and JWKS, without Clerk network calls in tests. |
-| 2026-07-10 | apps/web = Next.js App Router on Cloudflare Workers via @opennextjs/cloudflare | Clerk components for auth UI; dashboard calls the public /api/v1 with Clerk JWTs (no private endpoints). |
+| 2026-07-10 | apps/web on React Router v7 + @cloudflare/vite-plugin (replacing Next/OpenNext) | app used no Next-specific features; drop the adapter layer and its operational risk (build fork-bomb class bugs, env split-brain). |
 
 ## License
 
