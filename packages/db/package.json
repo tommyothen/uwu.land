@@ -1,0 +1,25 @@
+{
+  "name": "@uwu/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.10"
+  }
+}

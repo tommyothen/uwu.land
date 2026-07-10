@@ -8,5 +8,13 @@
   ],
   "analytics_engine_datasets": [
     { "binding": "CLICK_EVENTS", "dataset": "TODO-ae-dataset" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uwu-land",
+      "database_id": "TODO-d1-id",
+      "migrations_dir": "../../packages/db/migrations"
+    }
   ]
 }
