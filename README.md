@@ -21,6 +21,11 @@ anonymous shortening, Clerk-authenticated dashboard (links, API keys, account),
 and the public API docs at `/docs`. It is an ordinary consumer of `/api/v1`,
 calling it client-side with Clerk session JWTs.
 
+The visual system is "Riso Post Office" (riso-print postal metaphor); the design
+is specified in `docs/superpowers/specs/2026-07-10-riso-post-office-design.md`.
+Type stack: Bricolage Grotesque (display/wordmark), Instrument Sans (body/UI),
+Space Mono (postal jobs and short-link slugs), all self-hosted via Fontsource.
+
 Local dev (Vite reads `.env.local`; `.dev.vars` is not used by the web app):
 
 ```sh
