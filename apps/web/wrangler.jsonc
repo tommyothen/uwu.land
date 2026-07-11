@@ -4,9 +4,11 @@
   "main": "./workers/app.ts",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
+  // invocation_logs is a sub-toggle of Workers Logs: logs.enabled must be true
+  // for invocation logs to be collected at all.
   "observability": {
     "logs": {
-      "enabled": false,
+      "enabled": true,
       "invocation_logs": true
     }
   }
