@@ -16,7 +16,8 @@
         "CLERK_SECRET_KEY"
       ],
       "outputs": [
-        "build/**"
+        "build/**",
+        "dist/**"
       ]
     },
     "lint": {
