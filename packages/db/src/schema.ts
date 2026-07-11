@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
 	id: text("id").primaryKey(),
@@ -33,9 +33,16 @@ export const links = sqliteTable(
 		source: text("source", {
 			enum: ["web-anon", "api", "dashboard"]
 		}).notNull(),
+		lifecycleState: text("lifecycle_state", {
+			enum: ["pending_publish", "active", "pending_delete"]
+		}).notNull().default("active"),
+		urlHash: text("url_hash"),
+		reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
+		lastReconcileAt: integer("last_reconcile_at", { mode: "timestamp" }),
+		lastReconcileError: text("last_reconcile_error"),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.$defaultFn(() => new Date())
 	},
-	(t) => [index("links_owner_idx").on(t.ownerId, t.externalRef)]
+	(t) => [index("links_owner_idx").on(t.ownerId, t.externalRef), index("links_lifecycle_idx").on(t.lifecycleState, t.createdAt), uniqueIndex("links_url_hash_unique").on(t.urlHash)]
 );
