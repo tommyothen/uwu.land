@@ -281,7 +281,7 @@ export function AccountPanel() {
 			) : (
 				<section className="mt-8 rounded-xl border border-border bg-card p-4">
 					<p className="text-sm text-muted-foreground">
-						You&rsquo;re on First-Class &mdash; thanks for keeping the post office
+						You&rsquo;re on First-Class. Thanks for keeping the post office
 						running.
 					</p>
 					<Button

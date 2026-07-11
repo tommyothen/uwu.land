@@ -27,7 +27,7 @@ function franks() {
 		"background:#da62c4;color:#fff;border-radius:0 4px 4px 0;padding:3px 6px;font-family:monospace"
 	);
 	console.log(
-		`%cpostmarked ${today}. built in the open — pull up a chair: github.com/tommyothen/uwu.land`,
+		`%cpostmarked ${today}. built in the open. pull up a chair: github.com/tommyothen/uwu.land`,
 		"color:#9176e0;font-family:monospace;font-size:11px"
 	);
 }
