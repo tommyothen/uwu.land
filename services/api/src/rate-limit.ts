@@ -11,65 +11,22 @@ export interface FixedWindowUsage {
 	resetAt: number;
 }
 
-export class KvFixedWindow implements RateLimiter {
+export class DurableObjectFixedWindow implements RateLimiter {
 	constructor(
-		private readonly kv: KVNamespace,
+		private readonly enforcement: DurableObjectNamespace<
+			import("./enforcement").Enforcement
+		>,
 		private readonly maxRequests: number,
 		private readonly windowSeconds: number
 	) {}
 
 	async limit(key: string): Promise<RateLimitResult> {
-		const now = Date.now();
-		const kvKey = this.storageKey(key);
-		const current = await this.readCounter(kvKey);
-		const counter =
-			current === null || current.resetAt <= now
-				? { count: 0, resetAt: now + this.windowSeconds * 1000 }
-				: current;
-
-		if (counter.count >= this.maxRequests) {
-			return {
-				allowed: false,
-				retryAfterSeconds: Math.max(
-					1,
-					Math.ceil((counter.resetAt - now) / 1000)
-				)
-			};
-		}
-
-		counter.count += 1;
-		const ttl = Math.max(1, Math.ceil((counter.resetAt - now) / 1000));
-		await this.kv.put(kvKey, JSON.stringify(counter), { expirationTtl: ttl });
-		return { allowed: true };
+		return this.enforcement
+			.getByName(key)
+			.limitFixedWindow(this.maxRequests, this.windowSeconds);
 	}
 
 	async usage(key: string): Promise<FixedWindowUsage | null> {
-		const counter = await this.readCounter(this.storageKey(key));
-		return counter === null || counter.resetAt <= Date.now() ? null : counter;
-	}
-
-	private storageKey(key: string): string {
-		return `ratelimit:${key}`;
-	}
-
-	private async readCounter(key: string): Promise<FixedWindowUsage | null> {
-		const raw = await this.kv.get(key);
-		if (raw === null) {
-			return null;
-		}
-
-		try {
-			const parsed = JSON.parse(raw) as Partial<FixedWindowUsage>;
-			if (
-				typeof parsed.count === "number" &&
-				typeof parsed.resetAt === "number"
-			) {
-				return { count: parsed.count, resetAt: parsed.resetAt };
-			}
-		} catch {
-			return null;
-		}
-
-		return null;
+		return this.enforcement.getByName(key).fixedWindowUsage();
 	}
 }

@@ -21,7 +21,7 @@ import { isBannedHostname } from "./banned";
 import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
 import { normalizeUrl } from "./normalize";
-import { KvFixedWindow } from "./rate-limit";
+import { DurableObjectFixedWindow } from "./rate-limit";
 import {
 	generateSlug,
 	type IdGenerator,
@@ -67,7 +67,7 @@ export async function createLink(
 	}
 
 	const ip = ipKey(c.req.raw);
-	if (await isIpBlocked(c.env.UWU, ip)) {
+	if (await isIpBlocked(c.env.ENFORCEMENT, ip)) {
 		return errorResponse(
 			403,
 			"ip_blocked",
@@ -98,7 +98,7 @@ export async function createLink(
 	}
 
 	if (await isBannedHostname(c.env.UWU, destination.hostname)) {
-		await recordBannedAttempt(c.env.UWU, ip);
+		await recordBannedAttempt(c.env.ENFORCEMENT, ip);
 		return errorResponse(400, "url_banned", "URL host is banned.");
 	}
 
@@ -374,7 +374,7 @@ async function limitCreate(
 	c: Context<{ Bindings: Env }>,
 	auth: AuthPrincipal,
 	createPerDayLimit?: number
-): ReturnType<KvFixedWindow["limit"]> {
+): ReturnType<DurableObjectFixedWindow["limit"]> {
 	return createLimiter(c, auth, createPerDayLimit).limit(scopeKey(c, auth));
 }
 
@@ -382,10 +382,10 @@ function createLimiter(
 	c: Context<{ Bindings: Env }>,
 	auth: AuthPrincipal,
 	createPerDayLimit?: number
-): KvFixedWindow {
+): DurableObjectFixedWindow {
 	const tier = auth.kind === "anon" ? "anon" : auth.tier;
-	return new KvFixedWindow(
-		c.env.UWU,
+	return new DurableObjectFixedWindow(
+		c.env.ENFORCEMENT,
 		createPerDayLimit ?? TIERS[tier].createPerDay,
 		CREATE_WINDOW_SECONDS
 	);
