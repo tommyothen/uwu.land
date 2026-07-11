@@ -37,5 +37,18 @@ export const links = sqliteTable(
 			.notNull()
 			.$defaultFn(() => new Date())
 	},
-	(t) => [index("links_owner_idx").on(t.ownerId, t.externalRef)]
+	(t) => [
+		index("links_owner_idx").on(t.ownerId, t.externalRef),
+		index("links_owner_created_slug_idx").on(
+			t.ownerId,
+			t.createdAt,
+			t.slug
+		),
+		index("links_owner_external_ref_created_slug_idx").on(
+			t.ownerId,
+			t.externalRef,
+			t.createdAt,
+			t.slug
+		)
+	]
 );
