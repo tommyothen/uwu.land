@@ -1,46 +1,60 @@
+import { readdirSync, readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { apiKeys, links, users } from "./schema";
 
-function createDb() {
+function createSqlite() {
 	const sqlite = new Database(":memory:");
 	sqlite.pragma("foreign_keys = ON");
-	sqlite.exec(`
-		CREATE TABLE users (
-			id text PRIMARY KEY NOT NULL,
-			tier text DEFAULT 'free' NOT NULL,
-			created_at integer NOT NULL
-		);
-		CREATE TABLE api_keys (
-			id text PRIMARY KEY NOT NULL,
-			user_id text NOT NULL,
-			name text NOT NULL,
-			key_hash text NOT NULL,
-			display_prefix text NOT NULL,
-			created_at integer NOT NULL,
-			last_used_at integer,
-			revoked_at integer,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE no action
-		);
-		CREATE UNIQUE INDEX api_keys_key_hash_unique ON api_keys (key_hash);
-		CREATE TABLE links (
-			slug text PRIMARY KEY NOT NULL,
-			url text NOT NULL,
-			owner_id text,
-			external_ref text,
-			source text NOT NULL,
-			created_at integer NOT NULL,
-			FOREIGN KEY (owner_id) REFERENCES users(id) ON UPDATE no action ON DELETE no action
-		);
-		CREATE INDEX links_owner_idx ON links (owner_id, external_ref);
-	`);
+	const migrationsDirectory = new URL("../migrations/", import.meta.url);
+	for (const migration of readdirSync(migrationsDirectory)
+		.filter((file) => file.endsWith(".sql"))
+		.sort()) {
+		const sql = readFileSync(new URL(migration, migrationsDirectory), "utf8");
+		sqlite.exec(sql.replaceAll("--> statement-breakpoint", ""));
+	}
+	return sqlite;
+}
 
-	return drizzle(sqlite);
+function createDb() {
+	return drizzle(createSqlite());
 }
 
 describe("schema", () => {
+	it("applies canonical indexes and foreign keys", () => {
+		const sqlite = createSqlite();
+		const indexes = sqlite
+			.prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
+			.all() as Array<{ name: string }>;
+		const apiKeyForeignKeys = sqlite.pragma("foreign_key_list('api_keys')") as Array<{
+			from: string;
+			table: string;
+		}>;
+		const linkForeignKeys = sqlite.pragma("foreign_key_list('links')") as Array<{
+			from: string;
+			table: string;
+		}>;
+
+		expect(indexes.map(({ name }) => name)).toEqual(
+			expect.arrayContaining([
+				"api_keys_key_hash_unique",
+				"links_owner_idx"
+			])
+		);
+		expect(apiKeyForeignKeys).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ from: "user_id", table: "users" })
+			])
+		);
+		expect(linkForeignKeys).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ from: "owner_id", table: "users" })
+			])
+		);
+	});
+
 	it("inserts and reads users with the free tier default", () => {
 		const db = createDb();
 
