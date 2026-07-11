@@ -27,6 +27,93 @@ const ROWS = [
 	}
 ];
 
+// Humanize the UTC reset instant relative to now. null means the current window
+// has not started yet (no create since the last reset), so there is nothing to
+// count down to.
+function humanizeReset(resetAt: string | null): string {
+	if (resetAt === null) {
+		return "Resets after your first link today.";
+	}
+	const diffMs = new Date(resetAt).getTime() - Date.now();
+	if (Number.isNaN(diffMs) || diffMs <= 0) {
+		return "Resets any moment now.";
+	}
+	const totalMinutes = Math.floor(diffMs / 60000);
+	const hours = Math.floor(totalMinutes / 60);
+	const minutes = totalMinutes % 60;
+	if (hours > 0) {
+		return `Resets in ${hours}h ${minutes}m.`;
+	}
+	if (minutes > 0) {
+		return `Resets in ${minutes}m.`;
+	}
+	return "Resets in under a minute.";
+}
+
+function UsageMeter({
+	label,
+	used,
+	limit,
+	unit,
+	rightLabel,
+	note,
+	atLimit
+}: {
+	label: string;
+	used: number;
+	limit: number;
+	unit: string;
+	rightLabel: string;
+	note: string;
+	atLimit: boolean;
+}) {
+	const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+	return (
+		<div
+			className={`rounded-xl border bg-card p-4 ${
+				atLimit ? "border-destructive/40" : "border-border"
+			}`}
+		>
+			<div className="flex items-baseline justify-between gap-2">
+				<span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+					{label}
+				</span>
+				<span
+					className={`text-xs font-medium ${
+						atLimit ? "text-destructive" : "text-muted-foreground"
+					}`}
+				>
+					{rightLabel}
+				</span>
+			</div>
+			<p className="mt-2 flex items-baseline gap-1.5">
+				<span className="font-display text-3xl font-semibold leading-none tabular-nums text-foreground">
+					{used}
+				</span>
+				<span className="text-sm text-muted-foreground tabular-nums">
+					of {limit} {unit}
+				</span>
+			</p>
+			<div
+				role="progressbar"
+				aria-label={label}
+				aria-valuemin={0}
+				aria-valuemax={limit}
+				aria-valuenow={used}
+				className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary"
+			>
+				<div
+					className={`h-full rounded-full transition-[width] duration-300 ${
+						atLimit ? "bg-destructive" : "bg-foreground"
+					}`}
+					style={{ width: `${pct}%` }}
+				/>
+			</div>
+			<p className="mt-2 text-xs text-muted-foreground">{note}</p>
+		</div>
+	);
+}
+
 export function AccountPanel() {
 	const { isLoaded, isSignedIn, getToken } = useAuth();
 	const [me, setMe] = useState<MeResponse | null>(null);
@@ -87,6 +174,16 @@ export function AccountPanel() {
 		);
 	}
 
+	const created = me.usage.createdToday;
+	const createLimit = me.limits.createPerDay;
+	const createLeft = Math.max(0, createLimit - created);
+	const createAtLimit = created >= createLimit;
+
+	const activeKeys = me.usage.apiKeys;
+	const keyLimit = me.limits.apiKeys;
+	const keysLeft = Math.max(0, keyLimit - activeKeys);
+	const keysAtLimit = activeKeys >= keyLimit;
+
 	return (
 		<div className="mt-6">
 			<p className="text-sm text-muted-foreground">
@@ -95,7 +192,31 @@ export function AccountPanel() {
 					{me.tier}
 				</span>
 			</p>
-			<Table className="mt-4 overflow-x-auto rounded-xl border border-border bg-card text-left text-sm">
+			<div className="mt-4 grid gap-3 sm:grid-cols-2">
+				<UsageMeter
+					label="Links today"
+					used={created}
+					limit={createLimit}
+					unit="used"
+					rightLabel={createAtLimit ? "Limit reached" : `${createLeft} left`}
+					note={humanizeReset(me.usage.resetAt)}
+					atLimit={createAtLimit}
+				/>
+				<UsageMeter
+					label="API keys"
+					used={activeKeys}
+					limit={keyLimit}
+					unit="active"
+					rightLabel={keysAtLimit ? "All in use" : `${keysLeft} free`}
+					note={
+						keysAtLimit
+							? "Revoke a key to free a slot."
+							: `${keysLeft} of ${keyLimit} ${keyLimit === 1 ? "slot" : "slots"} available.`
+					}
+					atLimit={keysAtLimit}
+				/>
+			</div>
+			<Table className="mt-6 overflow-x-auto rounded-xl border border-border bg-card text-left text-sm">
 				<TableHeader>
 					<TableRow className="border-b border-border text-muted-foreground">
 						<TableHead className="p-4 font-medium">Limit</TableHead>

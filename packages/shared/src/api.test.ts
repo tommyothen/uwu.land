@@ -36,7 +36,8 @@ describe("api contract types", () => {
 		const me = {
 			user_id: "user_123",
 			tier: "free",
-			limits: TIERS.free
+			limits: TIERS.free,
+			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		} satisfies MeResponse;
 		expect(me.limits.apiKeys).toBe(TIERS.free.apiKeys);
 

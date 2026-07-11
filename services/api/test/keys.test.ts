@@ -20,6 +20,11 @@ type TestFetch = (
 
 const issuer = "https://clerk.test";
 
+async function clearKv(namespace: KVNamespace): Promise<void> {
+	const list = await namespace.list();
+	await Promise.all(list.keys.map((key) => namespace.delete(key.name)));
+}
+
 async function resetD1(db: D1Database): Promise<void> {
 	await db
 		.prepare(
@@ -182,6 +187,83 @@ async function seedApiKey(secret = "uwu_seeded000000000000000000000"): Promise<s
 describe("API key management", () => {
 	beforeEach(async () => {
 		await resetD1(env.DB);
+		await clearKv(env.UWU);
+	});
+
+	it("reports empty usage, active keys, and excludes revoked keys from /me", async () => {
+		const { fetch, jwt } = await sessionFetch();
+
+		const empty = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(empty.json()).resolves.toMatchObject({
+			usage: { createdToday: 0, apiKeys: 0, resetAt: null }
+		});
+
+		const created = await fetch(
+			request("/api/v1/keys", jwt, "POST", { name: "Counted" }),
+			env as Env,
+			createExecutionContext()
+		);
+		const { id } = await created.json<{ id: string }>();
+
+		const withKey = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(withKey.json()).resolves.toMatchObject({
+			usage: { apiKeys: 1 }
+		});
+
+		const revoked = await fetch(
+			request(`/api/v1/keys/${id}`, jwt, "DELETE"),
+			env as Env,
+			createExecutionContext()
+		);
+		expect(revoked.status).toBe(204);
+
+		const afterRevocation = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(afterRevocation.json()).resolves.toMatchObject({
+			usage: { apiKeys: 0 }
+		});
+	});
+
+	it("reports link creations and a future daily-window reset from /me", async () => {
+		const { fetch, jwt } = await sessionFetch();
+
+		for (let index = 0; index < 3; index++) {
+			const created = await fetch(
+				request("/api/v1/links", jwt, "POST", {
+					url: `https://example.com/usage-${index}`
+				}),
+				env as Env,
+				createExecutionContext()
+			);
+			expect(created.status).toBe(201);
+		}
+
+		const response = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{
+			usage: { createdToday: number; resetAt: string | null };
+		}>();
+
+		expect(response.status).toBe(200);
+		expect(body.usage.createdToday).toBe(3);
+		expect(body.usage.resetAt).toEqual(expect.any(String));
+		expect(new Date(body.usage.resetAt as string).getTime()).toBeGreaterThan(
+			Date.now()
+		);
 	});
 
 	it("creates a key for a Clerk session and shows the secret only in the create response", async () => {

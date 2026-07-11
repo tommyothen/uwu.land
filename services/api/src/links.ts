@@ -1,11 +1,11 @@
-import { links as linksTable } from "@uwu/db/schema";
+import { apiKeys, links as linksTable } from "@uwu/db/schema";
 import {
 	type CreateLinkResponse,
 	type LinkSummary,
 	type ListLinksResponse,
 	TIERS
 } from "@uwu/shared";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { nanoid } from "nanoid";
@@ -289,11 +289,26 @@ export async function me(
 	if (auth instanceof Response) {
 		return auth;
 	}
+	const limiter = createLimiter(c, auth, options.createPerDayLimit);
+	const [createUsage, activeApiKeys] = await Promise.all([
+		limiter.usage(scopeKey(c, auth)),
+		drizzle(c.env.DB)
+			.select({ id: apiKeys.id })
+			.from(apiKeys)
+			.where(and(eq(apiKeys.userId, auth.userId), isNull(apiKeys.revokedAt)))
+			.all()
+	]);
 
 	return Response.json({
 		user_id: auth.userId,
 		tier: auth.tier,
-		limits: TIERS[auth.tier]
+		limits: TIERS[auth.tier],
+		usage: {
+			createdToday: createUsage?.count ?? 0,
+			apiKeys: activeApiKeys.length,
+			resetAt:
+				createUsage === null ? null : new Date(createUsage.resetAt).toISOString()
+		}
 	});
 }
 
@@ -349,13 +364,20 @@ async function limitCreate(
 	auth: AuthPrincipal,
 	createPerDayLimit?: number
 ): ReturnType<KvFixedWindow["limit"]> {
+	return createLimiter(c, auth, createPerDayLimit).limit(scopeKey(c, auth));
+}
+
+function createLimiter(
+	c: Context<{ Bindings: Env }>,
+	auth: AuthPrincipal,
+	createPerDayLimit?: number
+): KvFixedWindow {
 	const tier = auth.kind === "anon" ? "anon" : auth.tier;
-	const limiter = new KvFixedWindow(
+	return new KvFixedWindow(
 		c.env.UWU,
 		createPerDayLimit ?? TIERS[tier].createPerDay,
 		CREATE_WINDOW_SECONDS
 	);
-	return limiter.limit(scopeKey(c, auth));
 }
 
 function scopeKey(c: Context<{ Bindings: Env }>, auth: AuthPrincipal): string {

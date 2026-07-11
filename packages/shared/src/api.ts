@@ -54,6 +54,11 @@ export interface MeResponse {
 	user_id: string;
 	tier: "free" | "pro";
 	limits: TierLimits;
+	usage: {
+		createdToday: number;
+		apiKeys: number;
+		resetAt: string | null;
+	};
 }
 
 export interface LinkStatsResponse {
