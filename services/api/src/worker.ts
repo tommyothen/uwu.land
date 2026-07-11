@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { AuthOptions } from "./auth";
+import { syncBannedDomains } from "./ban-sync";
 import { clerkWebhook } from "./clerk-webhook";
 import {
 	createKey,
@@ -66,7 +67,10 @@ export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> 
 export function createWorker(options: WorkerOptions = {}): ExportedHandler<Env> {
 	const app = createApp(options);
 	return {
-		fetch: (request, env, ctx) => app.fetch(request, env, ctx)
+		fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+		scheduled: (_event, env, ctx) => {
+			ctx.waitUntil(syncBannedDomains(env));
+		}
 	};
 }
 

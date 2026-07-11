@@ -45,6 +45,22 @@ describe("redirects", () => {
 		expect(await env.CLICKS.get("abcde")).toBe("2");
 	});
 
+	it("redirects hits for IPs blocked from creating links", async () => {
+		await env.UWU.put("abcde", "https://example.com/a");
+		await env.UWU.put("ipban:203.0.113.70", "1");
+
+		const response = await workerFetch(
+			new Request("https://uwu.land/abcde", {
+				headers: { "CF-Connecting-IP": "203.0.113.70" }
+			}),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe("https://example.com/a");
+	});
+
 	it("redirects misses to the app 404 page", async () => {
 		const response = await workerFetch(
 			new Request("https://uwu.land/missing"),
@@ -81,4 +97,3 @@ describe("redirects", () => {
 		expect(response.headers.get("location")).toBeNull();
 	});
 });
-

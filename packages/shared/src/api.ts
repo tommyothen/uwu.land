@@ -78,6 +78,7 @@ export type ErrorCode =
 	| "slug_taken"
 	| "slug_reserved"
 	| "url_banned"
+	| "ip_blocked"
 	| "rate_limited"
 	| "not_found"
 	| "unauthorized"

@@ -10,6 +10,7 @@ import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { ipKey, isIpBlocked, recordBannedAttempt } from "./abuse";
 import {
 	AuthError,
 	type AuthOptions,
@@ -65,6 +66,15 @@ export async function createLink(
 		return errorResponse(400, "invalid_body", "Invalid request body.");
 	}
 
+	const ip = ipKey(c.req.raw);
+	if (await isIpBlocked(c.env.UWU, ip)) {
+		return errorResponse(
+			403,
+			"ip_blocked",
+			"This address is temporarily blocked for abuse."
+		);
+	}
+
 	if (parsed.data.slug !== undefined || parsed.data.external_ref !== undefined) {
 		if (auth.kind === "anon") {
 			return errorResponse(
@@ -88,6 +98,7 @@ export async function createLink(
 	}
 
 	if (await isBannedHostname(c.env.UWU, destination.hostname)) {
+		await recordBannedAttempt(c.env.UWU, ip);
 		return errorResponse(400, "url_banned", "URL host is banned.");
 	}
 
@@ -382,8 +393,7 @@ function createLimiter(
 
 function scopeKey(c: Context<{ Bindings: Env }>, auth: AuthPrincipal): string {
 	if (auth.kind === "anon") {
-		const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
-		return `anon:${ip}`;
+		return `anon:${ipKey(c.req.raw)}`;
 	}
 	return `user:${auth.userId}`;
 }
