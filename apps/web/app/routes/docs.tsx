@@ -70,15 +70,19 @@ const ENDPOINTS = [
 ];
 
 const ERROR_CODES = [
-	["invalid_body", "Request body, URL, slug, or cursor failed validation."],
-	["slug_taken", "The requested slug already exists."],
-	["slug_reserved", "The requested slug is reserved (for example, api)."],
-	["url_banned", "The destination hostname is banned."],
-	["rate_limited", "You hit a rate limit for your tier."],
-	["not_found", "The link or key does not exist."],
-	["unauthorized", "Authentication is missing or invalid."],
-	["forbidden", "You are authenticated but not allowed to do this."],
-	["key_limit", "Your account reached its API key limit."]
+	["400", "invalid_body", "Malformed JSON, URL, slug, or cursor."],
+	["400", "slug_reserved", "The requested slug is reserved (for example, api)."],
+	["400", "url_banned", "The destination hostname is banned."],
+	["401", "unauthorized", "Auth is missing, invalid, or revoked."],
+	[
+		"403",
+		"forbidden",
+		"Authenticated but not allowed: an anonymous caller sent a restricted field, you are not the link owner, or an API key called a /keys endpoint."
+	],
+	["404", "not_found", "The link or key does not exist."],
+	["409", "slug_taken", "The requested slug already exists."],
+	["409", "key_limit", "Your account reached its API key limit."],
+	["429", "rate_limited", "You exceeded your daily link-creation quota."]
 ];
 
 function Code({ children }: { children: ReactNode }) {
@@ -117,17 +121,26 @@ export default function DocsPage() {
 
 				<H2 id="base-url">Base URL</H2>
 				<Code>https://uwu.land/api/v1</Code>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Shorten a link in one call, no account required:
+				</p>
+				<Code>{`curl -X POST https://uwu.land/api/v1/links \\
+  -H "Content-Type: application/json" \\
+  -d '{"url": "https://example.com/some/long/path"}'`}</Code>
 
 				<H2 id="authentication">Authentication</H2>
 				<p className="mt-3 leading-relaxed text-muted-foreground">
-					Authenticated endpoints take a Bearer token. Create an API key in the
-					dashboard and send it on every request:
+					Every authenticated request uses{" "}
+					<code>Authorization: Bearer &lt;token&gt;</code>. The token is either
+					an API key (it starts with <code>uwu_</code>) or a Clerk session token
+					that the dashboard sends automatically. Cookies are never read.
 				</p>
 				<Code>Authorization: Bearer uwu_your_api_key</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Creating a link works without any authentication, rate limited per
-					IP. Key management endpoints only accept a Clerk session token, so a
-					leaked API key can never mint more keys.
+					<code>/links</code> and <code>/me</code> accept either token type,
+					and <code>POST /links</code> also works with no token at all. The{" "}
+					<code>/keys</code> endpoints accept only a Clerk session; an API key
+					gets 403 there, so a leaked key can never mint more keys.
 				</p>
 
 				<H2 id="endpoints">Endpoints</H2>
@@ -161,31 +174,79 @@ export default function DocsPage() {
 					</table>
 				</div>
 
+				<H2 id="link-object">The link object</H2>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Every endpoint that returns a link, whether a list item or a single{" "}
+					<code>GET</code>, uses this shape:
+				</p>
+				<Code>{`{
+  "slug": "my-link",
+  "short_url": "https://uwu.land/my-link",
+  "url": "https://example.com/some/long/path",
+  "clicks": 42,
+  "created_at": "2026-07-10T12:00:00.000Z",
+  "external_ref": "discord:214836288048594944"
+}`}</Code>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					<code>short_url</code> is the canonical link. <code>clicks</code> is an
+					integer. <code>created_at</code> is a UTC ISO 8601 timestamp.{" "}
+					<code>external_ref</code> is omitted entirely when absent, never{" "}
+					<code>null</code>.
+				</p>
+
 				<H2 id="create-a-link">Create a link</H2>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Anonymous callers may only send <code>url</code>. With a key or
-					session you can also pick a custom <code>slug</code> (3 to 16
-					characters: letters, numbers, underscores, hyphens) and attach an{" "}
-					<code>external_ref</code>.
+					Anonymous callers may only send <code>url</code>; sending{" "}
+					<code>slug</code> or <code>external_ref</code> returns 403{" "}
+					<code>forbidden</code>. With a key or session you can also pick a
+					custom slug and attach an <code>external_ref</code>.
+				</p>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					The <code>url</code> must be http or https, at most 2048 characters,
+					carry no embedded credentials (<code>user:pass@</code>), and not point
+					at uwu.land or any of its subdomains, so you cannot nest or loop short
+					links. Rejected URLs return 400 <code>invalid_body</code>; banned
+					destinations return 400 <code>url_banned</code>.
+				</p>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					A custom <code>slug</code> is 3 to 16 characters of letters, numbers,
+					underscores, and hyphens (ASCII only). Slugs are case-sensitive and
+					stored exactly as sent, so <code>/Tommy</code> and <code>/tommy</code>{" "}
+					are different links. A few names such as <code>api</code> are reserved
+					(matched case-insensitively).
 				</p>
 				<Code>{`curl -X POST https://uwu.land/api/v1/links \\
   -H "Authorization: Bearer uwu_your_api_key" \\
   -H "Content-Type: application/json" \\
   -d '{"url": "https://example.com/some/long/path", "slug": "my-link"}'`}</Code>
 				<p className="mt-3 text-sm text-muted-foreground">
-					201 response:
+					The same call from JavaScript, reading the error envelope on failure:
 				</p>
-				<Code>{`{
-  "slug": "my-link",
-  "short_url": "https://uwu.land/my-link",
-  "url": "https://example.com/some/long/path"
-}`}</Code>
+				<Code>{`const res = await fetch("https://uwu.land/api/v1/links", {
+  method: "POST",
+  headers: {
+    Authorization: "Bearer uwu_your_api_key",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({ url: "https://example.com/some/long/path" })
+});
+
+const data = await res.json();
+if (!res.ok) {
+  throw new Error(\`\${data.code}: \${data.message}\`);
+}
+console.log(data.short_url);`}</Code>
+				<p className="mt-3 text-sm text-muted-foreground">
+					A 201 returns the new link object.
+				</p>
 
 				<H2 id="list-links">List your links</H2>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Newest first, 25 per page. When more pages exist the response
-					includes a <code>cursor</code>; pass it back as{" "}
-					<code>?cursor=</code>. Filter with <code>?external_ref=</code>.
+					Newest first, cursor paginated. Omit <code>cursor</code> for the first
+					page. When more pages exist the response includes a{" "}
+					<code>cursor</code>; pass it back as <code>?cursor=</code>. The last
+					page omits the <code>cursor</code> field. A malformed cursor returns
+					400 <code>invalid_body</code>.
 				</p>
 				<Code>{`{
   "links": [
@@ -194,15 +255,28 @@ export default function DocsPage() {
       "short_url": "https://uwu.land/my-link",
       "url": "https://example.com/some/long/path",
       "clicks": 42,
-      "external_ref": "discord:81384788765712384",
+      "external_ref": "discord:214836288048594944",
       "created_at": "2026-07-10T12:00:00.000Z"
     }
   ],
   "cursor": "eyJjcmVhdGVkX2F0IjoiLi4uIn0"
 }`}</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					<code>GET /links/:slug</code> returns a single object in the same
-					shape. <code>DELETE /links/:slug</code> returns 204 with no body.
+					Filter with <code>?external_ref=</code>. The filter is not baked into
+					the cursor, so repeat it on every page request.{" "}
+					<code>GET /links/:slug</code> returns a single link object.{" "}
+					<code>DELETE /links/:slug</code> returns 204 with no body.
+				</p>
+
+				<H2 id="redirects">Redirects &amp; clicks</H2>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Short links redirect with HTTP 302. Every successful redirect counts
+					one click, including bots and link-preview crawlers, so a link often
+					has a few clicks before anyone opens it. Counting happens in the
+					background, so totals are eventually consistent and may lag a few
+					seconds. Query params on the short URL are not merged into the
+					destination; the stored URL is used unchanged. Unknown slugs redirect
+					(302) to the 404 page.
 				</p>
 
 				<H2 id="stats">Public stats</H2>
@@ -213,71 +287,51 @@ export default function DocsPage() {
 
 { "slug": "my-link", "clicks": 42 }`}</Code>
 
-				<H2 id="me">Your account</H2>
-				<Code>{`GET /api/v1/me
-
-{
-  "user_id": "user_2abc...",
-  "tier": "free",
-  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiPerMin": ${TIERS.free.apiPerMin}, "apiKeys": ${TIERS.free.apiKeys} }
-}`}</Code>
-
-				<H2 id="keys">API keys</H2>
+				<H2 id="external-ref">external_ref: tag links per user</H2>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Key endpoints require a Clerk session, so use the dashboard. The
-					secret is returned exactly once at creation:
+					<code>external_ref</code> is an opaque metadata tag (up to 64
+					characters) you attach to a link, not an isolation boundary. It does
+					not scope visibility: the key owner sees and controls every link under
+					the key regardless of its ref. A Discord bot, for example, tags links
+					with <code>discord:&lt;userId&gt;</code>, then lists one user's links
+					with <code>GET /links?external_ref=discord:214836288048594944</code>.
 				</p>
-				<Code>{`POST /api/v1/keys
-{ "name": "my-discord-bot" }
-
-201:
-{
-  "id": "9f4c2f8a-...",
-  "name": "my-discord-bot",
-  "secret": "uwu_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
-  "display_prefix": "uwu_a1B2c3D4"
-}`}</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					<code>GET /keys</code> lists your keys without secrets.{" "}
-					<code>DELETE /keys/:id</code> revokes one and returns 204.
-				</p>
-
-				<H2 id="external-ref">external_ref: act on behalf of your users</H2>
-				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					If your integration creates links for many end users under one key,
-					tag each link with an opaque <code>external_ref</code> (up to 64
-					characters) and filter by it later. A Discord bot, for example, tags
-					links with <code>discord:&lt;userId&gt;</code>, then lists or deletes
-					a single user's links with{" "}
-					<code>GET /links?external_ref=discord:81384788765712384</code>. Refs
-					are scoped to your account, so other keys and users never see them.
+					Because the ref is not enforced, before acting for an end user,
+					especially on deletes, fetch the link and confirm its{" "}
+					<code>external_ref</code> matches that user. Possession of a slug
+					proves nothing.
 				</p>
 
 				<H2 id="errors">Errors</H2>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					All errors share one envelope with a stable <code>code</code>:
+					Success statuses are 201 for <code>POST /links</code>, 200 for GETs,
+					and 204 for DELETEs. All errors share one envelope with a stable{" "}
+					<code>code</code>:
 				</p>
 				<Code>{`{ "status": 409, "code": "slug_taken", "message": "Slug is already taken." }`}</Code>
 				<div className="mt-3 overflow-x-auto rounded-xl border border-border">
 					<table className="w-full text-left text-sm">
 						<thead>
 							<tr className="border-b border-border bg-secondary text-muted-foreground">
+								<th className="p-3 font-medium">Status</th>
 								<th className="p-3 font-medium">Code</th>
-								<th className="p-3 font-medium">Meaning</th>
+								<th className="p-3 font-medium">When</th>
 							</tr>
 						</thead>
 						<tbody>
-							{ERROR_CODES.map(([code, meaning]) => (
+							{ERROR_CODES.map(([status, code, when]) => (
 								<tr
 									key={code}
 									className="border-b border-border last:border-b-0"
 								>
+									<td className="whitespace-nowrap p-3 tabular-nums">
+										{status}
+									</td>
 									<td className="whitespace-nowrap p-3 font-mono text-xs">
 										{code}
 									</td>
-									<td className="p-3 text-muted-foreground">
-										{meaning}
-									</td>
+									<td className="p-3 text-muted-foreground">{when}</td>
 								</tr>
 							))}
 						</tbody>
@@ -285,13 +339,17 @@ export default function DocsPage() {
 				</div>
 
 				<H2 id="rate-limits">Rate limits</H2>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Link-creation quotas are per day. Anonymous callers are limited per
+					IP; authenticated callers are limited per account, shared across every
+					API key and the dashboard.
+				</p>
 				<div className="mt-3 overflow-x-auto rounded-xl border border-border">
 					<table className="w-full text-left text-sm">
 						<thead>
 							<tr className="border-b border-border bg-secondary text-muted-foreground">
 								<th className="p-3 font-medium">Tier</th>
 								<th className="p-3 font-medium">Links per day</th>
-								<th className="p-3 font-medium">API requests per minute</th>
 								<th className="p-3 font-medium">API keys</th>
 							</tr>
 						</thead>
@@ -307,7 +365,6 @@ export default function DocsPage() {
 									<td className="p-3 tabular-nums">
 										{TIERS[tier].createPerDay}
 									</td>
-									<td className="p-3 tabular-nums">{TIERS[tier].apiPerMin}</td>
 									<td className="p-3 tabular-nums">
 										{TIERS[tier].apiKeys === 0 ? "None" : TIERS[tier].apiKeys}
 									</td>
@@ -317,8 +374,53 @@ export default function DocsPage() {
 					</table>
 				</div>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Anonymous limits apply per IP; account limits apply per key. Hitting
-					a limit returns 429 with code <code>rate_limited</code>.
+					Exceeding the quota returns 429 with code <code>rate_limited</code>. A
+					429 includes <code>retry_after</code> (integer seconds) in the error
+					body and a matching <code>Retry-After</code> header.
+				</p>
+
+				<H2 id="me">Your account</H2>
+				<Code>{`GET /api/v1/me
+
+{
+  "user_id": "user_2abc...",
+  "tier": "free",
+  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiPerMin": ${TIERS.free.apiPerMin}, "apiKeys": ${TIERS.free.apiKeys} }
+}`}</Code>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					<code>limits</code> are the static values for your tier;{" "}
+					<code>/me</code> does not report your current usage.
+				</p>
+
+				<H2 id="keys">Key management</H2>
+				<div className="mt-3 rounded-xl border border-border bg-secondary p-4">
+					<p className="text-xs font-semibold uppercase tracking-wide text-foreground">
+						Dashboard-only endpoints
+					</p>
+					<p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+						The <code>/keys</code> endpoints authenticate with a Clerk session,
+						which the dashboard sends for you. An API key gets 403 here, so you
+						manage keys in the dashboard rather than by hand.
+					</p>
+				</div>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Secrets are stored as SHA-256 hashes and shown exactly once at
+					creation; <code>display_prefix</code> is the first 12 characters.
+				</p>
+				<Code>{`POST /api/v1/keys
+{ "name": "my-discord-bot" }
+
+201:
+{
+  "id": "9f4c2f8a-...",
+  "name": "my-discord-bot",
+  "secret": "uwu_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
+  "display_prefix": "uwu_a1B2c3D4"
+}`}</Code>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					<code>GET /keys</code> lists your keys without secrets.{" "}
+					<code>DELETE /keys/:id</code> revokes one and returns 204; a revoked
+					key is rejected immediately with 401 <code>unauthorized</code>.
 				</p>
 			</main>
 		</div>
