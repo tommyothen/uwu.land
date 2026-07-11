@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { AuthOptions } from "./auth";
+import { clerkWebhook } from "./clerk-webhook";
 import {
 	createKey,
 	deleteKey,
@@ -23,6 +24,7 @@ export interface Env {
 	CLICK_EVENTS: AnalyticsEngineDataset;
 	DB: D1Database;
 	CLERK_ISSUER?: string;
+	CLERK_WEBHOOK_SIGNING_SECRET?: string;
 }
 
 export interface WorkerOptions {
@@ -42,6 +44,7 @@ export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> 
 		})
 	);
 
+	app.post("/webhooks/clerk", clerkWebhook);
 	app.get("/", (c) => c.redirect("https://app.uwu.land", 302));
 	app.post("/api/v1/links", (c) => createLink(c, options));
 	app.get("/api/v1/links", (c) => listLinks(c, options));
