@@ -1,5 +1,4 @@
 import { Show } from "@clerk/react-router";
-import { gsap } from "gsap";
 import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { AirmailStripe } from "@/components/postal/airmail-stripe";
@@ -13,6 +12,8 @@ import { Wordmark } from "@/components/wordmark";
 
 const navLink =
 	"text-foreground/75 transition hover:text-foreground hover:underline";
+
+type GsapTimeline = ReturnType<(typeof import("gsap"))["gsap"]["timeline"]>;
 
 /** A postcard slipped into the console for anyone who opens dev tools. */
 function franks() {
@@ -41,7 +42,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export default function Home() {
-	const flight = useRef<gsap.core.Timeline | null>(null);
+	const flight = useRef<GsapTimeline | null>(null);
 
 	useEffect(() => {
 		franks();
@@ -52,8 +53,16 @@ export default function Home() {
 	// a window event the ShortenBox fires when it launches (motion only). The
 	// landing root is overflow-hidden, so the off-screen travel adds no scrollbars.
 	useEffect(() => {
+		if (import.meta.env.SSR) return;
+		let cancelled = false;
+		let gsap: (typeof import("gsap"))["gsap"] | null = null;
+		void import("gsap").then((module) => {
+			if (!cancelled) gsap = module.gsap;
+		});
+
 		function onSend() {
-			if (prefersReducedMotion()) return;
+			const gsapInstance = gsap;
+			if (prefersReducedMotion() || !gsapInstance) return;
 			const glyph = document.querySelector<HTMLElement>(
 				".landing-stamp .stamp-glyph"
 			);
@@ -66,8 +75,8 @@ export default function Home() {
 			const enterX = -(rect.right + 48);
 
 			flight.current?.kill();
-			flight.current = gsap
-				.timeline({ onComplete: () => gsap.set(glyph, { clearProps: "all" }) })
+			flight.current = gsapInstance
+				.timeline({ onComplete: () => gsapInstance.set(glyph, { clearProps: "all" }) })
 				.set(glyph, { transformOrigin: "50% 50%" })
 				.to(glyph, {
 					x: exitX,
@@ -92,6 +101,7 @@ export default function Home() {
 
 		window.addEventListener("uwu:send", onSend);
 		return () => {
+			cancelled = true;
 			window.removeEventListener("uwu:send", onSend);
 			flight.current?.kill();
 		};
