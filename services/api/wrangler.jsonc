@@ -2,6 +2,12 @@
   "name": "uwu-land-api",
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
   "durable_objects": {
     "bindings": [
       { "name": "ENFORCEMENT", "class_name": "Enforcement" }
