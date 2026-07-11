@@ -3,7 +3,13 @@ import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { apiKeys, links, users } from "./schema";
+import {
+	apiKeys,
+	clerkSubscriptionItems,
+	clerkWebhookEvents,
+	links,
+	users
+} from "./schema";
 
 function createSqlite() {
 	const sqlite = new Database(":memory:");
@@ -64,6 +70,33 @@ describe("schema", () => {
 			{
 				id: "user_123",
 				tier: "free"
+			}
+		]);
+	});
+
+	it("stores Clerk webhook and per-item subscription state", () => {
+		const db = createDb();
+		db.insert(users).values({ id: "user_123" }).run();
+		db.insert(clerkWebhookEvents)
+			.values({ id: "msg_123", eventTimestamp: 1_700_000_000_000 })
+			.run();
+		db.insert(clerkSubscriptionItems)
+			.values({
+				id: "subi_123",
+				payerUserId: "user_123",
+				planSlug: "first_class",
+				status: "active",
+				eventTimestamp: 1_700_000_000_000,
+				eventId: "msg_123"
+			})
+			.run();
+
+		expect(db.select().from(clerkSubscriptionItems).all()).toMatchObject([
+			{
+				id: "subi_123",
+				payerUserId: "user_123",
+				status: "active",
+				eventId: "msg_123"
 			}
 		]);
 	});
