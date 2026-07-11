@@ -1,9 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "uwu-web",
+  "name": "uwu-land-web",
   "main": "./workers/app.ts",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
-  // app.uwu.land is pointed at this worker manually at cutover (see TODO.md).
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "invocation_logs": true
+    }
+  }
+  // app.uwu.land is pointed at this worker manually at cutover.
   // "routes": [{ "pattern": "app.uwu.land", "custom_domain": true }]
 }
