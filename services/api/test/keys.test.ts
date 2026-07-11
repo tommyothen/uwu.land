@@ -264,24 +264,99 @@ describe("API key management", () => {
 		expect(listBody.keys[0]).not.toHaveProperty("key_hash");
 	});
 
-	it("enforces the free tier non-revoked key limit", async () => {
+	it("atomically enforces the free tier non-revoked key limit", async () => {
 		const { fetch, jwt } = await sessionFetch();
 
-		const first = await fetch(
+		const responses = await Promise.all(
+			["First", "Second"].map((name) =>
+				fetch(
+					request("/api/v1/keys", jwt, "POST", { name }),
+					env as Env,
+					createExecutionContext()
+				)
+			)
+		);
+		const successes = responses.filter(({ status }) => status === 201);
+		const rejected = responses.filter(({ status }) => status === 409);
+
+		expect(successes).toHaveLength(1);
+		expect(rejected).toHaveLength(1);
+		await expect(rejected[0]?.json()).resolves.toMatchObject({ code: "key_limit" });
+		const active = await drizzle(env.DB)
+			.select()
+			.from(apiKeys)
+			.where(eq(apiKeys.userId, "user_session"))
+			.all();
+		expect(active).toHaveLength(1);
+	});
+
+	it("frees quota when a key is revoked", async () => {
+		const { fetch, jwt } = await sessionFetch();
+		const created = await fetch(
 			request("/api/v1/keys", jwt, "POST", { name: "First" }),
 			env as Env,
 			createExecutionContext()
 		);
-		const second = await fetch(
-			request("/api/v1/keys", jwt, "POST", { name: "Second" }),
+		const { id } = await created.json<{ id: string }>();
+
+		const revoked = await fetch(
+			request(`/api/v1/keys/${id}`, jwt, "DELETE"),
 			env as Env,
 			createExecutionContext()
 		);
-		const secondBody = await second.json<{ code: string }>();
+		const replacement = await fetch(
+			request("/api/v1/keys", jwt, "POST", { name: "Replacement" }),
+			env as Env,
+			createExecutionContext()
+		);
 
-		expect(first.status).toBe(201);
-		expect(second.status).toBe(409);
-		expect(secondBody.code).toBe("key_limit");
+		expect(revoked.status).toBe(204);
+		expect(replacement.status).toBe(201);
+		const stored = await drizzle(env.DB)
+			.select()
+			.from(apiKeys)
+			.where(eq(apiKeys.userId, "user_session"))
+			.all();
+		expect(stored).toHaveLength(2);
+		expect(stored.filter(({ revokedAt }) => revokedAt === null)).toHaveLength(1);
+	});
+
+	it("leaves existing over-quota accounts unchanged", async () => {
+		const { fetch, jwt } = await sessionFetch();
+		const db = drizzle(env.DB);
+		await db.insert(users).values({ id: "user_session", tier: "free" }).run();
+		await db.insert(apiKeys).values([
+			{
+				id: "key_existing_1",
+				userId: "user_session",
+				name: "Existing 1",
+				keyHash: "1".repeat(64),
+				displayPrefix: "uwu_existing1"
+			},
+			{
+				id: "key_existing_2",
+				userId: "user_session",
+				name: "Existing 2",
+				keyHash: "2".repeat(64),
+				displayPrefix: "uwu_existing2"
+			}
+		]).run();
+
+		const response = await fetch(
+			request("/api/v1/keys", jwt, "POST", { name: "Excess" }),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(409);
+		await expect(response.json()).resolves.toMatchObject({ code: "key_limit" });
+		const stored = await db
+			.select()
+			.from(apiKeys)
+			.where(eq(apiKeys.userId, "user_session"))
+			.all();
+		expect(stored).toHaveLength(2);
+		expect(stored.every(({ revokedAt }) => revokedAt === null)).toBe(true);
 	});
 
 	it("forbids API-key callers from managing keys", async () => {
