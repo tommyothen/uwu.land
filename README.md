@@ -12,7 +12,7 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 | `apps/web` | React Router v7 landing + dashboard app for app.uwu.land (Cloudflare Workers). |
 | `packages/shared` | Shared API contract types and tier config. |
 | `packages/db` | Drizzle schema and D1 migrations. |
-| `docs` | Product specs and implementation plans. |
+| `docs` | Maintenance and operations notes. |
 
 ## Web app
 
@@ -21,8 +21,7 @@ anonymous shortening, Clerk-authenticated dashboard (links, API keys, account),
 and the public API docs at `/docs`. It is an ordinary consumer of `/api/v1`,
 calling it client-side with Clerk session JWTs.
 
-The visual system is "Riso Post Office" (riso-print postal metaphor); the design
-is specified in `docs/superpowers/specs/2026-07-10-riso-post-office-design.md`.
+The visual system is "Riso Post Office" (riso-print postal metaphor).
 Type stack: Bricolage Grotesque (display/wordmark), Instrument Sans (body/UI),
 Space Mono (postal jobs and short-link slugs), all self-hosted via Fontsource.
 
@@ -116,7 +115,7 @@ Run these from `services/api`; they operate on remote production infrastructure.
 | 2026-07-10 | Keep KV as the redirect hot path | D1 becomes the metadata plane; redirects stay KV-only. |
 | 2026-07-10 | Anon-lane URL dedup + normalization; anon creates recorded in D1; maintainer ban/abuse CLI scripts | Normalized-URL KV reverse index dedupes anonymous creates only; D1 rows power abuse reporting; blocking stays KV `banned:<domain>` managed via pnpm scripts. |
 | 2026-07-10 | Verify Clerk JWTs in-worker | Use `@clerk/backend` JWT verification with configured issuer and JWKS, without Clerk network calls in tests. |
-| 2026-07-10 | Landing redesign: "Riso Post Office" visual system | Riso grain + postal metaphor on the 2021 brand; Bricolage/Instrument/Space Mono; one GSAP submit choreography; shadcn tokens; spec in docs/superpowers/specs/2026-07-10-riso-post-office-design.md. |
+| 2026-07-10 | Landing redesign: "Riso Post Office" visual system | Riso grain + postal metaphor on the 2021 brand; Bricolage/Instrument/Space Mono; one GSAP submit choreography; shadcn tokens. |
 | 2026-07-10 | apps/web on React Router v7 + @cloudflare/vite-plugin (replacing Next/OpenNext) | app used no Next-specific features; drop the adapter layer and its operational risk (build fork-bomb class bugs, env split-brain). |
 
 ## License

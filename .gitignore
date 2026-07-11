@@ -8,5 +8,5 @@ dist
 coverage
 *.tsbuildinfo
 
-# brainstorm mockups
-.superpowers/
+# local-only deploy runbook (not for publication)
+docs/DEPLOY.md
