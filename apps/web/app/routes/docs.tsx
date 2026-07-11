@@ -69,15 +69,19 @@ const ENDPOINTS = [
 	}
 ];
 
-const ERROR_CODES = [
+const ERROR_CODES: readonly [status: string, code: string, when: ReactNode][] = [
 	["400", "invalid_body", "Malformed JSON, URL, slug, or cursor."],
 	["400", "slug_reserved", "The requested slug is reserved (for example, api)."],
-	["400", "url_banned", "The destination hostname is banned."],
+	["400", "url_banned", "The destination is blocked by moderation."],
 	["401", "unauthorized", "Auth is missing, invalid, or revoked."],
 	[
 		"403",
 		"forbidden",
-		"Authenticated but not allowed: an anonymous caller sent a restricted field, you are not the link owner, or an API key called a /keys endpoint."
+		<>
+			The request is understood but not permitted: an anonymous caller sent a
+			restricted field, you are not the link owner, or an API key called a{" "}
+			<code>/keys</code> endpoint.
+		</>
 	],
 	["404", "not_found", "The link or key does not exist."],
 	["409", "slug_taken", "The requested slug already exists."],
@@ -134,6 +138,11 @@ export default function DocsPage() {
 					<code>Authorization: Bearer &lt;token&gt;</code>. The token is either
 					an API key (it starts with <code>uwu_</code>) or a Clerk session token
 					that the dashboard sends automatically. Cookies are never read.
+				</p>
+				<p className="mt-3 leading-relaxed text-muted-foreground">
+					API keys act as their owning account: links created with any of the
+					account&apos;s keys or the dashboard belong to the same account and appear
+					in the same list.
 				</p>
 				<Code>Authorization: Bearer uwu_your_api_key</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
@@ -202,7 +211,8 @@ export default function DocsPage() {
 					custom slug and attach an <code>external_ref</code>.
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					The <code>url</code> must be http or https, at most 2048 characters,
+					The <code>url</code> must be <code>http</code> or <code>https</code>, at
+					most 2048 characters,
 					carry no embedded credentials (<code>user:pass@</code>), and not point
 					at uwu.land or any of its subdomains, so you cannot nest or loop short
 					links. Rejected URLs return 400 <code>invalid_body</code>; banned
@@ -228,7 +238,7 @@ export default function DocsPage() {
     Authorization: "Bearer uwu_your_api_key",
     "Content-Type": "application/json"
   },
-  body: JSON.stringify({ url: "https://example.com/some/long/path" })
+  body: JSON.stringify({ url: "https://example.com/some/long/path", slug: "my-link" })
 });
 
 const data = await res.json();
@@ -242,8 +252,8 @@ console.log(data.short_url);`}</Code>
 
 				<H2 id="list-links">List your links</H2>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Newest first, cursor paginated. Omit <code>cursor</code> for the first
-					page. When more pages exist the response includes a{" "}
+					Results come newest first, 25 per page, and are cursor paginated. Omit{" "}
+					<code>cursor</code> for the first page. When more pages exist the response includes a{" "}
 					<code>cursor</code>; pass it back as <code>?cursor=</code>. The last
 					page omits the <code>cursor</code> field. A malformed cursor returns
 					400 <code>invalid_body</code>.
@@ -270,13 +280,13 @@ console.log(data.short_url);`}</Code>
 
 				<H2 id="redirects">Redirects &amp; clicks</H2>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Short links redirect with HTTP 302. Every successful redirect counts
+					Short links redirect with HTTP <code>302</code>. Every successful redirect counts
 					one click, including bots and link-preview crawlers, so a link often
 					has a few clicks before anyone opens it. Counting happens in the
 					background, so totals are eventually consistent and may lag a few
 					seconds. Query params on the short URL are not merged into the
 					destination; the stored URL is used unchanged. Unknown slugs redirect
-					(302) to the 404 page.
+					(<code>302</code>) to the 404 page.
 				</p>
 
 				<H2 id="stats">Public stats</H2>
@@ -287,12 +297,13 @@ console.log(data.short_url);`}</Code>
 
 { "slug": "my-link", "clicks": 42 }`}</Code>
 
-				<H2 id="external-ref">external_ref: tag links per user</H2>
+				<H2 id="external-ref"><code>external_ref</code>: tag links per user</H2>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					<code>external_ref</code> is an opaque metadata tag (up to 64
 					characters) you attach to a link, not an isolation boundary. It does
-					not scope visibility: the key owner sees and controls every link under
-					the key regardless of its ref. A Discord bot, for example, tags links
+					not scope visibility. The account sees and controls every link created
+					through its dashboard session or any of its API keys, regardless of{" "}
+					<code>external_ref</code>. A Discord bot, for example, tags links
 					with <code>discord:&lt;userId&gt;</code>, then lists one user's links
 					with <code>GET /links?external_ref=discord:214836288048594944</code>.
 				</p>
@@ -385,7 +396,7 @@ console.log(data.short_url);`}</Code>
 {
   "user_id": "user_2abc...",
   "tier": "free",
-  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiPerMin": ${TIERS.free.apiPerMin}, "apiKeys": ${TIERS.free.apiKeys} }
+  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiKeys": ${TIERS.free.apiKeys} }
 }`}</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					<code>limits</code> are the static values for your tier;{" "}
@@ -404,8 +415,9 @@ console.log(data.short_url);`}</Code>
 					</p>
 				</div>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Secrets are stored as SHA-256 hashes and shown exactly once at
-					creation; <code>display_prefix</code> is the first 12 characters.
+					Secrets are stored only as one-way hashes and shown exactly once at
+					creation. <code>display_prefix</code> contains the first 12 characters
+					and is safe to use when identifying a key.
 				</p>
 				<Code>{`POST /api/v1/keys
 { "name": "my-discord-bot" }
