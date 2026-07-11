@@ -2,6 +2,14 @@
   "name": "uwu-land-api",
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "ENFORCEMENT", "class_name": "Enforcement" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Enforcement"] }
+  ],
   "kv_namespaces": [
     { "binding": "UWU", "id": "8303f7a9d3d24bb2997663f8c1d3904e" },
     { "binding": "CLICKS", "id": "c9fdaa00d93a420a97b700bd580f0153" }
