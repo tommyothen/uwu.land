@@ -1,4 +1,6 @@
 import { Show } from "@clerk/react-router";
+import { gsap } from "gsap";
+import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { AirmailStripe } from "@/components/postal/airmail-stripe";
 import { CloudField } from "@/components/postal/cloud-field";
@@ -6,12 +8,95 @@ import { GithubMark } from "@/components/postal/github-mark";
 import { ReturnAddress } from "@/components/postal/return-address";
 import { Stamp } from "@/components/postal/stamp";
 import { ShortenBox } from "@/components/shorten-box";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Wordmark } from "@/components/wordmark";
 
 const navLink =
 	"text-foreground/75 transition hover:text-foreground hover:underline";
 
+/** A postcard slipped into the console for anyone who opens dev tools. */
+function franks() {
+	const today = new Date().toLocaleDateString(undefined, {
+		day: "2-digit",
+		month: "short",
+		year: "numeric"
+	});
+	console.log(
+		"%c ✉ uwu.land %c the tiny link post office ",
+		"background:#4f39fa;color:#fff;font-weight:700;border-radius:4px 0 0 4px;padding:3px 6px;font-family:monospace",
+		"background:#da62c4;color:#fff;border-radius:0 4px 4px 0;padding:3px 6px;font-family:monospace"
+	);
+	console.log(
+		`%cpostmarked ${today}. built in the open — pull up a chair: github.com/tommyothen/uwu.land`,
+		"color:#9176e0;font-family:monospace;font-size:11px"
+	);
+}
+
+function prefersReducedMotion(): boolean {
+	return (
+		typeof window !== "undefined" &&
+		typeof window.matchMedia === "function" &&
+		window.matchMedia("(prefers-reduced-motion: reduce)").matches
+	);
+}
+
 export default function Home() {
+	const flight = useRef<gsap.core.Timeline | null>(null);
+
+	useEffect(() => {
+		franks();
+	}, []);
+
+	// The AIR MAIL stamp's plane takes off on send: it darts out past the right
+	// edge, then fades back in from the left and settles into the stamp. Wired via
+	// a window event the ShortenBox fires when it launches (motion only). The
+	// landing root is overflow-hidden, so the off-screen travel adds no scrollbars.
+	useEffect(() => {
+		function onSend() {
+			if (prefersReducedMotion()) return;
+			const glyph = document.querySelector<HTMLElement>(
+				".landing-stamp .stamp-glyph"
+			);
+			if (!glyph) return;
+
+			const rect = glyph.getBoundingClientRect();
+			const vw = window.innerWidth;
+			// Travel far enough to fully clear both edges from the glyph's home spot.
+			const exitX = vw - rect.left + 48;
+			const enterX = -(rect.right + 48);
+
+			flight.current?.kill();
+			flight.current = gsap
+				.timeline({ onComplete: () => gsap.set(glyph, { clearProps: "all" }) })
+				.set(glyph, { transformOrigin: "50% 50%" })
+				.to(glyph, {
+					x: exitX,
+					y: -20,
+					rotation: 14,
+					scale: 1.05,
+					opacity: 0,
+					duration: 0.5,
+					ease: "power2.in"
+				})
+				.set(glyph, { x: enterX, y: 16, rotation: -10, scale: 0.9 })
+				.to(glyph, {
+					x: 0,
+					y: 0,
+					rotation: 0,
+					scale: 1,
+					opacity: 1,
+					duration: 0.72,
+					ease: "back.out(1.3)"
+				});
+		}
+
+		window.addEventListener("uwu:send", onSend);
+		return () => {
+			window.removeEventListener("uwu:send", onSend);
+			flight.current?.kill();
+		};
+	}, []);
+
 	return (
 		<div className="landing-root relative flex min-h-[100dvh] flex-col overflow-hidden">
 			<AirmailStripe />
@@ -43,6 +128,10 @@ export default function Home() {
 						Dashboard
 					</Link>
 				</Show>
+				<span aria-hidden="true" className="text-foreground/40">
+					·
+				</span>
+				<ThemeToggle variant="bare" />
 			</nav>
 
 			<div
@@ -52,8 +141,7 @@ export default function Home() {
 				<Stamp />
 			</div>
 
-			{/* Bottom padding keeps the landed result card clear of the promise band. */}
-			<main className="relative z-[4] flex flex-1 items-center justify-center px-6 pb-24">
+			<main className="relative z-[4] flex flex-1 items-center justify-center px-6">
 				<div className="w-full max-w-[560px] text-center">
 					<Wordmark
 						className="enter text-[clamp(3.5rem,5vw+1.5rem,5.5rem)]"
@@ -71,16 +159,22 @@ export default function Home() {
 				</div>
 			</main>
 
-			<p
-				className="enter-fade absolute right-0 left-0 z-[4] px-6 text-center font-mono text-[11px] tracking-[0.04em] text-foreground sm:text-xs"
+			{/* The founding promise sits in flow as a footer band, its padding
+			    reserving the cloud-field height below it. Because it is a flex
+			    sibling of <main> (not absolutely positioned), it can never collide
+			    with the result card's claim-ticket stub in any state or width. */}
+			<footer
+				className="enter-fade pointer-events-none relative z-[4] px-6 pt-4 text-center"
 				style={{
-					bottom: "calc(var(--field-h) + 20px)",
+					paddingBottom: "calc(var(--field-h) + 12px)",
 					animationDelay: "230ms"
 				}}
 			>
-				uwu.land is free forever, and will always be free with no ads or account
-				creation required.
-			</p>
+				<p className="mx-auto max-w-[52ch] font-mono text-[11px] tracking-[0.04em] text-foreground sm:text-xs">
+					uwu.land is free forever, and will always be free with no ads or
+					account creation required.
+				</p>
+			</footer>
 
 			<CloudField className="enter-field" />
 
