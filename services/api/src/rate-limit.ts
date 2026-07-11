@@ -1,6 +1,10 @@
 export interface RateLimiter {
-	limit(key: string): Promise<boolean>;
+	limit(key: string): Promise<RateLimitResult>;
 }
+
+export type RateLimitResult =
+	| { allowed: true }
+	| { allowed: false; retryAfterSeconds: number };
 
 interface WindowCounter {
 	count: number;
@@ -14,7 +18,7 @@ export class KvFixedWindow implements RateLimiter {
 		private readonly windowSeconds: number
 	) {}
 
-	async limit(key: string): Promise<boolean> {
+	async limit(key: string): Promise<RateLimitResult> {
 		const now = Date.now();
 		const kvKey = `ratelimit:${key}`;
 		const current = await this.readCounter(kvKey);
@@ -24,13 +28,19 @@ export class KvFixedWindow implements RateLimiter {
 				: current;
 
 		if (counter.count >= this.maxRequests) {
-			return false;
+			return {
+				allowed: false,
+				retryAfterSeconds: Math.max(
+					1,
+					Math.ceil((counter.resetAt - now) / 1000)
+				)
+			};
 		}
 
 		counter.count += 1;
 		const ttl = Math.max(1, Math.ceil((counter.resetAt - now) / 1000));
 		await this.kv.put(kvKey, JSON.stringify(counter), { expirationTtl: ttl });
-		return true;
+		return { allowed: true };
 	}
 
 	private async readCounter(key: string): Promise<WindowCounter | null> {

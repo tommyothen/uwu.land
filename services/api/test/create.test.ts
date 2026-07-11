@@ -107,6 +107,36 @@ async function seedApiKey(): Promise<string> {
 	return secret;
 }
 
+async function seedApiKeysForSameAccount(): Promise<{
+	first: string;
+	second: string;
+}> {
+	const first = "uwu_quota_first00000000000000000000";
+	const second = "uwu_quota_second0000000000000000000";
+	const db = drizzle(env.DB);
+	await db.insert(users).values({ id: "user_quota", tier: "pro" }).run();
+	await db
+		.insert(apiKeys)
+		.values([
+			{
+				id: "key_quota_first",
+				userId: "user_quota",
+				name: "First quota key",
+				keyHash: await hashKey(first),
+				displayPrefix: first.slice(0, 12)
+			},
+			{
+				id: "key_quota_second",
+				userId: "user_quota",
+				name: "Second quota key",
+				keyHash: await hashKey(second),
+				displayPrefix: second.slice(0, 12)
+			}
+		])
+		.run();
+	return { first, second };
+}
+
 describe("anonymous link creation", () => {
 	beforeEach(async () => {
 		await clearKv(env.UWU);
@@ -175,6 +205,30 @@ describe("anonymous link creation", () => {
 		expect(body.code).toBe("invalid_body");
 	});
 
+	it("rejects URLs longer than 2048 characters", async () => {
+		const response = await workerFetch(
+			createRequest({ url: `https://example.com/${"a".repeat(2029)}` }),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(400);
+		expect(body.code).toBe("invalid_body");
+	});
+
+	it("rejects URLs containing credentials", async () => {
+		const response = await workerFetch(
+			createRequest({ url: "https://user:pass@example.com" }),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(400);
+		expect(body.code).toBe("invalid_body");
+	});
+
 	it("rate limits the create after the anon daily limit from one IP", async () => {
 		for (let i = 0; i < TIERS.anon.createPerDay; i++) {
 			const response = await workerFetch(
@@ -190,10 +244,41 @@ describe("anonymous link creation", () => {
 			env as Env,
 			createExecutionContext()
 		);
-		const body = await response.json<{ code: string }>();
+		const body = await response.json<{
+			code: string;
+			retry_after: number;
+		}>();
 
 		expect(response.status).toBe(429);
 		expect(body.code).toBe("rate_limited");
+		expect(body.retry_after).toEqual(expect.any(Number));
+		expect(body.retry_after).toBeGreaterThanOrEqual(1);
+		expect(response.headers.get("Retry-After")).toBe(
+			String(body.retry_after)
+		);
+	});
+
+	it("shares an account daily quota across API keys", async () => {
+		const keys = await seedApiKeysForSameAccount();
+		const quotaWorker = createWorker({ createPerDayLimit: 1 });
+		const quotaFetch = quotaWorker.fetch as TestFetch;
+
+		const first = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/quota-first" }, keys.first),
+			env as Env,
+			createExecutionContext()
+		);
+		const second = await quotaFetch(
+			createAuthedRequest(
+				{ url: "https://example.com/quota-second" },
+				keys.second
+			),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(first.status).toBe(201);
+		expect(second.status).toBe(429);
 	});
 
 	it("retries generated slug collisions", async () => {

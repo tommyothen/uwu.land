@@ -30,7 +30,7 @@ import {
 import type { Env } from "./worker";
 
 const createLinkSchema = z.object({
-	url: z.string().url(),
+	url: z.string().max(2048).url(),
 	slug: z.string().optional(),
 	external_ref: z.string().max(64).optional()
 });
@@ -47,6 +47,7 @@ type LinkRow = typeof linksTable.$inferSelect;
 export interface LinkHandlersOptions {
 	generateId?: IdGenerator;
 	auth?: AuthOptions;
+	createPerDayLimit?: number;
 }
 
 export async function createLink(
@@ -78,6 +79,9 @@ export async function createLink(
 	if (!["http:", "https:"].includes(destination.protocol)) {
 		return errorResponse(400, "invalid_body", "URL must use http or https.");
 	}
+	if (destination.username !== "" || destination.password !== "") {
+		return errorResponse(400, "invalid_body", "URL credentials are not allowed.");
+	}
 
 	if (isOwnHostname(destination.hostname)) {
 		return errorResponse(400, "invalid_body", "uwu.land URLs are not allowed.");
@@ -87,8 +91,14 @@ export async function createLink(
 		return errorResponse(400, "url_banned", "URL host is banned.");
 	}
 
-	if (!(await limitCreate(c, auth))) {
-		return errorResponse(429, "rate_limited", "Rate limit exceeded.");
+	const rateLimit = await limitCreate(c, auth, options.createPerDayLimit);
+	if (!rateLimit.allowed) {
+		return errorResponse(
+			429,
+			"rate_limited",
+			"Rate limit exceeded.",
+			rateLimit.retryAfterSeconds
+		);
 	}
 
 	if (auth.kind === "anon") {
@@ -336,12 +346,13 @@ async function requireAuth(
 
 async function limitCreate(
 	c: Context<{ Bindings: Env }>,
-	auth: AuthPrincipal
-): Promise<boolean> {
+	auth: AuthPrincipal,
+	createPerDayLimit?: number
+): ReturnType<KvFixedWindow["limit"]> {
 	const tier = auth.kind === "anon" ? "anon" : auth.tier;
 	const limiter = new KvFixedWindow(
 		c.env.UWU,
-		TIERS[tier].createPerDay,
+		createPerDayLimit ?? TIERS[tier].createPerDay,
 		CREATE_WINDOW_SECONDS
 	);
 	return limiter.limit(scopeKey(c, auth));
@@ -351,9 +362,6 @@ function scopeKey(c: Context<{ Bindings: Env }>, auth: AuthPrincipal): string {
 	if (auth.kind === "anon") {
 		const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
 		return `anon:${ip}`;
-	}
-	if (auth.kind === "key") {
-		return `key:${auth.keyId}`;
 	}
 	return `user:${auth.userId}`;
 }
