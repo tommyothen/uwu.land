@@ -64,8 +64,8 @@ The public JSON API is versioned under `/api/v1`. Authenticated endpoints accept
 | Endpoint | Auth | Notes |
 | --- | --- | --- |
 | `POST /api/v1/links` | Optional | Create a short link. Anonymous requests get random slugs only. Authenticated requests may use custom `slug` and `external_ref`. |
-| `GET /api/v1/links` | Required | List owned links newest-first, cursor paginated, with optional `?external_ref=` filtering and total clicks. |
-| `GET /api/v1/links/:slug` | Required, owner | Fetch owned link detail. |
+| `GET /api/v1/links` | Required | List owned links newest-first, cursor paginated, with optional `?external_ref=` filtering and materialized total clicks. Clicks are eventually consistent and refresh in bounded batches on the five-minute maintenance schedule. |
+| `GET /api/v1/links/:slug` | Required, owner | Fetch owned link detail. Its click total has the same eventual freshness as the list endpoint. |
 | `GET /api/v1/links/:slug/stats` | None | Public total click count for a slug. |
 | `DELETE /api/v1/links/:slug` | Required, owner | Delete an owned D1 row and its KV redirect/click keys. Anonymous links cannot be deleted via API. |
 | `GET /api/v1/me` | Required | Return user id, tier, and limits. |

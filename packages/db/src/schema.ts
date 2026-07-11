@@ -40,9 +40,16 @@ export const links = sqliteTable(
 		reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
 		lastReconcileAt: integer("last_reconcile_at", { mode: "timestamp" }),
 		lastReconcileError: text("last_reconcile_error"),
+		clicks: integer("clicks").notNull().default(0),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.$defaultFn(() => new Date())
 	},
 	(t) => [index("links_owner_idx").on(t.ownerId, t.externalRef), index("links_lifecycle_idx").on(t.lifecycleState, t.createdAt), uniqueIndex("links_url_hash_unique").on(t.urlHash)]
 );
+
+export const clickMaterializationState = sqliteTable("click_materialization_state", {
+	id: integer("id").primaryKey(),
+	cursor: text("cursor"),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
+});
