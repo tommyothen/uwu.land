@@ -8,7 +8,6 @@ import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
 import type { Env } from "./worker";
 
-const DEFAULT_CLERK_ISSUER = "TODO-clerk-issuer";
 const LAST_USED_STAMP_INTERVAL_MS = 60 * 60 * 1000;
 
 type UserTier = Exclude<TierKey, "anon">;
@@ -130,7 +129,7 @@ async function resolveClerkSession(
 	env: Env,
 	options: AuthOptions
 ): Promise<AuthPrincipal> {
-	const issuer = options.clerkIssuer ?? env.CLERK_ISSUER ?? DEFAULT_CLERK_ISSUER;
+	const issuer = options.clerkIssuer ?? env.CLERK_ISSUER;
 	const key =
 		options.jwks === undefined
 			? await findRemoteJwk(token, issuer, options)
