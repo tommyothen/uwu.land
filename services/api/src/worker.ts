@@ -28,6 +28,7 @@ export interface Env {
 export interface WorkerOptions {
 	generateId?: IdGenerator;
 	auth?: AuthOptions;
+	createPerDayLimit?: number;
 }
 
 export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> {

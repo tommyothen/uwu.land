@@ -65,6 +65,7 @@ export interface ApiError {
 	status: number;
 	code: string;
 	message: string;
+	retry_after?: number;
 }
 
 export type ErrorCode =
