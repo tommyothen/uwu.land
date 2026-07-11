@@ -2,7 +2,6 @@ export type TierKey = "anon" | "free" | "pro";
 
 export interface TierLimits {
 	createPerDay: number;
-	apiPerMin: number;
 	apiKeys: number;
 	priceUsdMonthly?: number | null;
 }
@@ -10,17 +9,14 @@ export interface TierLimits {
 export const TIERS = {
 	anon: {
 		createPerDay: 15,
-		apiPerMin: 3,
 		apiKeys: 0
 	},
 	free: {
 		createPerDay: 120,
-		apiPerMin: 60,
 		apiKeys: 1
 	},
 	pro: {
 		createPerDay: 2000,
-		apiPerMin: 600,
 		apiKeys: 10,
 		priceUsdMonthly: null
 	}

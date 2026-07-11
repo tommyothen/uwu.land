@@ -22,10 +22,6 @@ const ROWS = [
 		value: (tier: "free" | "pro") => TIERS[tier].createPerDay
 	},
 	{
-		label: "API requests per minute",
-		value: (tier: "free" | "pro") => TIERS[tier].apiPerMin
-	},
-	{
 		label: "API keys",
 		value: (tier: "free" | "pro") => TIERS[tier].apiKeys
 	}

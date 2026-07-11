@@ -374,7 +374,7 @@ describe("owned links CRUD", () => {
 		const body = await response.json<{
 			user_id: string;
 			tier: string;
-			limits: { createPerDay: number; apiPerMin: number; apiKeys: number };
+			limits: { createPerDay: number; apiKeys: number };
 		}>();
 
 		expect(response.status).toBe(200);
@@ -383,7 +383,6 @@ describe("owned links CRUD", () => {
 			tier: "pro",
 			limits: {
 				createPerDay: 2000,
-				apiPerMin: 600,
 				apiKeys: 10
 			}
 		});
