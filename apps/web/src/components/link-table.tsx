@@ -19,15 +19,13 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 	const [confirming, setConfirming] = useState<string | null>(null);
 	const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 	const seenPrepend = useRef<LinkSummary | undefined>(undefined);
-	const loadedInitial = useRef(false);
 
 	useEffect(() => {
 		// Wait for Clerk to resolve the session; getToken() returns null before
 		// isLoaded and would strand the UI on its loading skeleton.
-		if (!isLoaded || loadedInitial.current) {
+		if (!isLoaded) {
 			return;
 		}
-		loadedInitial.current = true;
 		if (!isSignedIn) {
 			return;
 		}
@@ -158,6 +156,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 									type="button"
 									onClick={() => copyShortUrl(link)}
 									title="Copy short link"
+									variant="ghost"
 									className="font-mono text-sm font-medium text-foreground transition hover:text-[color:var(--ring)]"
 								>
 									{link.short_url.replace(/^https?:\/\//, "")}
@@ -200,6 +199,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 									<Button
 										type="button"
 										onClick={() => setConfirming(null)}
+										variant="ghost"
 										className="text-xs text-muted-foreground transition hover:text-foreground"
 									>
 										Cancel
@@ -209,6 +209,7 @@ export function LinkTable({ prepend }: { prepend?: LinkSummary }) {
 								<Button
 									type="button"
 									onClick={() => setConfirming(link.slug)}
+									variant="ghost"
 									className="text-xs text-muted-foreground transition hover:text-destructive"
 								>
 									Delete

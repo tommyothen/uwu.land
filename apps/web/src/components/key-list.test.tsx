@@ -1,11 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteKey, listKeys } from "@/lib/api";
 import { KeyList } from "./key-list";
 
+const { mockGetToken } = vi.hoisted(() => ({
+	mockGetToken: vi.fn(async () => "tok")
+}));
+
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: async () => "tok" })
+	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: mockGetToken })
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -60,8 +65,12 @@ describe("KeyList", () => {
 	});
 
 	it("shows an empty state", async () => {
-		listKeysMock.mockResolvedValueOnce({ keys: [] });
-		render(<KeyList />);
+		listKeysMock.mockResolvedValue({ keys: [] });
+		render(
+			<StrictMode>
+				<KeyList />
+			</StrictMode>
+		);
 
 		expect(await screen.findByText(/no api keys yet/i)).toBeInTheDocument();
 	});

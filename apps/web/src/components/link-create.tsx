@@ -121,7 +121,8 @@ export function LinkCreate({
 					<Button
 						type="button"
 						onClick={() => copy(created)}
-						className="text-xs font-medium text-[color:var(--ring)] transition hover:opacity-80"
+						variant="secondary"
+						className="text-xs font-medium transition hover:opacity-80"
 					>
 						{copied ? "Copied" : "Copy"}
 					</Button>
