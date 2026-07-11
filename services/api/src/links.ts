@@ -20,6 +20,7 @@ import {
 import { isBannedHostname } from "./banned";
 import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
+import { reconcileLink } from "./link-reconciliation";
 import { normalizeUrl } from "./normalize";
 import { DurableObjectFixedWindow } from "./rate-limit";
 import {
@@ -115,16 +116,18 @@ export async function createLink(
 	if (auth.kind === "anon") {
 		const urlHash = await hashKey(normalizeUrl(destination.toString()));
 		const urlMapKey = `urlmap:${urlHash}`;
+		const [reserved] = await drizzle(c.env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
+		if (reserved !== undefined && reserved.lifecycleState !== "pending_delete") {
+			if (reserved.lifecycleState === "pending_publish" || (await c.env.UWU.get(reserved.slug)) === null) {
+				const pending = { ...reserved, lifecycleState: "pending_publish" as const };
+				if (reserved.lifecycleState === "active") await drizzle(c.env.DB).update(linksTable).set({ lifecycleState: "pending_publish" }).where(eq(linksTable.slug, reserved.slug)).run();
+				try { await reconcileLink(c.env, pending); } catch { return publicationPending(); }
+			}
+			return createdLinkResponse(reserved.slug, destination.toString());
+		}
 		const mappedSlug = await c.env.UWU.get(urlMapKey);
 		if (mappedSlug !== null && (await c.env.UWU.get(mappedSlug)) !== null) {
-			return Response.json(
-				{
-					slug: mappedSlug,
-					short_url: `https://uwu.land/${mappedSlug}`,
-					url: destination.toString()
-				} satisfies CreateLinkResponse,
-				{ status: 201 }
-			);
+			return createdLinkResponse(mappedSlug, destination.toString());
 		}
 
 		const slug = await generateSlug(c.env.UWU, options.generateId);
@@ -135,19 +138,15 @@ export async function createLink(
 				url: destination.toString(),
 				ownerId: null,
 				externalRef: null,
-				source: "web-anon"
+				source: "web-anon",
+				lifecycleState: "pending_publish",
+				urlHash
 			})
 			.run();
-		await c.env.UWU.put(slug, destination.toString());
-		await c.env.CLICKS.put(slug, "0");
-		await c.env.UWU.put(urlMapKey, slug);
-
-		const response: CreateLinkResponse = {
-			slug,
-			short_url: `https://uwu.land/${slug}`,
-			url: destination.toString()
-		};
-		return Response.json(response, { status: 201 });
+		const row = await findLink(c.env.DB, slug);
+		if (row === null) throw new Error("Created link disappeared");
+		try { await reconcileLink(c.env, row); } catch { return publicationPending(); }
+		return createdLinkResponse(slug, destination.toString());
 	}
 
 	const db = drizzle(c.env.DB);
@@ -167,22 +166,18 @@ export async function createLink(
 				url: destination.toString(),
 				ownerId: auth.userId,
 				externalRef: parsed.data.external_ref ?? null,
-				source: sourceForAuth(auth)
+				source: sourceForAuth(auth),
+				lifecycleState: "pending_publish"
 			})
 			.run();
 	} catch {
 		return errorResponse(409, "slug_taken", "Slug is already taken.");
 	}
 
-	await c.env.UWU.put(slug, destination.toString());
-	await c.env.CLICKS.put(slug, "0");
-
-	const response: CreateLinkResponse = {
-		slug,
-		short_url: `https://uwu.land/${slug}`,
-		url: destination.toString()
-	};
-	return Response.json(response, { status: 201 });
+	const row = await findLink(c.env.DB, slug);
+	if (row === null) throw new Error("Created link disappeared");
+	try { await reconcileLink(c.env, row); } catch { return publicationPending(); }
+	return createdLinkResponse(slug, destination.toString());
 }
 
 export async function listLinks(
@@ -228,7 +223,7 @@ export async function listLinks(
 	const pageRows = rows.slice(0, LIST_PAGE_SIZE);
 	const last = pageRows.at(-1);
 	const response: ListLinksResponse = {
-		links: await Promise.all(pageRows.map((row) => linkSummary(c.env, row)))
+		links: pageRows.map(linkSummary)
 	};
 	if (rows.length > LIST_PAGE_SIZE && last !== undefined) {
 		response.cursor = encodeCursor(last);
@@ -259,7 +254,7 @@ export async function getLink(
 		return errorResponse(403, "forbidden", "Link belongs to another user.");
 	}
 
-	return Response.json(await linkSummary(c.env, row));
+	return Response.json(linkSummary(row));
 }
 
 export async function deleteLink(
@@ -285,10 +280,12 @@ export async function deleteLink(
 	}
 
 	await drizzle(c.env.DB)
-		.delete(linksTable)
+		.update(linksTable)
+		.set({ lifecycleState: "pending_delete" })
 		.where(eq(linksTable.slug, slug))
 		.run();
-	await Promise.all([c.env.UWU.delete(slug), c.env.CLICKS.delete(slug)]);
+	const pending = { ...row, lifecycleState: "pending_delete" as const };
+	try { await reconcileLink(c.env, pending); } catch { /* scheduled reconciliation owns the retry */ }
 	return new Response(null, { status: 204 });
 }
 
@@ -459,14 +456,12 @@ async function findLinkRow(
 	return row ?? null;
 }
 
-async function linkSummary(env: Env, row: LinkRow): Promise<LinkSummary> {
-	const clicksRaw = await env.CLICKS.get(row.slug);
-	const clicks = Number.parseInt(clicksRaw ?? "0", 10);
+function linkSummary(row: LinkRow): LinkSummary {
 	const summary: LinkSummary = {
 		slug: row.slug,
 		short_url: `https://uwu.land/${row.slug}`,
 		url: row.url,
-		clicks: Number.isFinite(clicks) ? clicks : 0,
+		clicks: row.clicks,
 		created_at: row.createdAt.toISOString()
 	};
 	if (row.externalRef !== null) {
@@ -533,6 +528,14 @@ function base64UrlDecode(value: string): string {
 		"="
 	);
 	return atob(padded);
+}
+
+function createdLinkResponse(slug: string, url: string): Response {
+	return Response.json({ slug, short_url: `https://uwu.land/${slug}`, url } satisfies CreateLinkResponse, { status: 201 });
+}
+
+function publicationPending(): Response {
+	return errorResponse(503, "publication_pending", "Link publication is pending. Retry the same request shortly.");
 }
 
 async function readJson(request: Request): Promise<unknown> {

@@ -83,4 +83,5 @@ export type ErrorCode =
 	| "not_found"
 	| "unauthorized"
 	| "forbidden"
-	| "key_limit";
+	| "key_limit"
+	| "publication_pending";

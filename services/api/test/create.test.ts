@@ -432,7 +432,7 @@ describe("anonymous link creation", () => {
 		);
 	});
 
-	it("replaces stale anonymous URL mappings", async () => {
+	it("republishes the D1-reserved anonymous link when its redirect is missing", async () => {
 		const first = await workerFetch(
 			createRequest({ url: "https://example.com/stale" }, "203.0.113.45"),
 			env as Env,
@@ -448,7 +448,8 @@ describe("anonymous link creation", () => {
 		);
 		const secondBody = await second.json<{ slug: string }>();
 
-		expect(secondBody.slug).not.toBe(firstBody.slug);
+		expect(secondBody.slug).toBe(firstBody.slug);
+		expect(await env.UWU.get(firstBody.slug)).toBe("https://example.com/stale");
 		expect(
 			await env.UWU.get(`urlmap:${await hashKey("https://example.com/stale")}`)
 		).toBe(secondBody.slug);
