@@ -2,7 +2,7 @@
 
 import { useAuth } from "@clerk/react-router";
 import { type MeResponse, TIERS } from "@uwu/shared";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -35,15 +35,13 @@ export function AccountPanel() {
 	const { isLoaded, isSignedIn, getToken } = useAuth();
 	const [me, setMe] = useState<MeResponse | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const loadedInitial = useRef(false);
 
 	useEffect(() => {
 		// Wait for Clerk to resolve the session; getToken() returns null before
 		// isLoaded and would strand the UI on its loading skeleton.
-		if (!isLoaded || loadedInitial.current) {
+		if (!isLoaded) {
 			return;
 		}
-		loadedInitial.current = true;
 		if (!isSignedIn) {
 			return;
 		}

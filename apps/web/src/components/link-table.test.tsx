@@ -1,11 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteLink, listLinks } from "@/lib/api";
 import { LinkTable } from "./link-table";
 
+const { mockGetToken } = vi.hoisted(() => ({
+	mockGetToken: vi.fn(async () => "tok")
+}));
+
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: async () => "tok" })
+	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: mockGetToken })
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -98,8 +103,12 @@ describe("LinkTable", () => {
 	});
 
 	it("shows an empty state when there are no links", async () => {
-		listLinksMock.mockResolvedValueOnce({ links: [] });
-		render(<LinkTable />);
+		listLinksMock.mockResolvedValue({ links: [] });
+		render(
+			<StrictMode>
+				<LinkTable />
+			</StrictMode>
+		);
 
 		expect(await screen.findByText(/no links yet/i)).toBeInTheDocument();
 	});

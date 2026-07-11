@@ -85,7 +85,8 @@ export function KeyCreate({
 					<Button
 						type="button"
 						onClick={() => dismiss(revealed)}
-						className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition hover:bg-secondary active:scale-[0.98]"
+						variant="outline"
+						className="rounded-lg px-4 py-2 text-sm font-medium transition active:scale-[0.98]"
 					>
 						Done
 					</Button>

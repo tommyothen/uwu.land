@@ -14,15 +14,13 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 	const [error, setError] = useState<string | null>(null);
 	const [confirming, setConfirming] = useState<string | null>(null);
 	const seenPrepend = useRef<ApiKeySummary | undefined>(undefined);
-	const loadedInitial = useRef(false);
 
 	useEffect(() => {
 		// Wait for Clerk to resolve the session; getToken() returns null before
 		// isLoaded and would strand the UI on its loading skeleton.
-		if (!isLoaded || loadedInitial.current) {
+		if (!isLoaded) {
 			return;
 		}
-		loadedInitial.current = true;
 		if (!isSignedIn) {
 			return;
 		}
@@ -142,6 +140,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 									<Button
 										type="button"
 										onClick={() => setConfirming(null)}
+										variant="ghost"
 										className="text-xs text-muted-foreground transition hover:text-foreground"
 									>
 										Cancel
@@ -151,6 +150,7 @@ export function KeyList({ prepend }: { prepend?: ApiKeySummary }) {
 								<Button
 									type="button"
 									onClick={() => setConfirming(key.id)}
+									variant="ghost"
 									className="text-xs text-muted-foreground transition hover:text-destructive"
 								>
 									Revoke

@@ -1,11 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import { TIERS } from "@uwu/shared";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getMe } from "@/lib/api";
 import { AccountPanel } from "./account-panel";
 
+const { mockGetToken } = vi.hoisted(() => ({
+	mockGetToken: vi.fn(async () => "tok")
+}));
+
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: async () => "tok" })
+	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: mockGetToken })
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -24,12 +29,16 @@ afterEach(() => {
 
 describe("AccountPanel", () => {
 	it("renders the current tier and its limits", async () => {
-		getMeMock.mockResolvedValueOnce({
+		getMeMock.mockResolvedValue({
 			user_id: "user_1",
 			tier: "free",
 			limits: TIERS.free
 		});
-		render(<AccountPanel />);
+		render(
+			<StrictMode>
+				<AccountPanel />
+			</StrictMode>
+		);
 
 		expect(await screen.findByText(/current plan/i)).toBeInTheDocument();
 		expect(screen.getAllByText(/free/i).length).toBeGreaterThan(0);
