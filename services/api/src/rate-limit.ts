@@ -6,7 +6,7 @@ export type RateLimitResult =
 	| { allowed: true }
 	| { allowed: false; retryAfterSeconds: number };
 
-interface WindowCounter {
+export interface FixedWindowUsage {
 	count: number;
 	resetAt: number;
 }
@@ -20,7 +20,7 @@ export class KvFixedWindow implements RateLimiter {
 
 	async limit(key: string): Promise<RateLimitResult> {
 		const now = Date.now();
-		const kvKey = `ratelimit:${key}`;
+		const kvKey = this.storageKey(key);
 		const current = await this.readCounter(kvKey);
 		const counter =
 			current === null || current.resetAt <= now
@@ -43,14 +43,23 @@ export class KvFixedWindow implements RateLimiter {
 		return { allowed: true };
 	}
 
-	private async readCounter(key: string): Promise<WindowCounter | null> {
+	async usage(key: string): Promise<FixedWindowUsage | null> {
+		const counter = await this.readCounter(this.storageKey(key));
+		return counter === null || counter.resetAt <= Date.now() ? null : counter;
+	}
+
+	private storageKey(key: string): string {
+		return `ratelimit:${key}`;
+	}
+
+	private async readCounter(key: string): Promise<FixedWindowUsage | null> {
 		const raw = await this.kv.get(key);
 		if (raw === null) {
 			return null;
 		}
 
 		try {
-			const parsed = JSON.parse(raw) as Partial<WindowCounter>;
+			const parsed = JSON.parse(raw) as Partial<FixedWindowUsage>;
 			if (
 				typeof parsed.count === "number" &&
 				typeof parsed.resetAt === "number"

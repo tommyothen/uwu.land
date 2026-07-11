@@ -396,11 +396,15 @@ console.log(data.short_url);`}</Code>
 {
   "user_id": "user_2abc...",
   "tier": "free",
-  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiKeys": ${TIERS.free.apiKeys} }
+  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiKeys": ${TIERS.free.apiKeys} },
+  "usage": { "createdToday": 14, "apiKeys": 1, "resetAt": "2026-07-11T09:30:00.000Z" }
 }`}</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					<code>limits</code> are the static values for your tier;{" "}
-					<code>/me</code> does not report your current usage.
+					<code>usage</code> shows what you have consumed: <code>createdToday</code>{" "}
+					counts link creations in the current daily window and <code>resetAt</code>{" "}
+					(UTC ISO 8601, <code>null</code> before your first create of the window){" "}
+					is when it resets.
 				</p>
 
 				<H2 id="keys">Key management</H2>
