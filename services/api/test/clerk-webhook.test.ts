@@ -12,7 +12,11 @@ const WEBHOOK_URL = "https://uwu.land/webhooks/clerk";
 
 interface BillingPayload {
 	type: string;
+	timestamp?: number;
 	data: {
+		id?: string;
+		object?: string;
+		status?: string;
 		payer?: { user_id?: string };
 		plan?: { slug?: string };
 	};
@@ -55,10 +59,10 @@ describe("Clerk billing webhook", () => {
 	it("sets a first_class subscriber to free when their subscription ends", async () => {
 		await seedUser("user_ended", "pro");
 
-		const response = await sendWebhook({
-			type: "subscriptionItem.ended",
-			data: { payer: { user_id: "user_ended" }, plan: { slug: "first_class" } }
-		});
+		await sendWebhook(activePayload("user_ended", "subi_ended", 100));
+		const response = await sendWebhook(
+			itemPayload("subscriptionItem.ended", "user_ended", "subi_ended", 200)
+		);
 
 		expect(response.status).toBe(200);
 		expect((await findUser("user_ended"))?.tier).toBe("free");
@@ -67,13 +71,15 @@ describe("Clerk billing webhook", () => {
 	it("does not change a canceled first_class subscription", async () => {
 		await seedUser("user_canceled", "pro");
 
-		const response = await sendWebhook({
-			type: "subscriptionItem.canceled",
-			data: {
-				payer: { user_id: "user_canceled" },
-				plan: { slug: "first_class" }
-			}
-		});
+		await sendWebhook(activePayload("user_canceled", "subi_canceled", 100));
+		const response = await sendWebhook(
+			itemPayload(
+				"subscriptionItem.canceled",
+				"user_canceled",
+				"subi_canceled",
+				200
+			)
+		);
 
 		expect(response.status).toBe(200);
 		expect((await findUser("user_canceled"))?.tier).toBe("pro");
@@ -82,13 +88,15 @@ describe("Clerk billing webhook", () => {
 	it("ignores billing events for other plans", async () => {
 		await seedUser("user_other_plan", "free");
 
-		const response = await sendWebhook({
-			type: "subscriptionItem.active",
-			data: {
-				payer: { user_id: "user_other_plan" },
-				plan: { slug: "other_plan" }
-			}
-		});
+		const response = await sendWebhook(
+			itemPayload(
+				"subscriptionItem.active",
+				"user_other_plan",
+				"subi_other",
+				100,
+				"other_plan"
+			)
+		);
 
 		expect(response.status).toBe(200);
 		expect((await findUser("user_other_plan"))?.tier).toBe("free");
@@ -115,18 +123,111 @@ describe("Clerk billing webhook", () => {
 		expect(response.status).toBe(400);
 		expect((await findUser("user_stale"))?.tier).toBe("free");
 	});
+
+	it("ignores a duplicate delivery", async () => {
+		const payload = activePayload("user_duplicate", "subi_duplicate", 100);
+
+		await sendWebhook(payload, { id: "msg_duplicate" });
+		await sendWebhook(payload, { id: "msg_duplicate" });
+
+		expect((await findUser("user_duplicate"))?.tier).toBe("pro");
+		const count = await env.DB.prepare(
+			"SELECT COUNT(*) AS count FROM clerk_webhook_events WHERE id = ?"
+		)
+			.bind("msg_duplicate")
+			.first<{ count: number }>();
+		expect(count?.count).toBe(1);
+	});
+
+	it("ignores an older ended event delivered after active", async () => {
+		await sendWebhook(activePayload("user_ordered", "subi_ordered", 200));
+		await sendWebhook(
+			itemPayload("subscriptionItem.ended", "user_ordered", "subi_ordered", 100)
+		);
+
+		expect((await findUser("user_ordered"))?.tier).toBe("pro");
+	});
+
+	it("keeps pro while another first_class item remains active", async () => {
+		await sendWebhook(activePayload("user_multiple", "subi_one", 100));
+		await sendWebhook(activePayload("user_multiple", "subi_two", 110));
+		await sendWebhook(
+			itemPayload("subscriptionItem.ended", "user_multiple", "subi_one", 200)
+		);
+
+		expect((await findUser("user_multiple"))?.tier).toBe("pro");
+	});
+
+	it("sets free after the final first_class item ends", async () => {
+		await sendWebhook(activePayload("user_final", "subi_one", 100));
+		await sendWebhook(activePayload("user_final", "subi_two", 110));
+		await sendWebhook(
+			itemPayload("subscriptionItem.ended", "user_final", "subi_one", 200)
+		);
+		await sendWebhook(
+			itemPayload("subscriptionItem.ended", "user_final", "subi_two", 210)
+		);
+
+		expect((await findUser("user_final"))?.tier).toBe("free");
+	});
+
+	it("rejects a malformed relevant event", async () => {
+		await seedUser("user_malformed", "free");
+		const payload = activePayload("user_malformed", "subi_malformed", 100);
+		delete payload.data.id;
+
+		const response = await sendWebhook(payload);
+
+		expect(response.status).toBe(400);
+		expect((await findUser("user_malformed"))?.tier).toBe("free");
+	});
+
+	it("acknowledges an unknown event without mutation", async () => {
+		await seedUser("user_unknown", "free");
+
+		const response = await sendWebhook({
+			type: "paymentAttempt.created",
+			timestamp: 100,
+			data: { payer: { user_id: "user_unknown" } }
+		});
+
+		expect(response.status).toBe(200);
+		expect((await findUser("user_unknown"))?.tier).toBe("free");
+	});
 });
 
-function activePayload(userId: string): BillingPayload {
+function activePayload(
+	userId: string,
+	itemId = `subi_${userId}`,
+	timestamp = 100
+): BillingPayload {
+	return itemPayload("subscriptionItem.active", userId, itemId, timestamp);
+}
+
+function itemPayload(
+	type: string,
+	userId: string,
+	itemId: string,
+	timestamp: number,
+	planSlug = "first_class"
+): BillingPayload {
+	const status = type.slice("subscriptionItem.".length);
 	return {
-		type: "subscriptionItem.active",
-		data: { payer: { user_id: userId }, plan: { slug: "first_class" } }
+		type,
+		timestamp,
+		data: {
+			id: itemId,
+			object: "commerce_subscription_item",
+			status,
+			payer: { user_id: userId },
+			plan: { slug: planSlug }
+		}
 	};
 }
 
 async function sendWebhook(
 	payload: BillingPayload,
-	options: { timestamp?: number } = {}
+	options: { timestamp?: number; id?: string } = {}
 ): Promise<Response> {
 	return app.fetch(
 		await signedRequest(payload, options),
@@ -137,10 +238,10 @@ async function sendWebhook(
 
 async function signedRequest(
 	payload: BillingPayload,
-	options: { timestamp?: number } = {}
+	options: { timestamp?: number; id?: string } = {}
 ): Promise<Request> {
 	const body = JSON.stringify(payload);
-	const id = "msg_test_123";
+	const id = options.id ?? `msg_${crypto.randomUUID()}`;
 	const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
 	const signature = await signSvix(`${id}.${timestamp}.${body}`);
 

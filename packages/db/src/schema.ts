@@ -8,6 +8,31 @@ export const users = sqliteTable("users", {
 		.$defaultFn(() => new Date())
 });
 
+export const clerkWebhookEvents = sqliteTable("clerk_webhook_events", {
+	id: text("id").primaryKey(),
+	eventTimestamp: integer("event_timestamp").notNull(),
+	processedAt: integer("processed_at", { mode: "timestamp" })
+		.notNull()
+		.$defaultFn(() => new Date())
+});
+
+export const clerkSubscriptionItems = sqliteTable(
+	"clerk_subscription_items",
+	{
+		id: text("id").primaryKey(),
+		payerUserId: text("payer_user_id").notNull(),
+		planSlug: text("plan_slug").notNull(),
+		status: text("status", {
+			enum: ["active", "canceled", "ended", "abandoned"]
+		}).notNull(),
+		eventTimestamp: integer("event_timestamp").notNull(),
+		eventId: text("event_id")
+			.notNull()
+			.references(() => clerkWebhookEvents.id)
+	},
+	(t) => [index("clerk_subscription_items_payer_idx").on(t.payerUserId)]
+);
+
 export const apiKeys = sqliteTable("api_keys", {
 	id: text("id").primaryKey(),
 	userId: text("user_id")
