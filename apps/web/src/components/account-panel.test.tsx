@@ -1,16 +1,24 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { TIERS } from "@uwu/shared";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getMe } from "@/lib/api";
 import { AccountPanel } from "./account-panel";
 
-const { mockGetToken } = vi.hoisted(() => ({
-	mockGetToken: vi.fn(async () => "tok")
+const { mockGetToken, mockOpenUserProfile } = vi.hoisted(() => ({
+	mockGetToken: vi.fn(async () => "tok"),
+	mockOpenUserProfile: vi.fn()
 }));
 
 vi.mock("@clerk/react-router", () => ({
-	useAuth: () => ({ isLoaded: true, isSignedIn: true, getToken: mockGetToken })
+	useAuth: () => ({
+		isLoaded: true,
+		isSignedIn: true,
+		getToken: mockGetToken
+	}),
+	useClerk: () => ({ openUserProfile: mockOpenUserProfile }),
+	PricingTable: () => <div data-testid="clerk-pricing-table">Clerk PricingTable</div>
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -48,7 +56,7 @@ describe("AccountPanel", () => {
 		).toBeInTheDocument();
 	});
 
-	it("shows the First-Class column, pricing, and coming-soon badge", async () => {
+	it("shows the First-Class column and pricing without a coming-soon badge", async () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
@@ -59,10 +67,51 @@ describe("AccountPanel", () => {
 
 		expect(await screen.findByText("First-Class")).toBeInTheDocument();
 		expect(screen.getByText("$4/mo · $36/yr")).toBeInTheDocument();
-		expect(screen.getByText("coming soon", { exact: true })).toBeInTheDocument();
+		expect(screen.queryByText("coming soon")).not.toBeInTheDocument();
 		expect(
 			screen.getByText(String(TIERS.pro.createPerDay))
 		).toBeInTheDocument();
+	});
+
+	it("renders the Clerk upgrade section for free-tier users", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "free",
+			limits: TIERS.free,
+			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
+		});
+		render(<AccountPanel />);
+
+		expect(
+			await screen.findByRole("heading", { name: /upgrade to first-class/i })
+		).toBeInTheDocument();
+		expect(screen.getByTestId("clerk-pricing-table")).toBeInTheDocument();
+		// Pro users' self-service surface must not appear for free users.
+		expect(
+			screen.queryByRole("button", { name: /manage subscription/i })
+		).not.toBeInTheDocument();
+	});
+
+	it("shows the thanks line and manage button for pro users, not the pricing table", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "pro",
+			limits: TIERS.pro,
+			usage: { createdToday: 2, apiKeys: 1, resetAt: null }
+		});
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		expect(
+			await screen.findByText(/keeping the post office running/i)
+		).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("clerk-pricing-table")
+		).not.toBeInTheDocument();
+
+		const manage = screen.getByRole("button", { name: /manage subscription/i });
+		await user.click(manage);
+		expect(mockOpenUserProfile).toHaveBeenCalledTimes(1);
 	});
 
 	it("surfaces how much of today's quota is used and left", async () => {
