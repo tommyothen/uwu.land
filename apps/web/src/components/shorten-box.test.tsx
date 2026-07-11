@@ -162,9 +162,8 @@ describe("ShortenBox submit choreography", () => {
 				status: 429,
 				code: "rate_limited",
 				message: "slow down",
-				// biome-ignore lint/suspicious/noExplicitAny: exercising the retry-after envelope field
 				retry_after: 42
-			} as any)
+			})
 		);
 		render(<ShortenBox />);
 		submit();
