@@ -50,7 +50,7 @@ function isValidUrl(value: string): boolean {
 }
 
 function retryAfterFrom(error: UwuApiError): number | null {
-	const raw = (error.error as { retry_after?: unknown }).retry_after;
+	const raw = error.error.retry_after;
 	return typeof raw === "number" && raw > 0 ? Math.floor(raw) : null;
 }
 
@@ -108,7 +108,6 @@ export function ShortenBox() {
 	const ctxRef = useRef<GsapContext | null>(null);
 	const mounted = useRef(true);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: run once for lifecycle
 	useEffect(() => {
 		mounted.current = true;
 		return () => {
