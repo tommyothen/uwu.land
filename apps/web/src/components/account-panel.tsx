@@ -217,31 +217,32 @@ export function AccountPanel() {
 					atLimit={keysAtLimit}
 				/>
 			</div>
-			<Table className="mt-6 overflow-x-auto rounded-xl border border-border bg-card text-left text-sm">
-				<TableHeader>
-					<TableRow className="border-b border-border text-muted-foreground">
-						<TableHead className="p-4 font-medium">Limit</TableHead>
-						<TableHead
-							className={`p-4 font-medium ${
-								me.tier === "free" ? "text-foreground" : ""
-							}`}
-						>
-							{TIERS.free.displayName}
-							{me.tier === "free" ? " (you)" : ""}
-						</TableHead>
-						<TableHead
-							className={`p-4 font-medium ${
-								me.tier === "pro" ? "text-foreground" : ""
-							}`}
-						>
-							<span>
-								{TIERS.pro.displayName}
-								{me.tier === "pro" ? " (you)" : ""}
-							</span>
-							<span className="block text-xs font-normal normal-case text-muted-foreground">
-								${TIERS.pro.priceUsdMonthly}/mo · ${TIERS.pro.priceUsdYearly}/yr
-							</span>
-						</TableHead>
+			<div className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
+				<Table className="text-left text-sm">
+					<TableHeader>
+						<TableRow className="border-b border-border text-muted-foreground">
+							<TableHead className="p-4 font-medium">Limit</TableHead>
+							<TableHead
+								className={`p-4 font-medium ${
+									me.tier === "free" ? "text-foreground" : ""
+								}`}
+							>
+								{TIERS.free.displayName}
+								{me.tier === "free" ? " (you)" : ""}
+							</TableHead>
+							<TableHead
+								className={`p-4 font-medium ${
+									me.tier === "pro" ? "text-foreground" : ""
+								}`}
+							>
+								<span>
+									{TIERS.pro.displayName}
+									{me.tier === "pro" ? " (you)" : ""}
+								</span>
+								<span className="block text-xs font-normal normal-case text-muted-foreground">
+									${TIERS.pro.priceUsdMonthly}/mo · ${TIERS.pro.priceUsdYearly}/yr
+								</span>
+							</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -258,7 +259,8 @@ export function AccountPanel() {
 							</TableRow>
 						))}
 					</TableBody>
-			</Table>
+				</Table>
+			</div>
 			<p className="mt-4 text-xs text-muted-foreground">
 				Anonymous shortening stays free forever regardless of plan. First-Class is
 				$4/month or $36/year.
