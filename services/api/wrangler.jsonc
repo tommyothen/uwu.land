@@ -3,11 +3,11 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
   "kv_namespaces": [
-    { "binding": "UWU", "id": "TODO-kv-id-uwu" },
-    { "binding": "CLICKS", "id": "TODO-kv-id-clicks" }
+    { "binding": "UWU", "id": "8303f7a9d3d24bb2997663f8c1d3904e" },
+    { "binding": "CLICKS", "id": "c9fdaa00d93a420a97b700bd580f0153" }
   ],
   "analytics_engine_datasets": [
-    { "binding": "CLICK_EVENTS", "dataset": "TODO-ae-dataset" }
+    { "binding": "CLICK_EVENTS", "dataset": "uwu_click_events" }
   ],
   // Refresh the add-only grabber-domain blocklist daily at 06:00 UTC.
   "triggers": {
@@ -15,13 +15,13 @@
   },
   // Set CLERK_WEBHOOK_SIGNING_SECRET with `wrangler secret put`; do not add it to vars.
   "vars": {
-    "CLERK_ISSUER": "TODO-clerk-issuer"
+    "CLERK_ISSUER": "https://clerk.uwu.land"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "uwu-land",
-      "database_id": "TODO-d1-id",
+      "database_id": "19221d50-ff3c-4300-934f-72195622125c",
       "migrations_dir": "../../packages/db/migrations"
     }
   ]
