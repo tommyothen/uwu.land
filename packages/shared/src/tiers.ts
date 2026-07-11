@@ -3,22 +3,28 @@ export type TierKey = "anon" | "free" | "pro";
 export interface TierLimits {
 	createPerDay: number;
 	apiKeys: number;
+	displayName: string;
 	priceUsdMonthly?: number | null;
+	priceUsdYearly?: number | null;
 }
 
 export const TIERS = {
 	anon: {
 		createPerDay: 15,
-		apiKeys: 0
+		apiKeys: 0,
+		displayName: "Anonymous"
 	},
 	free: {
 		createPerDay: 120,
-		apiKeys: 1
+		apiKeys: 1,
+		displayName: "Free"
 	},
 	pro: {
 		createPerDay: 2000,
 		apiKeys: 10,
-		priceUsdMonthly: null
+		displayName: "First-Class",
+		priceUsdMonthly: 4,
+		priceUsdYearly: 36
 	}
 } as const satisfies Record<TierKey, TierLimits>;
 

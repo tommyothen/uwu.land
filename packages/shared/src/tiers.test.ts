@@ -16,7 +16,9 @@ describe("tier limits", () => {
 		expect(TIERS.pro).toMatchObject({
 			createPerDay: 2000,
 			apiKeys: 10,
-			priceUsdMonthly: null
+			displayName: "First-Class",
+			priceUsdMonthly: 4,
+			priceUsdYearly: 36
 		});
 	});
 });
