@@ -141,7 +141,7 @@ describe("keys and me", () => {
 		const me = {
 			user_id: "user_1",
 			tier: "free",
-			limits: { createPerDay: 120, apiPerMin: 60, apiKeys: 1 }
+			limits: { createPerDay: 120, apiKeys: 1 }
 		};
 		fetchMock.mockResolvedValueOnce(jsonResponse(me));
 

@@ -4,7 +4,6 @@ import { limitsFor, TIERS } from "./tiers";
 describe("tier limits", () => {
 	it("defines the anonymous limits", () => {
 		expect(TIERS.anon.createPerDay).toBe(15);
-		expect(TIERS.anon.apiPerMin).toBe(3);
 		expect(limitsFor("anon")).toBe(TIERS.anon);
 	});
 
@@ -12,12 +11,10 @@ describe("tier limits", () => {
 		expect(Object.keys(TIERS).sort()).toEqual(["anon", "free", "pro"]);
 		expect(TIERS.free).toMatchObject({
 			createPerDay: 120,
-			apiPerMin: 60,
 			apiKeys: 1
 		});
 		expect(TIERS.pro).toMatchObject({
 			createPerDay: 2000,
-			apiPerMin: 600,
 			apiKeys: 10,
 			priceUsdMonthly: null
 		});

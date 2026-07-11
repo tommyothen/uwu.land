@@ -45,7 +45,6 @@ describe("AccountPanel", () => {
 		expect(
 			screen.getByText(String(TIERS.free.createPerDay))
 		).toBeInTheDocument();
-		expect(screen.getByText(String(TIERS.free.apiPerMin))).toBeInTheDocument();
 	});
 
 	it("shows the Pro column as coming soon", async () => {
