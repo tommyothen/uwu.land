@@ -216,11 +216,21 @@ body {
 .stamp-glyph {
 	font-size: calc(var(--stamp-size, 100px) * 0.18);
 	line-height: 1;
+	/* The glyph is flown out of the stamp and back on send (landing route). */
+	will-change: transform;
 }
 
 /* The envelope face; --field-h drives the promise anchor and the field height. */
 .landing-root {
 	--field-h: clamp(130px, 18vw, 190px);
+}
+
+/* Short viewports: shrink the cloud band so the promise sits lower, giving the
+   hero room to centre while the success result still clears the promise text. */
+@media (max-height: 820px) {
+	.landing-root {
+		--field-h: clamp(96px, 15vh, 150px);
+	}
 }
 
 /* Cloud field: three riso plates + concentrated ink grain (layer 2). */
@@ -370,14 +380,16 @@ body {
 
 /* ── Submit choreography + state system (spec §6, §7.2) ──────────────── */
 
-/* Fixed-size shell: reserves the LARGER (result) footprint from first paint so the
-   input→result swap is CLS 0. Input and result are absolutely stacked, top-aligned
-   (so the result lands in the input card's exact position and the §4 tagline→input
-   rhythm is preserved); nothing outside the shell moves during any choreography
-   state. 200px comfortably clears the result card + claim-ticket stub (~196px). */
+/* The input and the result are absolutely stacked and top-aligned inside this
+   shell, so the input→result swap is CLS 0 no matter the shell's own height (the
+   result lands in the input card's exact position). The shell therefore only needs
+   to reserve the idle form's footprint; keeping it compact lets <main> centre the
+   hero optically rather than around the taller result's empty reserve. The result
+   overflows downward on success — the landing route reserves clearance below so it
+   never reaches the promise band. */
 .envelope-shell {
 	position: relative;
-	min-height: 200px;
+	min-height: 80px;
 }
 
 .envelope-shell > form,
@@ -401,16 +413,6 @@ body {
 	text-overflow: clip;
 	transform: translateY(-50%);
 	pointer-events: none;
-}
-
-.flight-overlay {
-	position: absolute;
-	inset: 0;
-	width: 100%;
-	height: 100%;
-	overflow: visible;
-	pointer-events: none;
-	z-index: 3;
 }
 
 /* Rubber stamps: text-in-a-box / text-in-a-circle, never illustration. */

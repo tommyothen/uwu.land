@@ -5,7 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 import Home from "./home";
 
 vi.mock("@clerk/react-router", () => ({
-	Show: ({ children }: { children: ReactNode }) => children
+	Show: ({ children }: { children: ReactNode }) => children,
+	useAuth: () => ({
+		isLoaded: true,
+		isSignedIn: false,
+		getToken: vi.fn(async () => null)
+	})
 }));
 
 function renderHome() {
