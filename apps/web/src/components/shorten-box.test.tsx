@@ -1,7 +1,38 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLink, UwuApiError } from "@/lib/api";
 import { ShortenBox } from "./shorten-box";
+
+// Mutable auth stub so individual tests can flip signed-in/out (house pattern:
+// see account-panel.test.tsx) without re-mocking the module.
+const { authState } = vi.hoisted(() => ({
+	authState: {
+		isLoaded: true,
+		isSignedIn: false,
+		getToken: vi.fn(async () => null as string | null)
+	}
+}));
+
+vi.mock("@clerk/react-router", () => ({
+	useAuth: () => authState
+}));
+
+// The signed-in result card links to /dashboard; stub Link so it renders without
+// a Router context.
+vi.mock("react-router", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("react-router")>();
+	return {
+		...actual,
+		Link: ({
+			children,
+			to
+		}: {
+			children: ReactNode;
+			to: string;
+		}) => <a href={to}>{children}</a>
+	};
+});
 
 vi.mock("@/lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -32,6 +63,9 @@ const link = {
 
 async function flush() {
 	await act(async () => {
+		// A few turns: getToken resolves, then createLink, then apiResult is set.
+		await Promise.resolve();
+		await Promise.resolve();
 		await Promise.resolve();
 		await Promise.resolve();
 	});
@@ -54,6 +88,9 @@ function submit(url = "https://example.com/page") {
 beforeEach(() => {
 	vi.useFakeTimers();
 	setReducedMotion(false);
+	authState.isLoaded = true;
+	authState.isSignedIn = false;
+	authState.getToken = vi.fn(async () => null);
 	Object.defineProperty(navigator, "clipboard", {
 		value: { writeText },
 		configurable: true
@@ -228,6 +265,58 @@ describe("ShortenBox submit choreography", () => {
 		submit();
 		await advance(750);
 		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
+	});
+
+	it("creates anonymously with a null token when signed out", async () => {
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		submit();
+		await advance(750);
+
+		expect(createLinkMock).toHaveBeenCalledWith(
+			{ url: "https://example.com/page" },
+			null
+		);
+		expect(
+			screen.getByText("Delivered. Your link now fits anywhere.")
+		).toBeInTheDocument();
+	});
+
+	it("passes the Clerk token and acknowledges the account when signed in", async () => {
+		authState.isSignedIn = true;
+		authState.getToken = vi.fn(async () => "tok_123");
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		submit();
+		await advance(750);
+		await advance(250);
+
+		expect(createLinkMock).toHaveBeenCalledWith(
+			{ url: "https://example.com/page" },
+			"tok_123"
+		);
+		expect(screen.getByText(/Filed under your/)).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: "account" })).toHaveAttribute(
+			"href",
+			"/dashboard"
+		);
+	});
+
+	it("falls back to an anonymous create when getToken unexpectedly returns null", async () => {
+		authState.isSignedIn = true;
+		authState.getToken = vi.fn(async () => null);
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		submit();
+		await advance(750);
+
+		expect(createLinkMock).toHaveBeenCalledWith(
+			{ url: "https://example.com/page" },
+			null
+		);
+		expect(
+			screen.getByText("Delivered. Your link now fits anywhere.")
+		).toBeInTheDocument();
 	});
 
 	it("crossfades straight to the result under reduced motion (no plane, no in-transit)", async () => {

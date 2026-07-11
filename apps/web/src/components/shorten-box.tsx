@@ -1,17 +1,18 @@
 "use client";
 
+import { useAuth } from "@clerk/react-router";
 import { useGSAP } from "@gsap/react";
 import type { CreateLinkResponse } from "@uwu/shared";
 import { gsap } from "gsap";
-import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ClaimTicket } from "@/components/postal/claim-ticket";
 import { RubberStamp } from "@/components/postal/rubber-stamp";
 import { createLink, UwuApiError } from "@/lib/api";
 
-gsap.registerPlugin(useGSAP, MotionPathPlugin);
+gsap.registerPlugin(useGSAP);
 
-/** Beat 4 of §7.2: the plane exits the viewport at ~740ms. */
+/** Beat 4 of §7.2: the result is held until the stamp plane clears (~740ms). */
 const PLANE_EXIT_MS = 740;
 /** Beats 6-7: the result lands and gets postmarked. */
 const LAND_MS = 220;
@@ -89,10 +90,14 @@ export function ShortenBox() {
 	const [torn, setTorn] = useState(false);
 	const [countdown, setCountdown] = useState<number | null>(null);
 	const [announce, setAnnounce] = useState("");
+	const [savedToAccount, setSavedToAccount] = useState(false);
+
+	const { isLoaded, isSignedIn, getToken } = useAuth();
 
 	const scope = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const planeExited = useRef(false);
+	const authedRef = useRef(false);
 	const apiResult = useRef<
 		{ ok: true; link: CreateLinkResponse } | { ok: false; error: unknown } | null
 	>(null);
@@ -124,42 +129,31 @@ export function ShortenBox() {
 		return () => clearInterval(id);
 	}, [countdown]);
 
-	const flyPlane = contextSafe(() => {
+	// The send press + the input folding shut behind the departing letter. The
+	// plane itself lives in the AIR MAIL stamp (top-right of the page); we fire a
+	// window event so it takes off — see the listener in the landing route.
+	const takeoff = contextSafe(() => {
 		if (!scope.current) return;
 		timeline.current?.kill();
 		const tl = gsap.timeline();
 		timeline.current = tl;
-		const path = scope.current.querySelector(".flight-path-line");
-		const plane = scope.current.querySelector(".flight-plane");
 		const clone = scope.current.querySelector(".flight-clone");
-		const button = scope.current.querySelector(".send-button");
-		if (button) tl.to(button, { scale: 0.96, duration: 0.09, ease: "power2.out" }, 0);
+		const button = scope.current.querySelector<HTMLElement>(".send-button");
+
+		if (button)
+			tl.to(button, { scale: 0.96, duration: 0.09, ease: "power2.out" }, 0).to(
+				button,
+				{ scale: 1, duration: 0.24, ease: "power2.out" },
+				0.09
+			);
 		if (clone)
 			tl.to(
 				clone,
 				{ scaleX: 0, duration: 0.15, transformOrigin: "right center", ease: "power2.in" },
 				0.09
 			);
-		if (path) {
-			const length = (path as SVGPathElement).getTotalLength?.() ?? 300;
-			gsap.set(path, { strokeDasharray: length, strokeDashoffset: length, opacity: 1 });
-			tl.to(path, { strokeDashoffset: 0, duration: 0.32, ease: "power1.inOut" }, 0.24);
-			tl.to(path, { opacity: 0, duration: 0.2, ease: "power1.out" }, 0.56);
-		}
-		if (plane && path) {
-			gsap.set(plane, { opacity: 1 });
-			tl.to(
-				plane,
-				{
-					motionPath: { path: path as SVGPathElement, align: path as SVGPathElement, autoRotate: true },
-					scale: 0.9,
-					duration: 0.5,
-					ease: "power1.in"
-				},
-				0.24
-			);
-			tl.to(plane, { opacity: 0, duration: 0.01 }, 0.74);
-		}
+
+		window.dispatchEvent(new CustomEvent("uwu:send"));
 	});
 
 	const landResult = contextSafe(() => {
@@ -197,6 +191,7 @@ export function ShortenBox() {
 
 	function arrive(created: CreateLinkResponse, motion: boolean) {
 		if (!mounted.current) return;
+		setSavedToAccount(authedRef.current);
 		setLink(created);
 		setAnnounce(
 			`Your short link is ready: ${created.short_url.replace(/^https?:\/\//, "")}`
@@ -238,9 +233,11 @@ export function ShortenBox() {
 		if (landTimer.current) clearTimeout(landTimer.current);
 		planeExited.current = false;
 		apiResult.current = null;
+		authedRef.current = false;
 		setError(null);
 		setCountdown(null);
 		setTorn(false);
+		setSavedToAccount(false);
 
 		// Invalid URL: the plane never launches (spec §6).
 		if (!isValidUrl(value)) {
@@ -251,7 +248,18 @@ export function ShortenBox() {
 		const motion = !prefersReducedMotion();
 		setPhase("departing");
 
-		createLink({ url: value }, null)
+		// Signed-in senders file the link under their account; a missing token
+		// (unexpected) quietly falls back to an anonymous create.
+		const tokenPromise: Promise<string | null> =
+			isLoaded && isSignedIn
+				? getToken().catch(() => null)
+				: Promise.resolve(null);
+
+		tokenPromise
+			.then((token) => {
+				authedRef.current = token !== null;
+				return createLink({ url: value }, token);
+			})
 			.then((created) => {
 				apiResult.current = { ok: true, link: created };
 				tryProceed(motion);
@@ -261,7 +269,7 @@ export function ShortenBox() {
 				tryProceed(motion);
 			});
 
-		if (motion) requestAnimationFrame(flyPlane);
+		if (motion) requestAnimationFrame(takeoff);
 		planeTimer.current = setTimeout(
 			() => {
 				planeExited.current = true;
@@ -290,14 +298,31 @@ export function ShortenBox() {
 		setTorn(false);
 		setCountdown(null);
 		setAnnounce("");
+		setSavedToAccount(false);
 		planeExited.current = false;
 		apiResult.current = null;
+		authedRef.current = false;
 		setPhase("idle");
 	}
 
 	const showResult = (phase === "arriving" || phase === "success") && link !== null;
 	const showForm = !showResult;
 	const disabled = phase === "departing" || phase === "awaiting";
+
+	// A couple of quiet postal notes for the curious (spec §9 easter eggs):
+	// type "uwu", or try to mail uwu.land to itself.
+	const eggNote = (() => {
+		const value = url.trim();
+		if (value === "") return null;
+		if (value.toLowerCase() === "uwu") return "uwu~ not a link, but i felt that.";
+		try {
+			if (new URL(value).host.replace(/^www\./, "") === "uwu.land")
+				return "mailing us to ourselves? bold. 🏤";
+		} catch {
+			// Not a URL yet — no note.
+		}
+		return null;
+	})();
 
 	return (
 		<div ref={scope} className="envelope-shell">
@@ -346,38 +371,20 @@ export function ShortenBox() {
 								className="state-stamp"
 							/>
 						)}
-
-						{/* Flight path + plane exist only during flight (spec §7.2). */}
-						{phase === "departing" && (
-							<svg
-								aria-hidden="true"
-								className="flight-overlay"
-								viewBox="0 0 400 200"
-								preserveAspectRatio="none"
-							>
-								<path
-									className="flight-path-line"
-									d="M320 150 Q 380 30 560 -120"
-									fill="none"
-									stroke="var(--foreground)"
-									strokeWidth="2"
-									strokeDasharray="2 7"
-									strokeLinecap="round"
-									opacity="0"
-								/>
-								<path
-									className="flight-plane"
-									d="M0 8 L16 0 L11 8 L16 16 Z"
-									fill="var(--foreground)"
-									opacity="0"
-								/>
-							</svg>
-						)}
 					</div>
 
 					{phase === "awaiting" && (
 						<p className="mt-3 text-center font-mono text-xs text-muted-foreground">
 							in transit…
+						</p>
+					)}
+
+					{phase === "idle" && eggNote && (
+						<p
+							aria-hidden="true"
+							className="mt-3 text-center font-mono text-xs text-muted-foreground"
+						>
+							{eggNote}
 						</p>
 					)}
 
@@ -407,7 +414,20 @@ export function ShortenBox() {
 							className="postmark"
 						/>
 						<p className="text-[13px] text-muted-foreground">
-							Delivered. Your link now fits anywhere.
+							{savedToAccount ? (
+								<>
+									Delivered. Filed under your{" "}
+									<Link
+										to="/dashboard"
+										className="underline underline-offset-2 hover:text-foreground"
+									>
+										account
+									</Link>
+									.
+								</>
+							) : (
+								"Delivered. Your link now fits anywhere."
+							)}
 						</p>
 						<p className="mt-1.5 font-mono text-xl font-bold break-all text-card-foreground">
 							{link.short_url.replace(/^https?:\/\//, "")}
