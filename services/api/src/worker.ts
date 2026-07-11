@@ -19,14 +19,11 @@ import {
 import { redirectSlug } from "./redirect";
 import type { IdGenerator } from "./slugs";
 
-export interface Env {
-	UWU: KVNamespace;
-	CLICKS: KVNamespace;
-	CLICK_EVENTS: AnalyticsEngineDataset;
-	DB: D1Database;
-	CLERK_ISSUER?: string;
+export { Enforcement } from "./enforcement";
+
+export type Env = Cloudflare.Env & {
 	CLERK_WEBHOOK_SIGNING_SECRET?: string;
-}
+};
 
 export interface WorkerOptions {
 	generateId?: IdGenerator;

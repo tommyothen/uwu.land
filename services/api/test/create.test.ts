@@ -193,13 +193,15 @@ describe("anonymous link creation", () => {
 		expect(response.status).toBe(400);
 		expect(body.code).toBe("url_banned");
 		expect(
-			JSON.parse((await env.UWU.get("abuse:203.0.113.10")) ?? "{}")
-		).toMatchObject({ count: 1 });
+			await env.ENFORCEMENT.getByName("abuse:203.0.113.10").isBlocked()
+		).toBe(false);
 	});
 
 	it("blocks IPs that have been auto-banned from creating links", async () => {
 		const ip = "203.0.113.60";
-		await env.UWU.put(`ipban:${ip}`, "1");
+		await Promise.all(
+			Array.from({ length: 5 }, () => recordBannedAttempt(env.ENFORCEMENT, ip))
+		);
 		await env.UWU.put("banned:example.com", "1");
 
 		const response = await workerFetch(
@@ -223,25 +225,26 @@ describe("anonymous link creation", () => {
 		);
 
 		expect(response.status).toBe(201);
-		expect(await env.UWU.get(`abuse:${ip}`)).toBeNull();
+		expect(
+			await env.ENFORCEMENT.getByName(`abuse:${ip}`).isBlocked()
+		).toBe(false);
 	});
 
 	it("blocks an IP after its fifth banned-destination attempt", async () => {
 		const ip = "203.0.113.62";
 
 		for (let index = 0; index < 4; index++) {
-			await recordBannedAttempt(env.UWU, ip);
+			await recordBannedAttempt(env.ENFORCEMENT, ip);
 		}
-		const beforeThreshold = await env.UWU.get(`abuse:${ip}`);
+		expect(
+			await env.ENFORCEMENT.getByName(`abuse:${ip}`).isBlocked()
+		).toBe(false);
 
-		expect(JSON.parse(beforeThreshold ?? "{}")).toMatchObject({ count: 4 });
-		expect(await env.UWU.get(`ipban:${ip}`)).toBeNull();
+		await recordBannedAttempt(env.ENFORCEMENT, ip);
 
-		await recordBannedAttempt(env.UWU, ip);
-		const afterThreshold = await env.UWU.get(`abuse:${ip}`);
-
-		expect(JSON.parse(afterThreshold ?? "{}")).toMatchObject({ count: 5 });
-		expect(await env.UWU.get(`ipban:${ip}`)).toBe("1");
+		expect(
+			await env.ENFORCEMENT.getByName(`abuse:${ip}`).isBlocked()
+		).toBe(true);
 	});
 
 	it("rejects uwu.land URLs", async () => {
@@ -306,6 +309,34 @@ describe("anonymous link creation", () => {
 		expect(body.retry_after).toBeGreaterThanOrEqual(1);
 		expect(response.headers.get("Retry-After")).toBe(
 			String(body.retry_after)
+		);
+	});
+
+	it("allows exactly the create maximum under simultaneous requests", async () => {
+		let nextId = 0;
+		const quotaWorker = createWorker({
+			createPerDayLimit: 3,
+			generateId: () => `parallel-${nextId++}`
+		});
+		const quotaFetch = quotaWorker.fetch as TestFetch;
+		const responses = await Promise.all(
+			Array.from({ length: 10 }, (_, index) =>
+				quotaFetch(
+					createRequest(
+						{ url: `https://example.com/parallel-${index}` },
+						"203.0.113.32"
+					),
+					env as Env,
+					createExecutionContext()
+				)
+			)
+		);
+
+		expect(responses.filter((response) => response.status === 201)).toHaveLength(
+			3
+		);
+		expect(responses.filter((response) => response.status === 429)).toHaveLength(
+			7
 		);
 	});
 
