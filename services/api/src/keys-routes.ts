@@ -39,28 +39,33 @@ export async function createKey(
 		return errorResponse(400, "invalid_body", "Invalid request body.");
 	}
 
-	const db = drizzle(c.env.DB);
-	const existing = await db
-		.select({ id: apiKeys.id })
-		.from(apiKeys)
-		.where(and(eq(apiKeys.userId, auth.userId), isNull(apiKeys.revokedAt)))
-		.all();
-	if (existing.length >= TIERS[auth.tier].apiKeys) {
-		return errorResponse(409, "key_limit", "API key limit reached.");
-	}
-
 	const generated = await generateApiKey();
 	const id = crypto.randomUUID();
-	await db
-		.insert(apiKeys)
-		.values({
+	const inserted = await c.env.DB.prepare(
+		`INSERT INTO api_keys (
+			id, user_id, name, key_hash, display_prefix, created_at
+		)
+		SELECT ?, ?, ?, ?, ?, ?
+		WHERE (
+			SELECT count(*)
+			FROM api_keys
+			WHERE user_id = ? AND revoked_at IS NULL
+		) < ?`
+	)
+		.bind(
 			id,
-			userId: auth.userId,
-			name: parsed.data.name,
-			keyHash: generated.hash,
-			displayPrefix: generated.displayPrefix
-		})
+			auth.userId,
+			parsed.data.name,
+			generated.hash,
+			generated.displayPrefix,
+			Date.now(),
+			auth.userId,
+			TIERS[auth.tier].apiKeys
+		)
 		.run();
+	if (inserted.meta.changes === 0) {
+		return errorResponse(409, "key_limit", "API key limit reached.");
+	}
 
 	return Response.json(
 		{
