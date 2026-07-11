@@ -188,8 +188,8 @@ export function AccountPanel() {
 		<div className="mt-6">
 			<p className="text-sm text-muted-foreground">
 				Current plan:{" "}
-				<span className="font-medium capitalize text-foreground">
-					{me.tier}
+				<span className="font-medium text-foreground">
+					{TIERS[me.tier].displayName}
 				</span>
 			</p>
 			<div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -221,24 +221,29 @@ export function AccountPanel() {
 					<TableRow className="border-b border-border text-muted-foreground">
 						<TableHead className="p-4 font-medium">Limit</TableHead>
 						<TableHead
-								className={`p-4 font-medium capitalize ${
-									me.tier === "free"
-										? "text-foreground"
-										: ""
-								}`}
+							className={`p-4 font-medium ${
+								me.tier === "free" ? "text-foreground" : ""
+							}`}
 						>
-								Free{me.tier === "free" ? " (you)" : ""}
-							</TableHead>
+							{TIERS.free.displayName}
+							{me.tier === "free" ? " (you)" : ""}
+						</TableHead>
 						<TableHead
-								className={`p-4 font-medium ${
-									me.tier === "pro" ? "text-foreground" : ""
-								}`}
+							className={`p-4 font-medium ${
+								me.tier === "pro" ? "text-foreground" : ""
+							}`}
 						>
-								Pro{me.tier === "pro" ? " (you)" : ""}
+							<span>
+								{TIERS.pro.displayName}
+								{me.tier === "pro" ? " (you)" : ""}
 								<Badge className="ml-2 rounded-md bg-secondary px-1.5 py-0.5 text-xs font-normal normal-case text-muted-foreground">
 									coming soon
 								</Badge>
-							</TableHead>
+							</span>
+							<span className="block text-xs font-normal normal-case text-muted-foreground">
+								${TIERS.pro.priceUsdMonthly}/mo · ${TIERS.pro.priceUsdYearly}/yr
+							</span>
+						</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -257,8 +262,8 @@ export function AccountPanel() {
 					</TableBody>
 			</Table>
 			<p className="mt-4 text-xs text-muted-foreground">
-				Anonymous shortening stays free forever regardless of plan. Pro
-				pricing lands with the upgrade flow.
+				Anonymous shortening stays free forever regardless of plan. First-Class is
+				$4/month or $36/year; the upgrade flow is coming soon.
 			</p>
 		</div>
 	);

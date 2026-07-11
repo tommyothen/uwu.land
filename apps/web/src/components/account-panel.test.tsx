@@ -48,7 +48,7 @@ describe("AccountPanel", () => {
 		).toBeInTheDocument();
 	});
 
-	it("shows the Pro column as coming soon", async () => {
+	it("shows the First-Class column, pricing, and coming-soon badge", async () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
@@ -57,7 +57,9 @@ describe("AccountPanel", () => {
 		});
 		render(<AccountPanel />);
 
-		expect(await screen.findByText(/coming soon/i)).toBeInTheDocument();
+		expect(await screen.findByText("First-Class")).toBeInTheDocument();
+		expect(screen.getByText("$4/mo · $36/yr")).toBeInTheDocument();
+		expect(screen.getByText("coming soon", { exact: true })).toBeInTheDocument();
 		expect(
 			screen.getByText(String(TIERS.pro.createPerDay))
 		).toBeInTheDocument();

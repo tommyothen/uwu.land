@@ -370,8 +370,8 @@ console.log(data.short_url);`}</Code>
 									key={tier}
 									className="border-b border-border last:border-b-0"
 								>
-									<td className="p-3 capitalize">
-										{tier === "anon" ? "Anonymous" : tier}
+									<td className="p-3">
+										{TIERS[tier].displayName}
 									</td>
 									<td className="p-3 tabular-nums">
 										{TIERS[tier].createPerDay}
@@ -389,6 +389,10 @@ console.log(data.short_url);`}</Code>
 					429 includes <code>retry_after</code> (integer seconds) in the error
 					body and a matching <code>Retry-After</code> header.
 				</p>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					First-Class (the <code>pro</code> tier) costs $4/month or $36/year;
+					Free and anonymous use stay free forever.
+				</p>
 
 				<H2 id="me">Your account</H2>
 				<Code>{`GET /api/v1/me
@@ -396,7 +400,7 @@ console.log(data.short_url);`}</Code>
 {
   "user_id": "user_2abc...",
   "tier": "free",
-  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiKeys": ${TIERS.free.apiKeys} },
+  "limits": { "createPerDay": ${TIERS.free.createPerDay}, "apiKeys": ${TIERS.free.apiKeys}, "displayName": "${TIERS.free.displayName}" },
   "usage": { "createdToday": 14, "apiKeys": 1, "resetAt": "2026-07-11T09:30:00.000Z" }
 }`}</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
