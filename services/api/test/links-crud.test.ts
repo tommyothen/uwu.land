@@ -99,7 +99,8 @@ async function seedLink({
 			ownerId: userId,
 			externalRef,
 			source,
-			createdAt
+			createdAt,
+			clicks: Number.parseInt(clicks, 10)
 		})
 		.run();
 	await env.UWU.put(slug, url);
@@ -242,6 +243,46 @@ describe("owned links CRUD", () => {
 		}>();
 		expect(secondPageBody.links.map((link) => link.slug)).toContain("match-new");
 		expect(secondPageBody.cursor).toBeUndefined();
+	});
+
+	it("lists a full page without reading click counters from KV", async () => {
+		const secret = await seedApiKey();
+		for (let i = 0; i < 25; i++) {
+			await seedLink({
+				slug: `no-kv-${i.toString().padStart(2, "0")}`,
+				createdAt: new Date(Date.UTC(2026, 6, 10, 12, i)),
+				clicks: String(i)
+			});
+		}
+		let clickReads = 0;
+		const noClickReadsEnv = {
+			...env,
+			CLICKS: new Proxy(env.CLICKS, {
+				get(target, property, receiver) {
+					if (property === "get") {
+						return () => {
+							clickReads++;
+							throw new Error("unexpected click KV read");
+						};
+					}
+					return Reflect.get(target, property, receiver);
+				}
+			})
+		} as Env;
+
+		const response = await workerFetch(
+			authedRequest("/api/v1/links", secret),
+			noClickReadsEnv,
+			createExecutionContext()
+		);
+		const body = await response.json<{
+			links: Array<{ slug: string; clicks: number }>;
+		}>();
+
+		expect(response.status).toBe(200);
+		expect(clickReads).toBe(0);
+		expect(body.links).toHaveLength(25);
+		expect(body.links[0]).toMatchObject({ slug: "no-kv-24", clicks: 24 });
 	});
 
 	it("gets owned link detail and rejects wrong owners", async () => {

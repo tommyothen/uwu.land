@@ -223,7 +223,7 @@ export async function listLinks(
 	const pageRows = rows.slice(0, LIST_PAGE_SIZE);
 	const last = pageRows.at(-1);
 	const response: ListLinksResponse = {
-		links: await Promise.all(pageRows.map((row) => linkSummary(c.env, row)))
+		links: pageRows.map(linkSummary)
 	};
 	if (rows.length > LIST_PAGE_SIZE && last !== undefined) {
 		response.cursor = encodeCursor(last);
@@ -254,7 +254,7 @@ export async function getLink(
 		return errorResponse(403, "forbidden", "Link belongs to another user.");
 	}
 
-	return Response.json(await linkSummary(c.env, row));
+	return Response.json(linkSummary(row));
 }
 
 export async function deleteLink(
@@ -456,14 +456,12 @@ async function findLinkRow(
 	return row ?? null;
 }
 
-async function linkSummary(env: Env, row: LinkRow): Promise<LinkSummary> {
-	const clicksRaw = await env.CLICKS.get(row.slug);
-	const clicks = Number.parseInt(clicksRaw ?? "0", 10);
+function linkSummary(row: LinkRow): LinkSummary {
 	const summary: LinkSummary = {
 		slug: row.slug,
 		short_url: `https://uwu.land/${row.slug}`,
 		url: row.url,
-		clicks: Number.isFinite(clicks) ? clicks : 0,
+		clicks: row.clicks,
 		created_at: row.createdAt.toISOString()
 	};
 	if (row.externalRef !== null) {

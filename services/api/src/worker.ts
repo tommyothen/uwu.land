@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { AuthOptions } from "./auth";
 import { syncBannedDomains } from "./ban-sync";
 import { clerkWebhook } from "./clerk-webhook";
+import { materializeClickCounts } from "./click-materialization";
 import {
 	createKey,
 	deleteKey,
@@ -71,6 +72,7 @@ export function createWorker(options: WorkerOptions = {}): ExportedHandler<Env> 
 		fetch: (request, env, ctx) => app.fetch(request, env, ctx),
 		scheduled: (event, env, ctx) => {
 			ctx.waitUntil(reconcilePendingLinks(env));
+			ctx.waitUntil(materializeClickCounts(env));
 			if (event.cron === "0 6 * * *") ctx.waitUntil(syncBannedDomains(env));
 		}
 	};
