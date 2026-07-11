@@ -1,16 +1,16 @@
 "use client";
 
 import { useAuth } from "@clerk/react-router";
-import { useGSAP } from "@gsap/react";
 import type { CreateLinkResponse } from "@uwu/shared";
-import { gsap } from "gsap";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ClaimTicket } from "@/components/postal/claim-ticket";
 import { RubberStamp } from "@/components/postal/rubber-stamp";
 import { createLink, UwuApiError } from "@/lib/api";
 
-gsap.registerPlugin(useGSAP);
+type Gsap = (typeof import("gsap"))["gsap"];
+type GsapContext = ReturnType<Gsap["context"]>;
+type GsapTimeline = ReturnType<Gsap["timeline"]>;
 
 /** Beat 4 of §7.2: the result is held until the stamp plane clears (~740ms). */
 const PLANE_EXIT_MS = 740;
@@ -103,10 +103,10 @@ export function ShortenBox() {
 	>(null);
 	const planeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const landTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const timeline = useRef<gsap.core.Timeline | null>(null);
+	const timeline = useRef<GsapTimeline | null>(null);
+	const gsapRef = useRef<Gsap | null>(null);
+	const ctxRef = useRef<GsapContext | null>(null);
 	const mounted = useRef(true);
-
-	const { contextSafe } = useGSAP({ scope });
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: run once for lifecycle
 	useEffect(() => {
@@ -115,6 +115,23 @@ export function ShortenBox() {
 			mounted.current = false;
 			if (planeTimer.current) clearTimeout(planeTimer.current);
 			if (landTimer.current) clearTimeout(landTimer.current);
+			timeline.current?.kill();
+		};
+	}, []);
+
+	useEffect(() => {
+		if (import.meta.env.SSR) return;
+		let cancelled = false;
+		void import("gsap").then((module) => {
+			if (cancelled) return;
+			gsapRef.current = module.gsap;
+			ctxRef.current = module.gsap.context(() => {}, scope);
+		});
+		return () => {
+			cancelled = true;
+			ctxRef.current?.revert();
+			ctxRef.current = null;
+			gsapRef.current = null;
 			timeline.current?.kill();
 		};
 	}, []);
@@ -132,51 +149,65 @@ export function ShortenBox() {
 	// The send press + the input folding shut behind the departing letter. The
 	// plane itself lives in the AIR MAIL stamp (top-right of the page); we fire a
 	// window event so it takes off — see the listener in the landing route.
-	const takeoff = contextSafe(() => {
-		if (!scope.current) return;
-		timeline.current?.kill();
-		const tl = gsap.timeline();
-		timeline.current = tl;
-		const clone = scope.current.querySelector(".flight-clone");
-		const button = scope.current.querySelector<HTMLElement>(".send-button");
+	function takeoff() {
+		const gsap = gsapRef.current;
+		const ctx = ctxRef.current;
+		if (!gsap || !ctx || !scope.current) {
+			window.dispatchEvent(new CustomEvent("uwu:send"));
+			return;
+		}
+		ctx.add(() => {
+			timeline.current?.kill();
+			const tl = gsap.timeline();
+			timeline.current = tl;
+			const clone = scope.current?.querySelector(".flight-clone");
+			const button = scope.current?.querySelector<HTMLElement>(".send-button");
 
-		if (button)
-			tl.to(button, { scale: 0.96, duration: 0.09, ease: "power2.out" }, 0).to(
-				button,
-				{ scale: 1, duration: 0.24, ease: "power2.out" },
-				0.09
-			);
-		if (clone)
-			tl.to(
-				clone,
-				{ scaleX: 0, duration: 0.15, transformOrigin: "right center", ease: "power2.in" },
-				0.09
-			);
-
+			if (button)
+				tl.to(button, { scale: 0.96, duration: 0.09, ease: "power2.out" }, 0).to(
+					button,
+					{ scale: 1, duration: 0.24, ease: "power2.out" },
+					0.09
+				);
+			if (clone)
+				tl.to(
+					clone,
+					{ scaleX: 0, duration: 0.15, transformOrigin: "right center", ease: "power2.in" },
+					0.09
+				);
+		});
 		window.dispatchEvent(new CustomEvent("uwu:send"));
-	});
+	}
 
-	const landResult = contextSafe(() => {
-		if (!scope.current) return;
-		const card = scope.current.querySelector(".result-card");
-		if (card)
-			gsap.fromTo(
-				card,
-				{ y: -16, scale: 1.04, opacity: 0 },
-				{ y: 0, scale: 1, opacity: 1, duration: LAND_MS / 1000, ease: "back.out(1.6)" }
-			);
-	});
+	function landResult() {
+		const gsap = gsapRef.current;
+		const ctx = ctxRef.current;
+		if (!gsap || !ctx || !scope.current) return;
+		ctx.add(() => {
+			const card = scope.current?.querySelector(".result-card");
+			if (card)
+				gsap.fromTo(
+					card,
+					{ y: -16, scale: 1.04, opacity: 0 },
+					{ y: 0, scale: 1, opacity: 1, duration: LAND_MS / 1000, ease: "back.out(1.6)" }
+				);
+		});
+	}
 
-	const shake = contextSafe(() => {
-		if (!scope.current) return;
-		const card = scope.current.querySelector(".input-card");
-		if (card)
-			gsap.fromTo(
-				card,
-				{ x: -3 },
-				{ x: 0, duration: 0.2, ease: "elastic.out(1, 0.3)" }
-			);
-	});
+	function shake() {
+		const gsap = gsapRef.current;
+		const ctx = ctxRef.current;
+		if (!gsap || !ctx || !scope.current) return;
+		ctx.add(() => {
+			const card = scope.current?.querySelector(".input-card");
+			if (card)
+				gsap.fromTo(
+					card,
+					{ x: -3 },
+					{ x: 0, duration: 0.2, ease: "elastic.out(1, 0.3)" }
+				);
+		});
+	}
 
 	function tryProceed(motion: boolean) {
 		if (!planeExited.current) return;
