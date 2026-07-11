@@ -28,6 +28,50 @@ function createDb() {
 	return drizzle(createSqlite());
 }
 
+function seedOwnedLinks(sqlite: Database.Database) {
+	const insertUser = sqlite.prepare(
+		"INSERT INTO users (id, tier, created_at) VALUES (?, 'free', ?)"
+	);
+	const insertLink = sqlite.prepare(
+		"INSERT INTO links (slug, url, owner_id, external_ref, source, created_at) VALUES (?, ?, ?, ?, 'api', ?)"
+	);
+	sqlite.transaction(() => {
+		for (let owner = 0; owner < 4; owner += 1) {
+			const ownerId = `owner_${owner}`;
+			insertUser.run(ownerId, 1_700_000_000 + owner);
+			for (let link = 0; link < 250; link += 1) {
+				insertLink.run(
+					`slug_${owner}_${link.toString().padStart(4, "0")}`,
+					`https://example.com/${owner}/${link}`,
+					ownerId,
+					`ref_${link % 5}`,
+					1_700_000_000 + Math.floor(link / 3)
+				);
+			}
+		}
+	})();
+	sqlite.exec("ANALYZE");
+}
+
+function expectIndexPlan(
+	sqlite: Database.Database,
+	query: string,
+	params: unknown[],
+	indexName: string
+) {
+	const plan = sqlite.prepare(`EXPLAIN QUERY PLAN ${query}`).all(...params) as Array<{
+		detail: string;
+	}>;
+	const details = plan.map(({ detail }) => detail);
+
+	expect(details).toEqual(
+		expect.arrayContaining([
+			expect.stringContaining(`SEARCH links USING INDEX ${indexName}`)
+		])
+	);
+	expect(details.join("\n")).not.toContain("USE TEMP B-TREE");
+}
+
 describe("schema", () => {
 	it("applies canonical indexes and foreign keys", () => {
 		const sqlite = createSqlite();
@@ -46,7 +90,9 @@ describe("schema", () => {
 		expect(indexes.map(({ name }) => name)).toEqual(
 			expect.arrayContaining([
 				"api_keys_key_hash_unique",
-				"links_owner_idx"
+				"links_owner_idx",
+				"links_owner_created_slug_idx",
+				"links_owner_external_ref_created_slug_idx"
 			])
 		);
 		expect(apiKeyForeignKeys).toEqual(
@@ -58,6 +104,38 @@ describe("schema", () => {
 			expect.arrayContaining([
 				expect.objectContaining({ from: "owner_id", table: "users" })
 			])
+		);
+	});
+
+	it("uses ordered owner indexes for list pagination plans", () => {
+		const sqlite = createSqlite();
+		seedOwnedLinks(sqlite);
+		const cursorCreatedAt = 1_700_000_060;
+		const cursorSlug = "slug_1_0180";
+
+		expectIndexPlan(
+			sqlite,
+			"SELECT * FROM links WHERE owner_id = ? ORDER BY created_at DESC, slug DESC LIMIT 26",
+			["owner_1"],
+			"links_owner_created_slug_idx"
+		);
+		expectIndexPlan(
+			sqlite,
+			"SELECT * FROM links WHERE owner_id = ? AND (created_at < ? OR (created_at = ? AND slug < ?)) ORDER BY created_at DESC, slug DESC LIMIT 26",
+			["owner_1", cursorCreatedAt, cursorCreatedAt, cursorSlug],
+			"links_owner_created_slug_idx"
+		);
+		expectIndexPlan(
+			sqlite,
+			"SELECT * FROM links WHERE owner_id = ? AND external_ref = ? ORDER BY created_at DESC, slug DESC LIMIT 26",
+			["owner_1", "ref_1"],
+			"links_owner_external_ref_created_slug_idx"
+		);
+		expectIndexPlan(
+			sqlite,
+			"SELECT * FROM links WHERE owner_id = ? AND external_ref = ? AND (created_at < ? OR (created_at = ? AND slug < ?)) ORDER BY created_at DESC, slug DESC LIMIT 26",
+			["owner_1", "ref_1", cursorCreatedAt, cursorCreatedAt, cursorSlug],
+			"links_owner_external_ref_created_slug_idx"
 		);
 	});
 
