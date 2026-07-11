@@ -8,6 +8,7 @@ import {
 	deleteKey,
 	listKeys
 } from "./keys-routes";
+import { reconcilePendingLinks } from "./link-reconciliation";
 import {
 	createLink,
 	deleteLink,
@@ -68,8 +69,9 @@ export function createWorker(options: WorkerOptions = {}): ExportedHandler<Env> 
 	const app = createApp(options);
 	return {
 		fetch: (request, env, ctx) => app.fetch(request, env, ctx),
-		scheduled: (_event, env, ctx) => {
-			ctx.waitUntil(syncBannedDomains(env));
+		scheduled: (event, env, ctx) => {
+			ctx.waitUntil(reconcilePendingLinks(env));
+			if (event.cron === "0 6 * * *") ctx.waitUntil(syncBannedDomains(env));
 		}
 	};
 }
