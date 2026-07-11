@@ -9,6 +9,10 @@
   "analytics_engine_datasets": [
     { "binding": "CLICK_EVENTS", "dataset": "TODO-ae-dataset" }
   ],
+  // Refresh the add-only grabber-domain blocklist daily at 06:00 UTC.
+  "triggers": {
+    "crons": ["0 6 * * *"]
+  },
   // Set CLERK_WEBHOOK_SIGNING_SECRET with `wrangler secret put`; do not add it to vars.
   "vars": {
     "CLERK_ISSUER": "TODO-clerk-issuer"

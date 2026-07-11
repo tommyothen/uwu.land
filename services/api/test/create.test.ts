@@ -8,6 +8,7 @@ import { TIERS } from "@uwu/shared";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
+import { recordBannedAttempt } from "../src/abuse";
 import { hashKey } from "../src/keys";
 import type { Env } from "../src/worker";
 import worker, { createWorker } from "../src/worker";
@@ -191,6 +192,56 @@ describe("anonymous link creation", () => {
 
 		expect(response.status).toBe(400);
 		expect(body.code).toBe("url_banned");
+		expect(
+			JSON.parse((await env.UWU.get("abuse:203.0.113.10")) ?? "{}")
+		).toMatchObject({ count: 1 });
+	});
+
+	it("blocks IPs that have been auto-banned from creating links", async () => {
+		const ip = "203.0.113.60";
+		await env.UWU.put(`ipban:${ip}`, "1");
+		await env.UWU.put("banned:example.com", "1");
+
+		const response = await workerFetch(
+			createRequest({ url: "https://example.com/blocked" }, ip),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(403);
+		expect(body.code).toBe("ip_blocked");
+	});
+
+	it("does not record normal creates as banned-destination abuse", async () => {
+		const ip = "203.0.113.61";
+
+		const response = await workerFetch(
+			createRequest({ url: "https://example.com/normal" }, ip),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(201);
+		expect(await env.UWU.get(`abuse:${ip}`)).toBeNull();
+	});
+
+	it("blocks an IP after its fifth banned-destination attempt", async () => {
+		const ip = "203.0.113.62";
+
+		for (let index = 0; index < 4; index++) {
+			await recordBannedAttempt(env.UWU, ip);
+		}
+		const beforeThreshold = await env.UWU.get(`abuse:${ip}`);
+
+		expect(JSON.parse(beforeThreshold ?? "{}")).toMatchObject({ count: 4 });
+		expect(await env.UWU.get(`ipban:${ip}`)).toBeNull();
+
+		await recordBannedAttempt(env.UWU, ip);
+		const afterThreshold = await env.UWU.get(`abuse:${ip}`);
+
+		expect(JSON.parse(afterThreshold ?? "{}")).toMatchObject({ count: 5 });
+		expect(await env.UWU.get(`ipban:${ip}`)).toBe("1");
 	});
 
 	it("rejects uwu.land URLs", async () => {
