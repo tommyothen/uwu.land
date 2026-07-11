@@ -1,9 +1,9 @@
 "use client";
 
-import { useAuth } from "@clerk/react-router";
+import { PricingTable, useAuth, useClerk } from "@clerk/react-router";
 import { type MeResponse, TIERS } from "@uwu/shared";
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
 	Table,
@@ -116,6 +116,7 @@ function UsageMeter({
 
 export function AccountPanel() {
 	const { isLoaded, isSignedIn, getToken } = useAuth();
+	const { openUserProfile } = useClerk();
 	const [me, setMe] = useState<MeResponse | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -236,9 +237,6 @@ export function AccountPanel() {
 							<span>
 								{TIERS.pro.displayName}
 								{me.tier === "pro" ? " (you)" : ""}
-								<Badge className="ml-2 rounded-md bg-secondary px-1.5 py-0.5 text-xs font-normal normal-case text-muted-foreground">
-									coming soon
-								</Badge>
 							</span>
 							<span className="block text-xs font-normal normal-case text-muted-foreground">
 								${TIERS.pro.priceUsdMonthly}/mo · ${TIERS.pro.priceUsdYearly}/yr
@@ -263,8 +261,38 @@ export function AccountPanel() {
 			</Table>
 			<p className="mt-4 text-xs text-muted-foreground">
 				Anonymous shortening stays free forever regardless of plan. First-Class is
-				$4/month or $36/year; the upgrade flow is coming soon.
+				$4/month or $36/year.
 			</p>
+			{me.tier === "free" ? (
+				<section className="mt-8">
+					<h3 className="font-display text-lg font-semibold text-foreground">
+						Upgrade to First-Class
+					</h3>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Pick a cadence below and Clerk handles checkout securely. Your new
+						limits apply the moment payment clears.
+					</p>
+					<div className="mt-4">
+						<PricingTable />
+					</div>
+				</section>
+			) : (
+				<section className="mt-8 rounded-xl border border-border bg-card p-4">
+					<p className="text-sm text-muted-foreground">
+						You&rsquo;re on First-Class &mdash; thanks for keeping the post office
+						running.
+					</p>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="mt-3"
+						onClick={() => openUserProfile()}
+					>
+						Manage subscription
+					</Button>
+				</section>
+			)}
 		</div>
 	);
 }
