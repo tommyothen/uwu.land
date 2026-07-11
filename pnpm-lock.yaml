@@ -32,9 +32,6 @@ importers:
       '@fontsource/space-mono':
         specifier: ^5.2.9
         version: 5.2.9
-      '@gsap/react':
-        specifier: ^2.1.2
-        version: 2.1.2(gsap@3.15.0)(react@19.2.7)
       '@uwu/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -1043,12 +1040,6 @@ packages:
 
   '@fontsource/space-mono@5.2.9':
     resolution: {integrity: sha512-b61faFOHEISQ/pD25G+cfGY9o/WW6lRv6hBQQfpWvEJ4y1V+S4gmth95EVyBE2VL3qDYHeVQ8nBzrplzdXTDDg==}
-
-  '@gsap/react@2.1.2':
-    resolution: {integrity: sha512-JqliybO1837UcgH2hVOM4VO+38APk3ECNrsuSM4MuXp+rbf+/2IG2K1YJiqfTcXQHH7XlA0m3ykniFYstfq0Iw==}
-    peerDependencies:
-      gsap: ^3.12.5
-      react: '>=17'
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -4062,11 +4053,6 @@ snapshots:
   '@fontsource-variable/instrument-sans@5.2.8': {}
 
   '@fontsource/space-mono@5.2.9': {}
-
-  '@gsap/react@2.1.2(gsap@3.15.0)(react@19.2.7)':
-    dependencies:
-      gsap: 3.15.0
-      react: 19.2.7
 
   '@img/colour@1.1.0': {}
 
