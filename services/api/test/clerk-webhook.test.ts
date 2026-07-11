@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/worker";
 import { createApp } from "../src/worker";
+import { resetD1 } from "./helpers/d1";
 
 const WEBHOOK_SECRET = "whsec_dGVzdC1jbGVyay13ZWJob29rLXNlY3JldA==";
 const WEBHOOK_URL = "https://uwu.land/webhooks/clerk";
@@ -27,16 +28,7 @@ const testEnv: Env = {
 };
 
 beforeEach(async () => {
-	await env.DB
-		.prepare(
-			`CREATE TABLE IF NOT EXISTS users (
-				id text PRIMARY KEY NOT NULL,
-				tier text DEFAULT 'free' NOT NULL,
-				created_at integer NOT NULL
-			)`
-		)
-		.run();
-	await env.DB.prepare("DELETE FROM users").run();
+	await resetD1(env.DB);
 });
 
 describe("Clerk billing webhook", () => {

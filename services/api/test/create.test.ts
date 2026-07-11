@@ -12,6 +12,7 @@ import { recordBannedAttempt } from "../src/abuse";
 import { hashKey } from "../src/keys";
 import type { Env } from "../src/worker";
 import worker, { createWorker } from "../src/worker";
+import { resetD1 } from "./helpers/d1";
 
 type TestFetch = (
 	request: Request,
@@ -41,54 +42,6 @@ function createAuthedRequest(body: unknown, secret: string): Request {
 	const request = createRequest(body);
 	request.headers.set("authorization", `Bearer ${secret}`);
 	return request;
-}
-
-async function resetD1(db: D1Database): Promise<void> {
-	await db
-		.prepare(
-			`CREATE TABLE IF NOT EXISTS users (
-				id text PRIMARY KEY NOT NULL,
-				tier text DEFAULT 'free' NOT NULL,
-				created_at integer NOT NULL
-			)`
-		)
-		.run();
-	await db
-		.prepare(
-			`CREATE TABLE IF NOT EXISTS api_keys (
-				id text PRIMARY KEY NOT NULL,
-				user_id text NOT NULL,
-				name text NOT NULL,
-				key_hash text NOT NULL,
-				display_prefix text NOT NULL,
-				created_at integer NOT NULL,
-				last_used_at integer,
-				revoked_at integer
-			)`
-		)
-		.run();
-	await db
-		.prepare(
-			"CREATE UNIQUE INDEX IF NOT EXISTS api_keys_key_hash_unique ON api_keys (key_hash)"
-		)
-		.run();
-	await db
-		.prepare(
-			`CREATE TABLE IF NOT EXISTS links (
-				slug text PRIMARY KEY NOT NULL,
-				url text NOT NULL,
-				owner_id text,
-				external_ref text,
-				source text NOT NULL,
-				created_at integer NOT NULL
-			)`
-		)
-		.run();
-	await db.batch([
-		db.prepare("DELETE FROM api_keys"),
-		db.prepare("DELETE FROM links"),
-		db.prepare("DELETE FROM users")
-	]);
 }
 
 async function seedApiKey(): Promise<string> {
