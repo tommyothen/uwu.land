@@ -123,9 +123,6 @@ importers:
 
   packages/db:
     dependencies:
-      better-sqlite3:
-        specifier: ^12.11.1
-        version: 12.11.1
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@5.20260710.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)
@@ -133,6 +130,9 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      better-sqlite3:
+        specifier: ^12.11.1
+        version: 12.11.1
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
