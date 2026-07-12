@@ -61,14 +61,25 @@ export function Layout({ children }: { children: ReactNode }) {
 	);
 }
 
+// Clerk v6's appearance variables map to our shadcn-style CSS tokens. Because
+// these resolve as live CSS variables, Clerk's UI follows the `.dark` class
+// cascade automatically — no baseTheme swap or re-render on theme toggle. The
+// pre-v6 names (colorText, colorInputBackground, …) are silently ignored, which
+// is why text and inputs used to render unthemed (dark-on-dark) in dark mode.
 const clerkAppearance = {
 	variables: {
 		colorPrimary: "var(--primary)",
-		colorText: "var(--foreground)",
-		colorTextSecondary: "var(--muted-foreground)",
+		colorPrimaryForeground: "var(--primary-foreground)",
+		colorForeground: "var(--foreground)",
+		colorMutedForeground: "var(--muted-foreground)",
 		colorBackground: "var(--card)",
-		colorInputBackground: "var(--background)",
-		colorInputText: "var(--foreground)",
+		colorMuted: "var(--muted)",
+		colorInput: "var(--background)",
+		colorInputForeground: "var(--foreground)",
+		colorBorder: "var(--border)",
+		colorRing: "var(--ring)",
+		colorDanger: "var(--destructive)",
+		colorShadow: "var(--shadow-ink)",
 		borderRadius: "10px"
 	}
 };
