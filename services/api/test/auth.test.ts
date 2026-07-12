@@ -17,9 +17,14 @@ type Tier = "free" | "pro";
 
 const issuer = "https://clerk.test";
 
-async function seedUser(id = "user_123", tier: Tier = "free") {
+async function seedUser(
+	id = "user_123",
+	tier: Tier = "free",
+	emailHash: string | null = null,
+	limitedUntil: Date | null = null
+) {
 	const db = drizzle(env.DB);
-	await db.insert(users).values({ id, tier }).run();
+	await db.insert(users).values({ id, tier, emailHash, limitedUntil }).run();
 }
 
 async function seedApiKey({
@@ -153,7 +158,8 @@ describe("auth middleware", () => {
 	});
 
 	it("resolves active API keys and stamps lastUsedAt at most hourly", async () => {
-		await seedUser("user_123", "pro");
+		const limitedUntil = new Date("2026-07-17T10:00:00.000Z");
+		await seedUser("user_123", "pro", "email_hash_123", limitedUntil);
 		const seeded = await seedApiKey({
 			lastUsedAt: new Date("2026-07-10T08:00:00.000Z")
 		});
@@ -166,8 +172,10 @@ describe("auth middleware", () => {
 		await waitOnExecutionContext(ctx);
 
 		expect(auth).toEqual({
+			emailHash: "email_hash_123",
 			kind: "key",
 			keyId: "key_123",
+			limitedUntil,
 			tier: "pro",
 			userId: "user_123"
 		});
@@ -237,7 +245,9 @@ describe("auth middleware", () => {
 		});
 
 		expect(auth).toEqual({
+			emailHash: null,
 			kind: "session",
+			limitedUntil: null,
 			tier: "free",
 			userId: "user_jwt"
 		});
@@ -268,7 +278,9 @@ describe("auth middleware", () => {
 		);
 
 		expect(auth).toEqual({
+			emailHash: null,
 			kind: "session",
+			limitedUntil: null,
 			tier: "free",
 			userId: "user_fetched"
 		});

@@ -1,8 +1,10 @@
 import { createExecutionContext, env } from "cloudflare:test";
-import { users } from "@uwu/db/schema";
+import { accountTombstones, apiKeys, users } from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
+import { emailIdentityHash } from "../src/identity";
+import { hashKey } from "../src/keys";
 import type { Env } from "../src/worker";
 import { createApp } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
@@ -15,6 +17,9 @@ interface BillingPayload {
 	timestamp?: number;
 	data: {
 		id?: string;
+		deleted?: boolean;
+		email_addresses?: Array<{ id: string; email_address: string }>;
+		primary_email_address_id?: string;
 		object?: string;
 		status?: string;
 		payer?: { user_id?: string };
@@ -198,6 +203,126 @@ describe("Clerk billing webhook", () => {
 	});
 });
 
+describe("Clerk user webhook", () => {
+	it("stores the normalized primary email identity on user creation", async () => {
+		await sendWebhook(userUpsertPayload("user.created", "user_identity", [
+			{ id: "email_secondary", email_address: "other@example.com" },
+			{ id: "email_primary", email_address: "Foo+bar@GMAIL.com" }
+		], "email_primary"));
+
+		expect((await findUser("user_identity"))?.emailHash).toBe(
+			await emailIdentityHash("f.o.o@gmail.com")
+		);
+	});
+
+	it("keeps the stored email identity when an update carries no email", async () => {
+		await sendWebhook(userUpsertPayload("user.created", "user_identity", [
+			{ id: "email_primary", email_address: "keep@example.com" }
+		], "email_primary"));
+
+		await sendWebhook(
+			userUpsertPayload("user.updated", "user_identity", [], "email_primary"),
+			{ id: "msg_no_email_update" }
+		);
+
+		expect((await findUser("user_identity"))?.emailHash).toBe(
+			await emailIdentityHash("keep@example.com")
+		);
+	});
+
+	it("revokes active keys, writes one tombstone, and keeps the user on redelivery", async () => {
+		const emailHash = await emailIdentityHash("deleted@example.com");
+		await drizzle(env.DB)
+			.insert(users)
+			.values({ id: "user_deleted", emailHash })
+			.run();
+		await drizzle(env.DB)
+			.insert(apiKeys)
+			.values([
+				{
+					id: "key_active_one",
+					userId: "user_deleted",
+					name: "Active one",
+					keyHash: await hashKey("uwu_deleted_one"),
+					displayPrefix: "uwu_deleted_"
+				},
+				{
+					id: "key_active_two",
+					userId: "user_deleted",
+					name: "Active two",
+					keyHash: await hashKey("uwu_deleted_two"),
+					displayPrefix: "uwu_deleted_"
+				},
+				{
+					id: "key_already_revoked",
+					userId: "user_deleted",
+					name: "Already revoked",
+					keyHash: await hashKey("uwu_deleted_old"),
+					displayPrefix: "uwu_deleted_",
+					revokedAt: new Date("2026-01-01T00:00:00.000Z")
+				}
+			])
+			.run();
+		const payload = userDeletedPayload("user_deleted");
+
+		await sendWebhook(payload, { id: "msg_user_deleted" });
+		await sendWebhook(payload, { id: "msg_user_deleted" });
+
+		const keys = await drizzle(env.DB).select().from(apiKeys).all();
+		expect(keys.find(({ id }) => id === "key_active_one")?.revokedAt).not.toBeNull();
+		expect(keys.find(({ id }) => id === "key_active_two")?.revokedAt).not.toBeNull();
+		expect(
+			keys.find(({ id }) => id === "key_already_revoked")?.revokedAt
+		).toEqual(new Date("2026-01-01T00:00:00.000Z"));
+		expect(await drizzle(env.DB).select().from(accountTombstones).all()).toMatchObject([
+			{ eventId: "msg_user_deleted", emailHash }
+		]);
+		expect(await findUser("user_deleted")).toBeDefined();
+	});
+
+	it("limits a recreated identity after two recent tombstones", async () => {
+		const email = "repeat@example.com";
+		const emailHash = await emailIdentityHash(email);
+		const now = Date.now();
+		await drizzle(env.DB)
+			.insert(accountTombstones)
+			.values([
+				{ eventId: "delete_recent_one", emailHash, deletedAt: new Date(now - 1_000) },
+				{ eventId: "delete_recent_two", emailHash, deletedAt: new Date(now - 2_000) }
+			])
+			.run();
+
+		await sendWebhook(userUpsertPayload("user.created", "user_repeat", [
+			{ id: "email_repeat", email_address: email }
+		], "email_repeat"));
+
+		const limitedUntil = (await findUser("user_repeat"))?.limitedUntil;
+		expect(limitedUntil).not.toBeNull();
+		expect(limitedUntil?.getTime()).toBeGreaterThanOrEqual(
+			now + 7 * 86_400_000 - 1_000
+		);
+	});
+
+	it("does not limit a recreation for a single tombstone older than 30 days", async () => {
+		const email = "old-delete@example.com";
+		const emailHash = await emailIdentityHash(email);
+		await drizzle(env.DB)
+			.insert(accountTombstones)
+			.values({
+				eventId: "delete_old",
+				emailHash,
+				deletedAt: new Date(Date.now() - 31 * 86_400_000)
+			})
+			.run();
+
+		await sendWebhook(userUpsertPayload("user.created", "user_old_delete", [
+			{ id: "email_old", email_address: email }
+		], "email_old"));
+
+		expect((await findUser("user_old_delete"))?.limitedUntil).toBeNull();
+	});
+});
+
 function activePayload(
 	userId: string,
 	itemId = `subi_${userId}`,
@@ -224,6 +349,31 @@ function itemPayload(
 			payer: { user_id: userId },
 			plan: { slug: planSlug }
 		}
+	};
+}
+
+function userUpsertPayload(
+	type: "user.created" | "user.updated",
+	userId: string,
+	emailAddresses: Array<{ id: string; email_address: string }>,
+	primaryEmailAddressId: string
+): BillingPayload {
+	return {
+		type,
+		timestamp: 100,
+		data: {
+			id: userId,
+			email_addresses: emailAddresses,
+			primary_email_address_id: primaryEmailAddressId
+		}
+	};
+}
+
+function userDeletedPayload(userId: string): BillingPayload {
+	return {
+		type: "user.deleted",
+		timestamp: 100,
+		data: { id: userId, deleted: true }
 	};
 }
 

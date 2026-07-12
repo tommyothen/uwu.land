@@ -5,8 +5,22 @@ export const users = sqliteTable("users", {
 	tier: text("tier", { enum: ["free", "pro"] }).notNull().default("free"),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
-		.$defaultFn(() => new Date())
+		.$defaultFn(() => new Date()),
+	emailHash: text("email_hash"),
+	limitedUntil: integer("limited_until", { mode: "timestamp" })
 });
+
+export const accountTombstones = sqliteTable(
+	"account_tombstones",
+	{
+		eventId: text("event_id").primaryKey(),
+		emailHash: text("email_hash").notNull(),
+		deletedAt: integer("deleted_at", { mode: "timestamp" }).notNull()
+	},
+	(t) => [
+		index("account_tombstones_email_idx").on(t.emailHash, t.deletedAt)
+	]
+);
 
 export const clerkWebhookEvents = sqliteTable("clerk_webhook_events", {
 	id: text("id").primaryKey(),

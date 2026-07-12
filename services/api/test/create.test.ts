@@ -91,6 +91,38 @@ async function seedApiKeysForSameAccount(): Promise<{
 	return { first, second };
 }
 
+async function seedKeyForUser({
+	userId,
+	keyId,
+	secret,
+	emailHash = null,
+	limitedUntil = null,
+	tier = "pro"
+}: {
+	userId: string;
+	keyId: string;
+	secret: string;
+	emailHash?: string | null;
+	limitedUntil?: Date | null;
+	tier?: "free" | "pro";
+}): Promise<string> {
+	const db = drizzle(env.DB);
+	await db.insert(users).values({
+		id: userId,
+		tier,
+		emailHash,
+		limitedUntil
+	}).run();
+	await db.insert(apiKeys).values({
+		id: keyId,
+		userId,
+		name: "Scope test",
+		keyHash: await hashKey(secret),
+		displayPrefix: secret.slice(0, 12)
+	}).run();
+	return secret;
+}
+
 describe("anonymous link creation", () => {
 	beforeEach(async () => {
 		await clearKv(env.UWU);
@@ -314,6 +346,107 @@ describe("anonymous link creation", () => {
 
 		expect(first.status).toBe(201);
 		expect(second.status).toBe(429);
+	});
+
+	it("shares an identity quota across user ids when email hashes match", async () => {
+		const first = await seedKeyForUser({
+			userId: "user_identity_first",
+			keyId: "key_identity_first",
+			secret: "uwu_identity_first00000000000000000",
+			emailHash: "shared_identity_hash"
+		});
+		const second = await seedKeyForUser({
+			userId: "user_identity_second",
+			keyId: "key_identity_second",
+			secret: "uwu_identity_second0000000000000000",
+			emailHash: "shared_identity_hash"
+		});
+		const quotaFetch = createWorker({ createPerDayLimit: 1 }).fetch as TestFetch;
+
+		const firstResponse = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/identity-first" }, first),
+			env as Env,
+			createExecutionContext()
+		);
+		const secondResponse = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/identity-second" }, second),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(firstResponse.status).toBe(201);
+		expect(secondResponse.status).toBe(429);
+	});
+
+	it("keeps user-id quotas separate when email hashes are missing", async () => {
+		const first = await seedKeyForUser({
+			userId: "user_no_identity_first",
+			keyId: "key_no_identity_first",
+			secret: "uwu_no_identity_first000000000000000"
+		});
+		const second = await seedKeyForUser({
+			userId: "user_no_identity_second",
+			keyId: "key_no_identity_second",
+			secret: "uwu_no_identity_second00000000000000"
+		});
+		const quotaFetch = createWorker({ createPerDayLimit: 1 }).fetch as TestFetch;
+
+		const responses = await Promise.all([
+			quotaFetch(
+				createAuthedRequest({ url: "https://example.com/no-identity-first" }, first),
+				env as Env,
+				createExecutionContext()
+			),
+			quotaFetch(
+				createAuthedRequest({ url: "https://example.com/no-identity-second" }, second),
+				env as Env,
+				createExecutionContext()
+			)
+		]);
+
+		expect(responses.map(({ status }) => status)).toEqual([201, 201]);
+	});
+
+	it("enforces and reports the anonymous create limit for a limited user", async () => {
+		const secret = await seedKeyForUser({
+			userId: "user_limited",
+			keyId: "key_limited",
+			secret: "uwu_limited000000000000000000000000",
+			emailHash: "limited_identity_hash",
+			limitedUntil: new Date(Date.now() + 86_400_000)
+		});
+
+		for (let index = 0; index < TIERS.anon.createPerDay; index++) {
+			const response = await workerFetch(
+				createAuthedRequest(
+					{ url: `https://example.com/limited-${index}` },
+					secret
+				),
+				env as Env,
+				createExecutionContext()
+			);
+			expect(response.status).toBe(201);
+		}
+
+		const overLimit = await workerFetch(
+			createAuthedRequest({ url: "https://example.com/limited-over" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const usage = await workerFetch(
+			new Request("https://uwu.land/api/v1/me", {
+				headers: { authorization: `Bearer ${secret}` }
+			}),
+			env as Env,
+			createExecutionContext()
+		);
+		const usageBody = await usage.json<{
+			limits: { createPerDay: number };
+		}>();
+
+		expect(overLimit.status).toBe(429);
+		expect(usage.status).toBe(200);
+		expect(usageBody.limits.createPerDay).toBe(TIERS.anon.createPerDay);
 	});
 
 	it("retries generated slug collisions", async () => {

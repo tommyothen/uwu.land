@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { describe, expect, it } from "vitest";
 import {
+	accountTombstones,
 	apiKeys,
 	clerkSubscriptionItems,
 	clerkWebhookEvents,
@@ -89,6 +90,7 @@ describe("schema", () => {
 
 		expect(indexes.map(({ name }) => name)).toEqual(
 			expect.arrayContaining([
+				"account_tombstones_email_idx",
 				"api_keys_key_hash_unique",
 				"links_owner_idx",
 				"links_owner_created_slug_idx",
@@ -149,6 +151,29 @@ describe("schema", () => {
 				id: "user_123",
 				tier: "free"
 			}
+		]);
+	});
+
+	it("stores user identity limits and account tombstones", () => {
+		const db = createDb();
+		const limitedUntil = new Date("2026-07-19T12:00:00.000Z");
+		const deletedAt = new Date("2026-07-12T12:00:00.000Z");
+		db.insert(users)
+			.values({
+				id: "user_identity",
+				emailHash: "email_hash",
+				limitedUntil
+			})
+			.run();
+		db.insert(accountTombstones)
+			.values({ eventId: "msg_deleted", emailHash: "email_hash", deletedAt })
+			.run();
+
+		expect(db.select().from(users).all()).toMatchObject([
+			{ id: "user_identity", emailHash: "email_hash", limitedUntil }
+		]);
+		expect(db.select().from(accountTombstones).all()).toEqual([
+			{ eventId: "msg_deleted", emailHash: "email_hash", deletedAt }
 		]);
 	});
 
