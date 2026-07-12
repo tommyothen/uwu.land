@@ -26,8 +26,21 @@ export interface TestJwks {
 
 export type AuthPrincipal =
 	| { kind: "anon" }
-	| { kind: "key"; userId: string; keyId: string; tier: UserTier }
-	| { kind: "session"; userId: string; tier: UserTier };
+	| {
+			kind: "key";
+			userId: string;
+			keyId: string;
+			tier: UserTier;
+			emailHash: string | null;
+			limitedUntil: Date | null;
+	  }
+	| {
+			kind: "session";
+			userId: string;
+			tier: UserTier;
+			emailHash: string | null;
+			limitedUntil: Date | null;
+	  };
 
 export interface AuthOptions {
 	clerkIssuer?: string;
@@ -90,8 +103,10 @@ async function resolveApiKey(
 	const hash = await hashKey(secret);
 	const [row] = await db
 		.select({
+			emailHash: users.emailHash,
 			keyId: apiKeys.id,
 			lastUsedAt: apiKeys.lastUsedAt,
+			limitedUntil: users.limitedUntil,
 			tier: users.tier,
 			userId: users.id
 		})
@@ -117,8 +132,10 @@ async function resolveApiKey(
 	}
 
 	return {
+		emailHash: row.emailHash,
 		kind: "key",
 		keyId: row.keyId,
+		limitedUntil: row.limitedUntil,
 		tier: row.tier,
 		userId: row.userId
 	};
@@ -151,7 +168,12 @@ async function resolveClerkSession(
 	const db = drizzle(env.DB);
 	await db.insert(users).values({ id: payload.sub }).onConflictDoNothing().run();
 	const [user] = await db
-		.select({ id: users.id, tier: users.tier })
+		.select({
+			emailHash: users.emailHash,
+			id: users.id,
+			limitedUntil: users.limitedUntil,
+			tier: users.tier
+		})
 		.from(users)
 		.where(eq(users.id, payload.sub))
 		.limit(1)
@@ -162,7 +184,9 @@ async function resolveClerkSession(
 	}
 
 	return {
+		emailHash: user.emailHash,
 		kind: "session",
+		limitedUntil: user.limitedUntil,
 		tier: user.tier,
 		userId: user.id
 	};

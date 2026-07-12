@@ -8,6 +8,41 @@
       "when": 1783676082268,
       "tag": "0000_blue_hellcat",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783676082269,
+      "tag": "0001_clerk_subscription_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783676082270,
+      "tag": "0002_link_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783676082271,
+      "tag": "0003_click_materialization",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783676082272,
+      "tag": "0004_owner_pagination_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783852476215,
+      "tag": "0005_account_deletion_abuse",
+      "breakpoints": true
     }
   ]
 }

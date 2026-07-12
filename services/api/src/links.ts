@@ -310,7 +310,10 @@ export async function me(
 	return Response.json({
 		user_id: auth.userId,
 		tier: auth.tier,
-		limits: TIERS[auth.tier],
+		limits: {
+			...TIERS[auth.tier],
+			createPerDay: effectiveCreatePerDay(auth)
+		},
 		usage: {
 			createdToday: createUsage?.count ?? 0,
 			apiKeys: activeApiKeys.length,
@@ -380,17 +383,31 @@ function createLimiter(
 	auth: AuthPrincipal,
 	createPerDayLimit?: number
 ): DurableObjectFixedWindow {
-	const tier = auth.kind === "anon" ? "anon" : auth.tier;
 	return new DurableObjectFixedWindow(
 		c.env.ENFORCEMENT,
-		createPerDayLimit ?? TIERS[tier].createPerDay,
+		createPerDayLimit ?? effectiveCreatePerDay(auth),
 		CREATE_WINDOW_SECONDS
 	);
+}
+
+function effectiveCreatePerDay(auth: AuthPrincipal): number {
+	if (
+		auth.kind !== "anon" &&
+		auth.limitedUntil !== null &&
+		auth.limitedUntil.getTime() > Date.now()
+	) {
+		return TIERS.anon.createPerDay;
+	}
+	const tier = auth.kind === "anon" ? "anon" : auth.tier;
+	return TIERS[tier].createPerDay;
 }
 
 function scopeKey(c: Context<{ Bindings: Env }>, auth: AuthPrincipal): string {
 	if (auth.kind === "anon") {
 		return `anon:${ipKey(c.req.raw)}`;
+	}
+	if (auth.emailHash !== null) {
+		return `identity:${auth.emailHash}`;
 	}
 	return `user:${auth.userId}`;
 }
