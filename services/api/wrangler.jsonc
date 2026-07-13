@@ -32,8 +32,8 @@
   "vars": {
     "CLERK_ISSUER": "https://clerk.uwu.land",
     // Replace these placeholders with the Stripe Product's recurring Price IDs.
-    "STRIPE_PRICE_ID_MONTHLY": "price_REPLACE_ME",
-    "STRIPE_PRICE_ID_YEARLY": "price_REPLACE_ME"
+    "STRIPE_PRICE_ID_MONTHLY": "price_1Tskr37kD2hzdcxngrmTlz91",
+    "STRIPE_PRICE_ID_YEARLY": "price_1TskrM7kD2hzdcxnG7VOskcx"
   },
   "d1_databases": [
     {
