@@ -1,3 +1,5 @@
+import { bufferToHex } from "./crypto-utils";
+
 const API_KEY_PREFIX = "uwu_";
 const API_KEY_RANDOM_LENGTH = 32;
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -22,9 +24,7 @@ export async function hashKey(secret: string): Promise<string> {
 		"SHA-256",
 		new TextEncoder().encode(secret)
 	);
-	return [...new Uint8Array(digest)]
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
+	return bufferToHex(digest);
 }
 
 function randomBase62(length: number): string {

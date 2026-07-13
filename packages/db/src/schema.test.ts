@@ -7,6 +7,7 @@ import {
 	accountTombstones,
 	apiKeys,
 	links,
+	stripeCustomers,
 	stripeSubscriptions,
 	stripeWebhookEvents,
 	users
@@ -98,6 +99,7 @@ describe("schema", () => {
 			expect.arrayContaining([
 				"account_tombstones_email_idx",
 				"api_keys_key_hash_unique",
+				"stripe_customers_customer_unique",
 				"stripe_subscriptions_user_idx",
 				"links_owner_idx",
 				"links_owner_created_slug_idx",
@@ -198,10 +200,14 @@ describe("schema", () => {
 		db.insert(stripeWebhookEvents)
 			.values({ id: "evt_123", eventTimestamp: 1_700_000_000 })
 			.run();
+		db.insert(stripeCustomers)
+			.values({ userId: "user_123", customerId: "cus_123" })
+			.run();
 		db.insert(stripeSubscriptions)
 			.values({
 				id: "sub_123",
 				customerId: "cus_123",
+				priceId: "price_monthly",
 				userId: "user_123",
 				status: "active",
 				eventTimestamp: 1_700_000_000,
@@ -213,10 +219,14 @@ describe("schema", () => {
 			{
 				id: "sub_123",
 				customerId: "cus_123",
+				priceId: "price_monthly",
 				userId: "user_123",
 				status: "active",
 				eventId: "evt_123"
 			}
+		]);
+		expect(db.select().from(stripeCustomers).all()).toMatchObject([
+			{ userId: "user_123", customerId: "cus_123" }
 		]);
 	});
 

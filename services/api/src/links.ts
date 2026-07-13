@@ -298,18 +298,26 @@ export async function me(
 		return auth;
 	}
 	const limiter = createLimiter(c, auth, options.createPerDayLimit);
-	const [createUsage, activeApiKeys] = await Promise.all([
+	const [createUsage, activeApiKeys, billingCustomer] = await Promise.all([
 		limiter.usage(scopeKey(c, auth)),
 		drizzle(c.env.DB)
 			.select({ id: apiKeys.id })
 			.from(apiKeys)
 			.where(and(eq(apiKeys.userId, auth.userId), isNull(apiKeys.revokedAt)))
-			.all()
+			.all(),
+		auth.kind === "session"
+			? c.env.DB.prepare(
+					"SELECT 1 FROM stripe_customers WHERE user_id = ? LIMIT 1"
+				)
+					.bind(auth.userId)
+					.first()
+			: Promise.resolve(null)
 	]);
 
 	return Response.json({
 		user_id: auth.userId,
 		tier: auth.tier,
+		hasBillingHistory: billingCustomer !== null,
 		limits: {
 			...TIERS[auth.tier],
 			createPerDay: effectiveCreatePerDay(auth)

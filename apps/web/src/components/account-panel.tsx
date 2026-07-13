@@ -126,6 +126,12 @@ export function AccountPanel() {
 	const [billingPending, setBillingPending] = useState<
 		"monthly" | "yearly" | "portal" | null
 	>(null);
+	const [upgradePending, setUpgradePending] = useState(
+		() =>
+			typeof window !== "undefined" &&
+			new URLSearchParams(window.location.search).get("upgraded") === "1"
+	);
+	const [upgradeDelayed, setUpgradeDelayed] = useState(false);
 
 	useEffect(() => {
 		// Wait for Clerk to resolve the session; getToken() returns null before
@@ -137,6 +143,9 @@ export function AccountPanel() {
 			return;
 		}
 		let cancelled = false;
+		let pollTimer: ReturnType<typeof setTimeout> | undefined;
+		const shouldPollForUpgrade =
+			new URLSearchParams(window.location.search).get("upgraded") === "1";
 		(async () => {
 			const token = await getToken();
 			if (token === null) {
@@ -145,10 +154,31 @@ export function AccountPanel() {
 				}
 				return;
 			}
+			const startedAt = Date.now();
 			try {
-				const response = await getMe(token);
-				if (!cancelled) {
+				while (!cancelled) {
+					const response = await getMe(token);
+					if (cancelled) {
+						return;
+					}
 					setMe(response);
+					if (!shouldPollForUpgrade || response.tier === "pro") {
+						if (shouldPollForUpgrade) {
+							const url = new URL(window.location.href);
+							url.searchParams.delete("upgraded");
+							window.history.replaceState(null, "", url);
+							setUpgradePending(false);
+						}
+						return;
+					}
+					if (Date.now() - startedAt >= 30_000) {
+						setUpgradePending(false);
+						setUpgradeDelayed(true);
+						return;
+					}
+					await new Promise<void>((resolve) => {
+						pollTimer = setTimeout(resolve, 2_000);
+					});
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -158,6 +188,9 @@ export function AccountPanel() {
 		})();
 		return () => {
 			cancelled = true;
+			if (pollTimer !== undefined) {
+				clearTimeout(pollTimer);
+			}
 		};
 	}, [isLoaded, isSignedIn, getToken]);
 
@@ -191,33 +224,19 @@ export function AccountPanel() {
 	const keyLimit = me.limits.apiKeys;
 	const keysLeft = Math.max(0, keyLimit - activeKeys);
 	const keysAtLimit = activeKeys >= keyLimit;
-	const openCheckout = async (cadence: "monthly" | "yearly") => {
+	const runBillingAction = async (
+		pendingKey: "monthly" | "yearly" | "portal",
+		action: (token: string) => Promise<{ url: string }>
+	) => {
 		setBillingError(null);
-		setBillingPending(cadence);
+		setBillingPending(pendingKey);
 		try {
 			const token = await getToken();
 			if (token === null) {
 				setBillingError("Your session expired. Refresh and sign in again.");
 				return;
 			}
-			const response = await createBillingCheckout(token, cadence);
-			window.location.assign(response.url);
-		} catch (err) {
-			setBillingError(friendlyError(err));
-		} finally {
-			setBillingPending(null);
-		}
-	};
-	const openPortal = async () => {
-		setBillingError(null);
-		setBillingPending("portal");
-		try {
-			const token = await getToken();
-			if (token === null) {
-				setBillingError("Your session expired. Refresh and sign in again.");
-				return;
-			}
-			const response = await createBillingPortal(token);
+			const response = await action(token);
 			window.location.assign(response.url);
 		} catch (err) {
 			setBillingError(friendlyError(err));
@@ -311,36 +330,73 @@ export function AccountPanel() {
 					<h3 className="font-display text-lg font-semibold text-foreground">
 						Upgrade to First-Class
 					</h3>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Checkout is handled securely by Stripe and accepts cards, PayPal,
-						Apple Pay, and Google Pay. Your new limits apply when payment clears.
-					</p>
-					<div className="mt-4 flex flex-wrap gap-3">
-						<Button
-							type="button"
-							disabled={billingPending !== null}
-							onClick={() => void openCheckout("monthly")}
-						>
-							{billingPending === "monthly"
-								? "Opening checkout…"
-								: `Go First-Class — $${TIERS.pro.priceUsdMonthly}/mo`}
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							disabled={billingPending !== null}
-							onClick={() => void openCheckout("yearly")}
-						>
-							{billingPending === "yearly"
-								? "Opening checkout…"
-								: `$${TIERS.pro.priceUsdYearly}/yr`}
-						</Button>
-					</div>
-					{billingError !== null ? (
-						<p role="alert" className="mt-3 text-sm text-destructive">
-							{billingError}
+					{upgradePending ? (
+						<p className="mt-3 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+							Payment received — the postmaster is stamping your upgrade.
 						</p>
-					) : null}
+					) : (
+						<>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Checkout is handled securely by Stripe and accepts cards, PayPal,
+								Apple Pay, and Google Pay. Your new limits apply when payment clears.
+							</p>
+							<div className="mt-4 flex flex-wrap gap-3">
+								<Button
+									type="button"
+									disabled={billingPending !== null}
+									onClick={() =>
+										void runBillingAction("monthly", (token) =>
+											createBillingCheckout(token, "monthly")
+										)
+									}
+								>
+									{billingPending === "monthly"
+										? "Opening checkout…"
+										: `Go First-Class — $${TIERS.pro.priceUsdMonthly}/mo`}
+								</Button>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={billingPending !== null}
+									onClick={() =>
+										void runBillingAction("yearly", (token) =>
+											createBillingCheckout(token, "yearly")
+										)
+									}
+								>
+									{billingPending === "yearly"
+										? "Opening checkout…"
+										: `$${TIERS.pro.priceUsdYearly}/yr`}
+								</Button>
+							</div>
+							{me.hasBillingHistory ? (
+								<div className="mt-5">
+									<p className="text-sm text-muted-foreground">
+										View past invoices or fix a failed payment.
+									</p>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										className="mt-2"
+										disabled={billingPending !== null}
+										onClick={() =>
+											void runBillingAction("portal", createBillingPortal)
+										}
+									>
+										{billingPending === "portal"
+											? "Opening portal…"
+											: "Billing portal"}
+									</Button>
+								</div>
+							) : null}
+							{upgradeDelayed ? (
+								<p className="mt-3 text-sm text-muted-foreground">
+									Your upgrade is taking longer than expected — refresh in a minute.
+								</p>
+							) : null}
+						</>
+					)}
 				</section>
 			) : (
 				<section className="mt-8 rounded-xl border border-border bg-card p-4">
@@ -354,19 +410,21 @@ export function AccountPanel() {
 						size="sm"
 						className="mt-3"
 						disabled={billingPending !== null}
-						onClick={() => void openPortal()}
+						onClick={() =>
+							void runBillingAction("portal", createBillingPortal)
+						}
 					>
 						{billingPending === "portal"
 							? "Opening portal…"
 							: "Manage subscription"}
 					</Button>
-					{billingError !== null ? (
-						<p role="alert" className="mt-3 text-sm text-destructive">
-							{billingError}
-						</p>
-					) : null}
 				</section>
 			)}
+			{billingError !== null ? (
+				<p role="alert" className="mt-3 text-sm text-destructive">
+					{billingError}
+				</p>
+			) : null}
 		</div>
 	);
 }

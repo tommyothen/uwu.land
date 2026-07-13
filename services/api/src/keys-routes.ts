@@ -4,21 +4,15 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { z } from "zod";
-import {
-	AuthError,
-	type AuthOptions,
-	type AuthPrincipal,
-	resolveAuth
-} from "./auth";
+import type { AuthOptions } from "./auth";
 import { errorResponse } from "./errors";
 import { generateApiKey } from "./keys";
+import { readJson, requireSession } from "./request-utils";
 import type { Env } from "./worker";
 
 const createKeySchema = z.object({
 	name: z.string().trim().min(1).max(80)
 });
-
-type SessionPrincipal = Extract<AuthPrincipal, { kind: "session" }>;
 
 export interface KeyRouteOptions {
 	auth?: AuthOptions;
@@ -28,7 +22,7 @@ export async function createKey(
 	c: Context<{ Bindings: Env }>,
 	options: KeyRouteOptions = {}
 ): Promise<Response> {
-	const auth = await requireSession(c, options);
+	const auth = await requireSession(c, options, "API keys cannot manage keys.");
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -82,7 +76,7 @@ export async function listKeys(
 	c: Context<{ Bindings: Env }>,
 	options: KeyRouteOptions = {}
 ): Promise<Response> {
-	const auth = await requireSession(c, options);
+	const auth = await requireSession(c, options, "API keys cannot manage keys.");
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -115,7 +109,7 @@ export async function deleteKey(
 	c: Context<{ Bindings: Env }>,
 	options: KeyRouteOptions = {}
 ): Promise<Response> {
-	const auth = await requireSession(c, options);
+	const auth = await requireSession(c, options, "API keys cannot manage keys.");
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -142,35 +136,4 @@ export async function deleteKey(
 		.where(eq(apiKeys.id, id))
 		.run();
 	return new Response(null, { status: 204 });
-}
-
-async function requireSession(
-	c: Context<{ Bindings: Env }>,
-	options: KeyRouteOptions
-): Promise<SessionPrincipal | Response> {
-	let auth: AuthPrincipal;
-	try {
-		auth = await resolveAuth(c.req.raw, c.env, c.executionCtx, options.auth);
-	} catch (error) {
-		if (error instanceof AuthError) {
-			return errorResponse(401, "unauthorized", "Unauthorized.");
-		}
-		throw error;
-	}
-
-	if (auth.kind === "anon") {
-		return errorResponse(401, "unauthorized", "Authentication required.");
-	}
-	if (auth.kind === "key") {
-		return errorResponse(403, "forbidden", "API keys cannot manage keys.");
-	}
-	return auth;
-}
-
-async function readJson(request: Request): Promise<unknown> {
-	try {
-		return await request.json();
-	} catch {
-		return null;
-	}
 }

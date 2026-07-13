@@ -1,6 +1,8 @@
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import type { Context } from "hono";
+import { ENTITLING_STATUS_SQL } from "./billing-shared";
 import { emailIdentityHash } from "./identity";
+import { isRecord, readJson } from "./request-utils";
 import type { Env } from "./worker";
 
 const RELEVANT_EVENT_TYPES = new Set([
@@ -26,8 +28,13 @@ interface UserDeletedEvent {
 	userId: string;
 }
 
+export interface ClerkWebhookOptions {
+	stripeFetch?: typeof fetch;
+}
+
 export async function clerkWebhook(
-	c: Context<{ Bindings: Env }>
+	c: Context<{ Bindings: Env }>,
+	options: ClerkWebhookOptions = {}
 ): Promise<Response> {
 	const rawRequest = c.req.raw.clone();
 	let verified: { type: string; data: unknown };
@@ -36,7 +43,7 @@ export async function clerkWebhook(
 		verified = await verifyWebhook(c.req.raw, {
 			signingSecret: c.env.CLERK_WEBHOOK_SIGNING_SECRET
 		});
-		rawEvent = await rawRequest.json();
+		rawEvent = await readJson(rawRequest);
 	} catch {
 		return c.text("Invalid webhook signature.", 400);
 	}
@@ -55,15 +62,21 @@ export async function clerkWebhook(
 		await applyUserUpsertEvent(c.env.DB, event);
 		return new Response(null, { status: 200 });
 	}
-	if (verified.type === "user.deleted") {
-		const event = parseUserDeletedEvent(verified, eventId, timestamp);
-		if (event === null) {
-			return c.text("Invalid user webhook payload.", 400);
-		}
-		await applyUserDeletedEvent(c.env.DB, event);
-		return new Response(null, { status: 200 });
+	const event = parseUserDeletedEvent(verified, eventId, timestamp);
+	if (event === null) {
+		return c.text("Invalid user webhook payload.", 400);
 	}
-
+	if (
+		!(await cancelUserSubscriptions(
+			c.env.DB,
+			options.stripeFetch ?? fetch,
+			c.env.STRIPE_SECRET_KEY,
+			event.userId
+		))
+	) {
+		return c.text("Unable to cancel Stripe subscriptions.", 500);
+	}
+	await applyUserDeletedEvent(c.env.DB, event);
 	return new Response(null, { status: 200 });
 }
 
@@ -113,6 +126,7 @@ function parseUserDeletedEvent(
 	eventTimestamp: unknown
 ): UserDeletedEvent | null {
 	if (
+		event.type !== "user.deleted" ||
 		!isRecord(event.data) ||
 		eventId === null ||
 		typeof eventTimestamp !== "number" ||
@@ -192,7 +206,10 @@ async function applyUserDeletedEvent(
 			.prepare(
 				"UPDATE api_keys SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL"
 			)
-			.bind(nowSeconds, event.userId)
+			.bind(nowSeconds, event.userId),
+		db
+			.prepare("UPDATE users SET tier = 'free' WHERE id = ?")
+			.bind(event.userId)
 	];
 	if (user?.email_hash != null) {
 		statements.push(
@@ -206,6 +223,70 @@ async function applyUserDeletedEvent(
 	await db.batch(statements);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
+async function cancelUserSubscriptions(
+	db: D1Database,
+	stripeFetch: typeof fetch,
+	secret: string | undefined,
+	userId: string
+): Promise<boolean> {
+	if (secret === undefined || secret.length === 0) {
+		console.error(
+			"STRIPE_SECRET_KEY is unset; skipping subscription cancellation for deleted user."
+		);
+		return true;
+	}
+
+	const subscriptions = await db
+		.prepare(
+			`SELECT id FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL})`
+		)
+		.bind(userId)
+		.all<{ id: string }>();
+	for (const subscription of subscriptions.results) {
+		const url = `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscription.id)}`;
+		let response: Response;
+		try {
+			response = await stripeFetch(url, {
+				method: "DELETE",
+				headers: { authorization: `Bearer ${secret}` }
+			});
+		} catch {
+			console.error("Stripe subscription cancellation failed.", {
+				endpoint: new URL(url).pathname
+			});
+			return false;
+		}
+		if (response.ok || response.status === 404) {
+			continue;
+		}
+
+		let type: string | undefined;
+		let code: string | undefined;
+		try {
+			const payload: unknown = await response.json();
+			if (isRecord(payload) && isRecord(payload.error)) {
+				type =
+					typeof payload.error.type === "string"
+						? payload.error.type
+						: undefined;
+				code =
+					typeof payload.error.code === "string"
+						? payload.error.code
+						: undefined;
+			}
+		} catch {
+			// Status and endpoint still identify the failed Stripe operation.
+		}
+		if (code === "resource_missing") {
+			continue;
+		}
+		console.error("Stripe subscription cancellation failed.", {
+			endpoint: new URL(url).pathname,
+			status: response.status,
+			type,
+			code
+		});
+		return false;
+	}
+	return true;
 }

@@ -1,8 +1,14 @@
 import { createExecutionContext, env } from "cloudflare:test";
-import { accountTombstones, apiKeys, users } from "@uwu/db/schema";
+import {
+	accountTombstones,
+	apiKeys,
+	stripeSubscriptions,
+	stripeWebhookEvents,
+	users
+} from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emailIdentityHash } from "../src/identity";
 import { hashKey } from "../src/keys";
 import type { Env } from "../src/worker";
@@ -23,7 +29,6 @@ interface ClerkPayload {
 	};
 }
 
-const app = createApp();
 const testEnv: Env = {
 	UWU: env.UWU,
 	CLICKS: env.CLICKS,
@@ -33,6 +38,7 @@ const testEnv: Env = {
 	CLERK_ISSUER: env.CLERK_ISSUER,
 	STRIPE_PRICE_ID_MONTHLY: env.STRIPE_PRICE_ID_MONTHLY,
 	STRIPE_PRICE_ID_YEARLY: env.STRIPE_PRICE_ID_YEARLY,
+	STRIPE_SECRET_KEY: "sk_test_clerk_delete",
 	CLERK_WEBHOOK_SIGNING_SECRET: WEBHOOK_SECRET
 };
 
@@ -115,6 +121,83 @@ describe("Clerk user webhook", () => {
 			{ eventId: "msg_user_deleted", emailHash }
 		]);
 		expect(await findUser("user_deleted")).toBeDefined();
+		expect((await findUser("user_deleted"))?.tier).toBe("free");
+	});
+
+	it("cancels tracked entitling subscriptions when a user is deleted", async () => {
+		await seedSubscription("user_subscribed", "sub_delete_me");
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({ status: "canceled" })
+		);
+
+		const response = await sendWebhook(userDeletedPayload("user_subscribed"), {
+			stripeFetch
+		});
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).toHaveBeenCalledTimes(1);
+		const [url, init] = stripeFetch.mock.calls[0] ?? [];
+		expect(url).toBe(
+			"https://api.stripe.com/v1/subscriptions/sub_delete_me"
+		);
+		expect(init?.method).toBe("DELETE");
+		expect(new Headers(init?.headers).get("authorization")).toBe(
+			"Bearer sk_test_clerk_delete"
+		);
+		expect(await findTier("user_subscribed")).toBe("free");
+	});
+
+	it("returns 500 when Stripe subscription cancellation fails", async () => {
+		await seedSubscription("user_cancel_failure", "sub_cancel_failure");
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json(
+				{ error: { type: "api_error", code: "api_error" } },
+				{ status: 500 }
+			)
+		);
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const response = await sendWebhook(
+			userDeletedPayload("user_cancel_failure"),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(500);
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
+	it("treats Stripe resource_missing as an idempotent cancellation", async () => {
+		await seedSubscription("user_already_canceled", "sub_already_canceled");
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json(
+				{ error: { type: "invalid_request_error", code: "resource_missing" } },
+				{ status: 404 }
+			)
+		);
+
+		const response = await sendWebhook(
+			userDeletedPayload("user_already_canceled"),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+	});
+
+	it("skips Stripe cancellation when the secret is unset", async () => {
+		await seedSubscription("user_no_secret", "sub_no_secret");
+		const stripeFetch = vi.fn<typeof fetch>();
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const response = await sendWebhook(userDeletedPayload("user_no_secret"), {
+			stripeFetch,
+			envOverride: { STRIPE_SECRET_KEY: undefined }
+		});
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).not.toHaveBeenCalled();
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
 	});
 
 	it("limits a recreated identity after two recent tombstones", async () => {
@@ -187,11 +270,17 @@ function userDeletedPayload(userId: string): ClerkPayload {
 
 async function sendWebhook(
 	payload: ClerkPayload,
-	options: { timestamp?: number; id?: string } = {}
+	options: {
+		timestamp?: number;
+		id?: string;
+		stripeFetch?: typeof fetch;
+		envOverride?: Partial<Env>;
+	} = {}
 ): Promise<Response> {
+	const app = createApp({ stripeFetch: options.stripeFetch });
 	return app.fetch(
 		await signedRequest(payload, options),
-		testEnv,
+		{ ...testEnv, ...options.envOverride },
 		createExecutionContext()
 	);
 }
@@ -250,4 +339,27 @@ async function findUser(id: string) {
 		.limit(1)
 		.all();
 	return user;
+}
+
+async function findTier(id: string): Promise<"free" | "pro" | undefined> {
+	return (await findUser(id))?.tier;
+}
+
+async function seedSubscription(userId: string, subscriptionId: string) {
+	const db = drizzle(env.DB);
+	await db.insert(users).values({ id: userId, tier: "pro" }).run();
+	await db.insert(stripeWebhookEvents)
+		.values({ id: `evt_${subscriptionId}`, eventTimestamp: 100 })
+		.run();
+	await db.insert(stripeSubscriptions)
+		.values({
+			id: subscriptionId,
+			customerId: `cus_${userId}`,
+			priceId: "price_any",
+			userId,
+			status: "active",
+			eventTimestamp: 100,
+			eventId: `evt_${subscriptionId}`
+		})
+		.run();
 }

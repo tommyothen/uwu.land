@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TIERS } from "@uwu/shared";
 import { StrictMode } from "react";
@@ -41,7 +41,8 @@ afterEach(() => {
 	getMeMock.mockReset();
 	createBillingCheckoutMock.mockReset();
 	createBillingPortalMock.mockReset();
-	window.location.hash = "";
+	window.history.replaceState(null, "", "/");
+	vi.useRealTimers();
 });
 
 describe("AccountPanel", () => {
@@ -49,6 +50,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValue({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -69,6 +71,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -86,6 +89,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -111,6 +115,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -132,6 +137,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -159,6 +165,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -187,6 +194,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "pro",
+			hasBillingHistory: false,
 			limits: TIERS.pro,
 			usage: { createdToday: 2, apiKeys: 1, resetAt: null }
 		});
@@ -207,10 +215,105 @@ describe("AccountPanel", () => {
 		await waitFor(() => expect(window.location.hash).toBe("#portal"));
 	});
 
+	it("offers the billing portal to a lapsed free user", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_lapsed",
+			tier: "free",
+			hasBillingHistory: true,
+			limits: TIERS.free,
+			usage: { createdToday: 0, apiKeys: 0, resetAt: null }
+		});
+		createBillingPortalMock.mockResolvedValueOnce({ url: "#lapsed-portal" });
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		expect(
+			await screen.findByText(/past invoices or fix a failed payment/i)
+		).toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: "Billing portal" }));
+
+		expect(createBillingPortalMock).toHaveBeenCalledWith("tok");
+		await waitFor(() => expect(window.location.hash).toBe("#lapsed-portal"));
+	});
+
+	it("polls after checkout until First-Class is fresh and clears the query", async () => {
+		vi.useFakeTimers();
+		window.history.replaceState(null, "", "/dashboard/account?upgraded=1");
+		getMeMock
+			.mockResolvedValueOnce({
+				user_id: "user_upgrade",
+				tier: "free",
+				hasBillingHistory: true,
+				limits: TIERS.free,
+				usage: { createdToday: 0, apiKeys: 0, resetAt: null }
+			})
+			.mockResolvedValueOnce({
+				user_id: "user_upgrade",
+				tier: "pro",
+				hasBillingHistory: true,
+				limits: TIERS.pro,
+				usage: { createdToday: 0, apiKeys: 0, resetAt: null }
+			});
+		render(<AccountPanel />);
+
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(
+			screen.getByText(/postmaster is stamping your upgrade/i)
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /go first-class/i })
+		).not.toBeInTheDocument();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(2_000);
+		});
+
+		expect(
+			screen.getByText(/keeping the post office running/i)
+		).toBeInTheDocument();
+		expect(window.location.search).toBe("");
+	});
+
+	it("returns to the upgrade panel when freshness takes longer than 30 seconds", async () => {
+		vi.useFakeTimers();
+		window.history.replaceState(null, "", "/dashboard/account?upgraded=1");
+		getMeMock.mockResolvedValue({
+			user_id: "user_slow_upgrade",
+			tier: "free",
+			hasBillingHistory: true,
+			limits: TIERS.free,
+			usage: { createdToday: 0, apiKeys: 0, resetAt: null }
+		});
+		render(<AccountPanel />);
+
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(
+			screen.getByText(/postmaster is stamping your upgrade/i)
+		).toBeInTheDocument();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(30_000);
+		});
+
+		expect(
+			screen.getByRole("button", { name: /go first-class/i })
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/taking longer than expected.*refresh in a minute/i)
+		).toBeInTheDocument();
+	});
+
 	it("surfaces how much of today's quota is used and left", async () => {
 		getMeMock.mockResolvedValue({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 0, resetAt: null }
 		});
@@ -235,6 +338,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValue({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt }
 		});
@@ -251,6 +355,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValue({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: { createdToday: 0, apiKeys: 1, resetAt: null }
 		});
@@ -269,6 +374,7 @@ describe("AccountPanel", () => {
 		getMeMock.mockResolvedValue({
 			user_id: "user_1",
 			tier: "free",
+			hasBillingHistory: false,
 			limits: TIERS.free,
 			usage: {
 				createdToday: TIERS.free.createPerDay,

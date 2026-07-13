@@ -38,11 +38,24 @@ export const stripeWebhookEvents = sqliteTable("stripe_webhook_events", {
 		.$defaultFn(() => new Date())
 });
 
+export const stripeCustomers = sqliteTable(
+	"stripe_customers",
+	{
+		userId: text("user_id").primaryKey(),
+		customerId: text("customer_id").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date())
+	},
+	(t) => [uniqueIndex("stripe_customers_customer_unique").on(t.customerId)]
+);
+
 export const stripeSubscriptions = sqliteTable(
 	"stripe_subscriptions",
 	{
 		id: text("id").primaryKey(),
 		customerId: text("customer_id").notNull(),
+		priceId: text("price_id").notNull(),
 		userId: text("user_id").notNull(),
 		status: text("status", {
 			enum: [

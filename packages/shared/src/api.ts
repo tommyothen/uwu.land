@@ -53,6 +53,7 @@ export interface CreateKeyResponse {
 export interface MeResponse {
 	user_id: string;
 	tier: "free" | "pro";
+	hasBillingHistory: boolean;
 	limits: TierLimits;
 	usage: {
 		createdToday: number;
