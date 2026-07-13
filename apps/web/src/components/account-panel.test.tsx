@@ -1,14 +1,18 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TIERS } from "@uwu/shared";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getMe } from "@/lib/api";
+import {
+	createBillingCheckout,
+	createBillingPortal,
+	getMe,
+	UwuApiError
+} from "@/lib/api";
 import { AccountPanel } from "./account-panel";
 
-const { mockGetToken, mockOpenUserProfile } = vi.hoisted(() => ({
-	mockGetToken: vi.fn(async () => "tok"),
-	mockOpenUserProfile: vi.fn()
+const { mockGetToken } = vi.hoisted(() => ({
+	mockGetToken: vi.fn(async () => "tok")
 }));
 
 vi.mock("@clerk/react-router", () => ({
@@ -16,23 +20,28 @@ vi.mock("@clerk/react-router", () => ({
 		isLoaded: true,
 		isSignedIn: true,
 		getToken: mockGetToken
-	}),
-	useClerk: () => ({ openUserProfile: mockOpenUserProfile }),
-	PricingTable: () => <div data-testid="clerk-pricing-table">Clerk PricingTable</div>
+	})
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/api")>();
 	return {
 		...actual,
+		createBillingCheckout: vi.fn(),
+		createBillingPortal: vi.fn(),
 		getMe: vi.fn()
 	};
 });
 
 const getMeMock = vi.mocked(getMe);
+const createBillingCheckoutMock = vi.mocked(createBillingCheckout);
+const createBillingPortalMock = vi.mocked(createBillingPortal);
 
 afterEach(() => {
 	getMeMock.mockReset();
+	createBillingCheckoutMock.mockReset();
+	createBillingPortalMock.mockReset();
+	window.location.hash = "";
 });
 
 describe("AccountPanel", () => {
@@ -73,7 +82,7 @@ describe("AccountPanel", () => {
 		).toBeInTheDocument();
 	});
 
-	it("renders the Clerk upgrade section for free-tier users", async () => {
+	it("renders Stripe checkout choices for free-tier users", async () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
@@ -85,20 +94,103 @@ describe("AccountPanel", () => {
 		expect(
 			await screen.findByRole("heading", { name: /upgrade to first-class/i })
 		).toBeInTheDocument();
-		expect(screen.getByTestId("clerk-pricing-table")).toBeInTheDocument();
+		expect(screen.getByText(/handled securely by Stripe/i)).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Go First-Class — $4/mo" })
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "$36/yr" })
+		).toBeInTheDocument();
 		// Pro users' self-service surface must not appear for free users.
 		expect(
 			screen.queryByRole("button", { name: /manage subscription/i })
 		).not.toBeInTheDocument();
 	});
 
-	it("shows the thanks line and manage button for pro users, not the pricing table", async () => {
+	it("starts monthly checkout and redirects to the returned URL", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "free",
+			limits: TIERS.free,
+			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
+		});
+		createBillingCheckoutMock.mockResolvedValueOnce({ url: "#checkout" });
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		await user.click(
+			await screen.findByRole("button", {
+				name: "Go First-Class — $4/mo"
+			})
+		);
+
+		expect(createBillingCheckoutMock).toHaveBeenCalledWith("tok", "monthly");
+		await waitFor(() => expect(window.location.hash).toBe("#checkout"));
+	});
+
+	it("disables checkout choices while a request is pending", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "free",
+			limits: TIERS.free,
+			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
+		});
+		let resolveCheckout: ((value: { url: string }) => void) | undefined;
+		createBillingCheckoutMock.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveCheckout = resolve;
+			})
+		);
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		const yearly = await screen.findByRole("button", { name: "$36/yr" });
+		await user.click(yearly);
+
+		expect(screen.getByRole("button", { name: /opening checkout/i })).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: "Go First-Class — $4/mo" })
+		).toBeDisabled();
+		resolveCheckout?.({ url: "#yearly" });
+		await waitFor(() => expect(window.location.hash).toBe("#yearly"));
+	});
+
+	it("shows a friendly checkout error", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "free",
+			limits: TIERS.free,
+			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
+		});
+		createBillingCheckoutMock.mockRejectedValueOnce(
+			new UwuApiError({
+				status: 502,
+				code: "billing_unavailable",
+				message: "Billing is temporarily unavailable."
+			})
+		);
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		await user.click(
+			await screen.findByRole("button", {
+				name: "Go First-Class — $4/mo"
+			})
+		);
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			/billing is temporarily unavailable/i
+		);
+	});
+
+	it("shows the thanks line and opens Stripe's portal for pro users", async () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "pro",
 			limits: TIERS.pro,
 			usage: { createdToday: 2, apiKeys: 1, resetAt: null }
 		});
+		createBillingPortalMock.mockResolvedValueOnce({ url: "#portal" });
 		const user = userEvent.setup();
 		render(<AccountPanel />);
 
@@ -106,12 +198,13 @@ describe("AccountPanel", () => {
 			await screen.findByText(/keeping the post office running/i)
 		).toBeInTheDocument();
 		expect(
-			screen.queryByTestId("clerk-pricing-table")
+			screen.queryByRole("button", { name: /go first-class/i })
 		).not.toBeInTheDocument();
 
 		const manage = screen.getByRole("button", { name: /manage subscription/i });
 		await user.click(manage);
-		expect(mockOpenUserProfile).toHaveBeenCalledTimes(1);
+		expect(createBillingPortalMock).toHaveBeenCalledWith("tok");
+		await waitFor(() => expect(window.location.hash).toBe("#portal"));
 	});
 
 	it("surfaces how much of today's quota is used and left", async () => {

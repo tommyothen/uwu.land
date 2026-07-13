@@ -1,6 +1,9 @@
 export type {
 	ApiError,
 	ApiKeySummary,
+	BillingCheckoutRequest,
+	BillingCheckoutResponse,
+	BillingPortalResponse,
 	CreateKeyRequest,
 	CreateKeyResponse,
 	CreateLinkRequest,

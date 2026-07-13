@@ -1,6 +1,6 @@
 "use client";
 
-import { PricingTable, useAuth, useClerk } from "@clerk/react-router";
+import { useAuth } from "@clerk/react-router";
 import { type MeResponse, TIERS } from "@uwu/shared";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,11 @@ import {
 	TableHeader,
 	TableRow
 } from "@/components/ui/table";
-import { getMe } from "@/lib/api";
+import {
+	createBillingCheckout,
+	createBillingPortal,
+	getMe
+} from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
 const ROWS = [
@@ -116,9 +120,12 @@ function UsageMeter({
 
 export function AccountPanel() {
 	const { isLoaded, isSignedIn, getToken } = useAuth();
-	const { openUserProfile } = useClerk();
 	const [me, setMe] = useState<MeResponse | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [billingError, setBillingError] = useState<string | null>(null);
+	const [billingPending, setBillingPending] = useState<
+		"monthly" | "yearly" | "portal" | null
+	>(null);
 
 	useEffect(() => {
 		// Wait for Clerk to resolve the session; getToken() returns null before
@@ -184,6 +191,40 @@ export function AccountPanel() {
 	const keyLimit = me.limits.apiKeys;
 	const keysLeft = Math.max(0, keyLimit - activeKeys);
 	const keysAtLimit = activeKeys >= keyLimit;
+	const openCheckout = async (cadence: "monthly" | "yearly") => {
+		setBillingError(null);
+		setBillingPending(cadence);
+		try {
+			const token = await getToken();
+			if (token === null) {
+				setBillingError("Your session expired. Refresh and sign in again.");
+				return;
+			}
+			const response = await createBillingCheckout(token, cadence);
+			window.location.assign(response.url);
+		} catch (err) {
+			setBillingError(friendlyError(err));
+		} finally {
+			setBillingPending(null);
+		}
+	};
+	const openPortal = async () => {
+		setBillingError(null);
+		setBillingPending("portal");
+		try {
+			const token = await getToken();
+			if (token === null) {
+				setBillingError("Your session expired. Refresh and sign in again.");
+				return;
+			}
+			const response = await createBillingPortal(token);
+			window.location.assign(response.url);
+		} catch (err) {
+			setBillingError(friendlyError(err));
+		} finally {
+			setBillingPending(null);
+		}
+	};
 
 	return (
 		<div className="mt-6">
@@ -271,12 +312,35 @@ export function AccountPanel() {
 						Upgrade to First-Class
 					</h3>
 					<p className="mt-1 text-sm text-muted-foreground">
-						Pick a cadence below and Clerk handles checkout securely. Your new
-						limits apply the moment payment clears.
+						Checkout is handled securely by Stripe and accepts cards, PayPal,
+						Apple Pay, and Google Pay. Your new limits apply when payment clears.
 					</p>
-					<div className="mt-4">
-						<PricingTable />
+					<div className="mt-4 flex flex-wrap gap-3">
+						<Button
+							type="button"
+							disabled={billingPending !== null}
+							onClick={() => void openCheckout("monthly")}
+						>
+							{billingPending === "monthly"
+								? "Opening checkout…"
+								: `Go First-Class — $${TIERS.pro.priceUsdMonthly}/mo`}
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={billingPending !== null}
+							onClick={() => void openCheckout("yearly")}
+						>
+							{billingPending === "yearly"
+								? "Opening checkout…"
+								: `$${TIERS.pro.priceUsdYearly}/yr`}
+						</Button>
 					</div>
+					{billingError !== null ? (
+						<p role="alert" className="mt-3 text-sm text-destructive">
+							{billingError}
+						</p>
+					) : null}
 				</section>
 			) : (
 				<section className="mt-8 rounded-xl border border-border bg-card p-4">
@@ -289,10 +353,18 @@ export function AccountPanel() {
 						variant="outline"
 						size="sm"
 						className="mt-3"
-						onClick={() => openUserProfile()}
+						disabled={billingPending !== null}
+						onClick={() => void openPortal()}
 					>
-						Manage subscription
+						{billingPending === "portal"
+							? "Opening portal…"
+							: "Manage subscription"}
 					</Button>
+					{billingError !== null ? (
+						<p role="alert" className="mt-3 text-sm text-destructive">
+							{billingError}
+						</p>
+					) : null}
 				</section>
 			)}
 		</div>
