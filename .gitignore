@@ -10,3 +10,6 @@ coverage
 
 # local-only deploy runbook (not for publication)
 docs/DEPLOY.md
+
+# Local Claude Code config/skills — not tracked
+.claude/
