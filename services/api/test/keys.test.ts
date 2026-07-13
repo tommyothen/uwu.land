@@ -3,7 +3,7 @@ import {
 	env,
 	waitOnExecutionContext
 } from "cloudflare:test";
-import { apiKeys, users } from "@uwu/db/schema";
+import { apiKeys, stripeCustomers, users } from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -212,6 +212,36 @@ describe("API key management", () => {
 		expect(new Date(body.usage.resetAt as string).getTime()).toBeGreaterThan(
 			Date.now()
 		);
+	});
+
+	it("reports billing history for sessions but not API-key principals", async () => {
+		const db = drizzle(env.DB);
+		await db.insert(stripeCustomers)
+			.values({ userId: "user_session", customerId: "cus_history" })
+			.run();
+		const { fetch, jwt } = await sessionFetch();
+
+		const sessionResponse = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(sessionResponse.json()).resolves.toMatchObject({
+			hasBillingHistory: true
+		});
+
+		const secret = await seedApiKey();
+		await db.insert(stripeCustomers)
+			.values({ userId: "user_key", customerId: "cus_key_history" })
+			.run();
+		const keyResponse = await fetch(
+			request("/api/v1/me", secret),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(keyResponse.json()).resolves.toMatchObject({
+			hasBillingHistory: false
+		});
 	});
 
 	it("creates a key for a Clerk session and shows the secret only in the create response", async () => {

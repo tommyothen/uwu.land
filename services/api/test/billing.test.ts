@@ -1,6 +1,7 @@
 import { createExecutionContext, env } from "cloudflare:test";
 import {
 	apiKeys,
+	stripeCustomers,
 	stripeSubscriptions,
 	stripeWebhookEvents,
 	users
@@ -71,28 +72,41 @@ describe("Stripe billing routes", () => {
 		await expect(response.json()).resolves.toMatchObject({ code: "forbidden" });
 	});
 
-	it("creates a monthly Checkout Session with the expected Stripe form", async () => {
-		const stripeFetch = vi.fn<typeof fetch>(async () =>
-			Response.json({ url: "https://checkout.stripe.com/c/pay_test" })
+	it("creates a Stripe customer once and reuses it for Checkout Sessions", async () => {
+		const stripeFetch = vi.fn<typeof fetch>(async (input) =>
+			String(input).endsWith("/customers")
+				? Response.json({ id: "cus_checkout" })
+				: Response.json({ url: "https://checkout.stripe.com/c/pay_test" })
 		);
 
-		const response = await workerFetch(
+		const firstResponse = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			stripeFetch
+		);
+		const secondResponse = await workerFetch(
 			billingRequest("/checkout", jwt, { cadence: "monthly" }),
 			stripeFetch
 		);
 
-		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual({
+		expect(firstResponse.status).toBe(200);
+		expect(secondResponse.status).toBe(200);
+		await expect(firstResponse.json()).resolves.toEqual({
 			url: "https://checkout.stripe.com/c/pay_test"
 		});
-		expect(stripeFetch).toHaveBeenCalledTimes(1);
-		const [url, init] = stripeFetch.mock.calls[0] ?? [];
+		expect(stripeFetch).toHaveBeenCalledTimes(3);
+		const [customerUrl, customerInit] = stripeFetch.mock.calls[0] ?? [];
+		expect(customerUrl).toBe("https://api.stripe.com/v1/customers");
+		expect(new URLSearchParams(String(customerInit?.body)).get("metadata[userId]")).toBe(
+			"user_billing"
+		);
+		const [url, init] = stripeFetch.mock.calls[1] ?? [];
 		expect(url).toBe("https://api.stripe.com/v1/checkout/sessions");
 		expect(new Headers(init?.headers).get("authorization")).toBe(
 			"Bearer sk_test_uwu"
 		);
 		const form = new URLSearchParams(String(init?.body));
 		expect(form.get("mode")).toBe("subscription");
+		expect(form.get("customer")).toBe("cus_checkout");
 		expect(form.get("line_items[0][price]")).toBe(
 			env.STRIPE_PRICE_ID_MONTHLY
 		);
@@ -104,6 +118,10 @@ describe("Stripe billing routes", () => {
 		expect(form.get("success_url")).toBe(
 			"https://app.uwu.land/dashboard/account?upgraded=1"
 		);
+		const [, secondCheckoutInit] = stripeFetch.mock.calls[2] ?? [];
+		expect(
+			new URLSearchParams(String(secondCheckoutInit?.body)).get("customer")
+		).toBe("cus_checkout");
 	});
 
 	it("rejects an invalid cadence", async () => {
@@ -119,10 +137,42 @@ describe("Stripe billing routes", () => {
 		expect(stripeFetch).not.toHaveBeenCalled();
 	});
 
-	it("rejects checkout when the user is already pro", async () => {
+	it("allows a legacy pro user without a Stripe subscription to check out", async () => {
 		await drizzle(env.DB)
 			.insert(users)
 			.values({ id: "user_billing", tier: "pro" })
+			.run();
+		const stripeFetch = vi.fn<typeof fetch>(async (input) =>
+			String(input).endsWith("/customers")
+				? Response.json({ id: "cus_legacy" })
+				: Response.json({ url: "https://checkout.stripe.com/c/legacy" })
+		);
+
+		const response = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "yearly" }),
+			stripeFetch
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("rejects checkout for an entitling configured-price subscription", async () => {
+		const db = drizzle(env.DB);
+		await db.insert(users).values({ id: "user_billing", tier: "pro" }).run();
+		await db.insert(stripeWebhookEvents)
+			.values({ id: "evt_active", eventTimestamp: 100 })
+			.run();
+		await db.insert(stripeSubscriptions)
+			.values({
+				id: "sub_active",
+				customerId: "cus_active",
+				priceId: env.STRIPE_PRICE_ID_MONTHLY,
+				userId: "user_billing",
+				status: "active",
+				eventTimestamp: 100,
+				eventId: "evt_active"
+			})
 			.run();
 		const stripeFetch = vi.fn<typeof fetch>();
 
@@ -138,34 +188,11 @@ describe("Stripe billing routes", () => {
 		expect(stripeFetch).not.toHaveBeenCalled();
 	});
 
-	it("creates a Billing Portal Session for the preferred subscription customer", async () => {
+	it("creates a Billing Portal Session for a lapsed user customer", async () => {
 		const db = drizzle(env.DB);
-		await db.insert(users).values({ id: "user_billing", tier: "pro" }).run();
-		await db.insert(stripeWebhookEvents)
-			.values([
-				{ id: "evt_active", eventTimestamp: 100 },
-				{ id: "evt_canceled", eventTimestamp: 200 }
-			])
-			.run();
-		await db.insert(stripeSubscriptions)
-			.values([
-				{
-					id: "sub_active",
-					customerId: "cus_active",
-					userId: "user_billing",
-					status: "active",
-					eventTimestamp: 100,
-					eventId: "evt_active"
-				},
-				{
-					id: "sub_canceled",
-					customerId: "cus_newer_canceled",
-					userId: "user_billing",
-					status: "canceled",
-					eventTimestamp: 200,
-					eventId: "evt_canceled"
-				}
-			])
+		await db.insert(users).values({ id: "user_billing", tier: "free" }).run();
+		await db.insert(stripeCustomers)
+			.values({ userId: "user_billing", customerId: "cus_lapsed" })
 			.run();
 		const stripeFetch = vi.fn<typeof fetch>(async () =>
 			Response.json({ url: "https://billing.stripe.com/p/session_test" })
@@ -182,13 +209,13 @@ describe("Stripe billing routes", () => {
 		});
 		const [, init] = stripeFetch.mock.calls[0] ?? [];
 		const form = new URLSearchParams(String(init?.body));
-		expect(form.get("customer")).toBe("cus_active");
+		expect(form.get("customer")).toBe("cus_lapsed");
 		expect(form.get("return_url")).toBe(
 			"https://app.uwu.land/dashboard/account"
 		);
 	});
 
-	it("returns 404 when the user has no Stripe subscription", async () => {
+	it("returns 404 when the user has no Stripe customer mapping", async () => {
 		const stripeFetch = vi.fn<typeof fetch>();
 
 		const response = await workerFetch(
@@ -204,7 +231,13 @@ describe("Stripe billing routes", () => {
 	it("maps Stripe failures to a 502 without leaking the upstream body", async () => {
 		const stripeFetch = vi.fn<typeof fetch>(async () =>
 			Response.json(
-				{ error: { message: "sensitive Stripe account detail" } },
+				{
+					error: {
+						type: "api_error",
+						code: "sensitive_internal_code",
+						message: "sensitive Stripe account detail"
+					}
+				},
 				{ status: 500 }
 			)
 		);

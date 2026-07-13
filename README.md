@@ -70,7 +70,7 @@ The public JSON API is versioned under `/api/v1`. Authenticated endpoints accept
 | `GET /api/v1/links/:slug` | Required, owner | Fetch owned link detail. Its click total has the same eventual freshness as the list endpoint. |
 | `GET /api/v1/links/:slug/stats` | None | Public total click count for a slug. |
 | `DELETE /api/v1/links/:slug` | Required, owner | Delete an owned D1 row and its KV redirect/click keys. Anonymous links cannot be deleted via API. |
-| `GET /api/v1/me` | Required | Return user id, tier, and limits. |
+| `GET /api/v1/me` | Required | Return user id, tier, billing-history availability, limits, and usage. |
 | `POST /api/v1/keys` | Clerk session only | Create an API key. The secret is shown once in the response. |
 | `GET /api/v1/keys` | Clerk session only | List non-revoked API keys without hashes or secrets. |
 | `DELETE /api/v1/keys/:id` | Clerk session only | Revoke an API key. API keys cannot manage keys. |

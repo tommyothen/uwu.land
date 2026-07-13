@@ -25,6 +25,7 @@ interface StripePayload {
 			customer: string;
 			status: string;
 			metadata: Record<string, string>;
+			items: { data: Array<{ price: { id: string } }> };
 		};
 	};
 }
@@ -61,6 +62,19 @@ describe("Stripe subscription webhook", () => {
 		expect(await drizzle(env.DB).select().from(stripeWebhookEvents).all()).toEqual([]);
 	});
 
+	it("rejects an empty webhook secret without throwing", async () => {
+		const request = await signedRequest(
+			payload("customer.subscription.created", "active")
+		);
+		const response = await app.fetch(
+			request,
+			{ ...testEnv, STRIPE_WEBHOOK_SECRET: "" },
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(400);
+	});
+
 	it("rejects a stale signature timestamp", async () => {
 		const response = await sendWebhook(
 			payload("customer.subscription.created", "active"),
@@ -70,7 +84,7 @@ describe("Stripe subscription webhook", () => {
 		expect(response.status).toBe(400);
 	});
 
-	it("sets the user to pro when a subscription is created active", async () => {
+	it("sets the user to pro for an active configured-price subscription", async () => {
 		await drizzle(env.DB).insert(users).values({ id: "user_paid" }).run();
 
 		const response = await sendWebhook(
@@ -88,30 +102,98 @@ describe("Stripe subscription webhook", () => {
 			{
 				id: "sub_paid",
 				customerId: "cus_test",
+				priceId: env.STRIPE_PRICE_ID_MONTHLY,
 				userId: "user_paid",
 				status: "active"
 			}
 		]);
 	});
 
-	it("sets the user to free when the subscription is deleted as canceled", async () => {
-		await sendWebhook(
+	it("keeps the user free for an entitling status on another price", async () => {
+		const response = await sendWebhook(
 			payload("customer.subscription.created", "active", {
-				userId: "user_deleted",
-				subscriptionId: "sub_deleted",
-				eventTimestamp: 100
+				userId: "user_other_price",
+				priceId: "price_not_first_class"
 			})
 		);
 
+		expect(response.status).toBe(200);
+		expect(await findTier("user_other_price")).toBe("free");
+	});
+
+	it("records an unknown status and fails entitlement closed", async () => {
+		const response = await sendWebhook(
+			payload("customer.subscription.updated", "future_status", {
+				userId: "user_future_status",
+				subscriptionId: "sub_future_status"
+			})
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_future_status")).toBe("free");
+		const subscription = await findSubscription("sub_future_status");
+		expect(subscription?.status).toBe("future_status");
+	});
+
+	it("accepts paused events and treats paused as non-entitling", async () => {
 		await sendWebhook(
-			payload("customer.subscription.deleted", "canceled", {
-				userId: "user_deleted",
-				subscriptionId: "sub_deleted",
+			payload("customer.subscription.created", "active", {
+				userId: "user_paused",
+				subscriptionId: "sub_paused",
+				eventTimestamp: 100
+			})
+		);
+		const response = await sendWebhook(
+			payload("customer.subscription.paused", "paused", {
+				userId: "user_paused",
+				subscriptionId: "sub_paused",
 				eventTimestamp: 200
 			})
 		);
 
-		expect(await findTier("user_deleted")).toBe("free");
+		expect(response.status).toBe(200);
+		expect(await findTier("user_paused")).toBe("free");
+		expect((await findSubscription("sub_paused"))?.status).toBe("paused");
+	});
+
+	it("makes same-second deletion win when update arrives first", async () => {
+		await sendWebhook(
+			payload("customer.subscription.updated", "active", {
+				userId: "user_update_delete",
+				subscriptionId: "sub_update_delete",
+				eventTimestamp: 200
+			})
+		);
+		await sendWebhook(
+			payload("customer.subscription.deleted", "canceled", {
+				userId: "user_update_delete",
+				subscriptionId: "sub_update_delete",
+				eventTimestamp: 200
+			})
+		);
+
+		expect((await findSubscription("sub_update_delete"))?.status).toBe("canceled");
+		expect(await findTier("user_update_delete")).toBe("free");
+	});
+
+	it("makes same-second deletion stick when update arrives second", async () => {
+		await sendWebhook(
+			payload("customer.subscription.deleted", "canceled", {
+				userId: "user_delete_update",
+				subscriptionId: "sub_delete_update",
+				eventTimestamp: 200
+			})
+		);
+		await sendWebhook(
+			payload("customer.subscription.updated", "active", {
+				userId: "user_delete_update",
+				subscriptionId: "sub_delete_update",
+				eventTimestamp: 200
+			})
+		);
+
+		expect((await findSubscription("sub_delete_update"))?.status).toBe("canceled");
+		expect(await findTier("user_delete_update")).toBe("free");
 	});
 
 	it("ignores an out-of-order older event", async () => {
@@ -131,33 +213,57 @@ describe("Stripe subscription webhook", () => {
 		);
 
 		expect(await findTier("user_ordered")).toBe("pro");
-		const [subscription] = await drizzle(env.DB)
-			.select()
-			.from(stripeSubscriptions)
-			.where(eq(stripeSubscriptions.id, "sub_ordered"))
-			.all();
-		expect(subscription?.status).toBe("active");
+		expect((await findSubscription("sub_ordered"))?.status).toBe("active");
 	});
 
-	it("deduplicates a repeated event id", async () => {
-		const event = payload("customer.subscription.created", "active", {
-			eventId: "evt_duplicate",
-			userId: "user_duplicate"
-		});
+	it("short-circuits a replay before applying changed state", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				eventId: "evt_replay",
+				userId: "user_replay",
+				subscriptionId: "sub_replay",
+				eventTimestamp: 100
+			})
+		);
+		const response = await sendWebhook(
+			payload("customer.subscription.deleted", "canceled", {
+				eventId: "evt_replay",
+				userId: "user_replay",
+				subscriptionId: "sub_replay",
+				eventTimestamp: 200
+			})
+		);
 
-		await sendWebhook(event);
-		await sendWebhook(event);
-
-		expect(await findTier("user_duplicate")).toBe("pro");
+		expect(response.status).toBe(200);
+		expect((await findSubscription("sub_replay"))?.status).toBe("active");
+		expect(await findTier("user_replay")).toBe("pro");
 		expect(
 			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
 		).toHaveLength(1);
-		expect(
-			await drizzle(env.DB).select().from(stripeSubscriptions).all()
-		).toHaveLength(1);
 	});
 
-	it("acknowledges a subscription without metadata.userId without mutation", async () => {
+	it("uses the tracked owner for a metadata-less cancellation", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_tracked",
+				subscriptionId: "sub_tracked",
+				eventTimestamp: 100
+			})
+		);
+		const event = payload("customer.subscription.deleted", "canceled", {
+			userId: "unused",
+			subscriptionId: "sub_tracked",
+			eventTimestamp: 200
+		});
+		delete event.data.object.metadata.userId;
+
+		const response = await sendWebhook(event);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_tracked")).toBe("free");
+	});
+
+	it("acknowledges a metadata-less unknown subscription without mutation", async () => {
 		const event = payload("customer.subscription.created", "active");
 		delete event.data.object.metadata.userId;
 
@@ -166,6 +272,29 @@ describe("Stripe subscription webhook", () => {
 		expect(response.status).toBe(200);
 		expect(await drizzle(env.DB).select().from(stripeWebhookEvents).all()).toEqual([]);
 		expect(await drizzle(env.DB).select().from(stripeSubscriptions).all()).toEqual([]);
+	});
+
+	it("recomputes both users when subscription ownership changes", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_old_owner",
+				subscriptionId: "sub_transferred",
+				eventTimestamp: 100
+			})
+		);
+		await sendWebhook(
+			payload("customer.subscription.updated", "active", {
+				userId: "user_new_owner",
+				subscriptionId: "sub_transferred",
+				eventTimestamp: 200
+			})
+		);
+
+		expect(await findTier("user_old_owner")).toBe("free");
+		expect(await findTier("user_new_owner")).toBe("pro");
+		expect((await findSubscription("sub_transferred"))?.userId).toBe(
+			"user_new_owner"
+		);
 	});
 
 	it("acknowledges an unknown event type without mutation", async () => {
@@ -186,6 +315,8 @@ function payload(
 		eventTimestamp?: number;
 		subscriptionId?: string;
 		userId?: string;
+		priceId?: string;
+		customerId?: string;
 	} = {}
 ): StripePayload {
 	const userId = options.userId ?? "user_test";
@@ -196,9 +327,18 @@ function payload(
 		data: {
 			object: {
 				id: options.subscriptionId ?? `sub_${userId}`,
-				customer: "cus_test",
+				customer: options.customerId ?? "cus_test",
 				status,
-				metadata: { userId }
+				metadata: { userId },
+				items: {
+					data: [
+						{
+							price: {
+								id: options.priceId ?? env.STRIPE_PRICE_ID_MONTHLY
+							}
+						}
+					]
+				}
 			}
 		}
 	};
@@ -260,4 +400,14 @@ async function findTier(userId: string): Promise<"free" | "pro" | undefined> {
 		.limit(1)
 		.all();
 	return user?.tier;
+}
+
+async function findSubscription(id: string) {
+	const [subscription] = await drizzle(env.DB)
+		.select()
+		.from(stripeSubscriptions)
+		.where(eq(stripeSubscriptions.id, id))
+		.limit(1)
+		.all();
+	return subscription;
 }

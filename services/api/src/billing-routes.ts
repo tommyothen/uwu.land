@@ -5,13 +5,13 @@ import type {
 } from "@uwu/shared";
 import type { Context } from "hono";
 import { z } from "zod";
+import type { AuthOptions } from "./auth";
 import {
-	AuthError,
-	type AuthOptions,
-	type AuthPrincipal,
-	resolveAuth
-} from "./auth";
+	configuredPriceIds,
+	ENTITLING_STATUS_SQL
+} from "./billing-shared";
 import { errorResponse } from "./errors";
+import { isRecord, readJson, requireSession } from "./request-utils";
 import type { Env } from "./worker";
 
 const ACCOUNT_URL = "https://app.uwu.land/dashboard/account";
@@ -19,8 +19,6 @@ const STRIPE_API = "https://api.stripe.com/v1";
 const checkoutSchema = z.object({
 	cadence: z.enum(["monthly", "yearly"])
 }).strict() satisfies z.ZodType<BillingCheckoutRequest>;
-
-type SessionPrincipal = Extract<AuthPrincipal, { kind: "session" }>;
 
 export interface BillingRouteOptions {
 	auth?: AuthOptions;
@@ -31,7 +29,11 @@ export async function createBillingCheckout(
 	c: Context<{ Bindings: Env }>,
 	options: BillingRouteOptions = {}
 ): Promise<Response> {
-	const auth = await requireSession(c, options);
+	const auth = await requireSession(
+		c,
+		options,
+		"API keys cannot manage billing."
+	);
 	if (auth instanceof Response) {
 		return auth;
 	}
@@ -41,7 +43,14 @@ export async function createBillingCheckout(
 	if (!parsed.success) {
 		return errorResponse(400, "invalid_body", "Invalid request body.");
 	}
-	if (auth.tier === "pro") {
+
+	const [monthlyPriceId, yearlyPriceId] = configuredPriceIds(c.env);
+	const subscription = await c.env.DB.prepare(
+		`SELECT 1 FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL}) AND price_id IN (?, ?) LIMIT 1`
+	)
+		.bind(auth.userId, monthlyPriceId, yearlyPriceId)
+		.first();
+	if (subscription !== null) {
 		return errorResponse(
 			409,
 			"already_subscribed",
@@ -53,12 +62,22 @@ export async function createBillingCheckout(
 	if (secret === undefined || secret.length === 0) {
 		return stripeUnavailable();
 	}
+	const stripeFetch = options.stripeFetch ?? fetch;
+	const customerId = await findOrCreateCustomer(
+		c.env.DB,
+		stripeFetch,
+		secret,
+		auth.userId
+	);
+	if (customerId === null) {
+		return stripeUnavailable();
+	}
+
 	const priceId =
-		parsed.data.cadence === "monthly"
-			? c.env.STRIPE_PRICE_ID_MONTHLY
-			: c.env.STRIPE_PRICE_ID_YEARLY;
+		parsed.data.cadence === "monthly" ? monthlyPriceId : yearlyPriceId;
 	const params = new URLSearchParams({
 		mode: "subscription",
+		customer: customerId,
 		"line_items[0][price]": priceId,
 		"line_items[0][quantity]": "1",
 		client_reference_id: auth.userId,
@@ -67,7 +86,7 @@ export async function createBillingCheckout(
 		cancel_url: ACCOUNT_URL
 	});
 	const url = await createStripeSession(
-		options.stripeFetch ?? fetch,
+		stripeFetch,
 		`${STRIPE_API}/checkout/sessions`,
 		secret,
 		params
@@ -83,17 +102,21 @@ export async function createBillingPortal(
 	c: Context<{ Bindings: Env }>,
 	options: BillingRouteOptions = {}
 ): Promise<Response> {
-	const auth = await requireSession(c, options);
+	const auth = await requireSession(
+		c,
+		options,
+		"API keys cannot manage billing."
+	);
 	if (auth instanceof Response) {
 		return auth;
 	}
 
-	const subscription = await c.env.DB.prepare(
-		"SELECT customer_id FROM stripe_subscriptions WHERE user_id = ? ORDER BY CASE WHEN status IN ('active', 'trialing', 'past_due') THEN 0 ELSE 1 END, event_timestamp DESC LIMIT 1"
+	const customer = await c.env.DB.prepare(
+		"SELECT customer_id FROM stripe_customers WHERE user_id = ?"
 	)
 		.bind(auth.userId)
 		.first<{ customer_id: string }>();
-	if (subscription === null) {
+	if (customer === null) {
 		return errorResponse(404, "not_found", "Subscription not found.");
 	}
 
@@ -106,7 +129,7 @@ export async function createBillingPortal(
 		`${STRIPE_API}/billing_portal/sessions`,
 		secret,
 		new URLSearchParams({
-			customer: subscription.customer_id,
+			customer: customer.customer_id,
 			return_url: ACCOUNT_URL
 		})
 	);
@@ -115,6 +138,74 @@ export async function createBillingPortal(
 	}
 
 	return Response.json({ url } satisfies BillingPortalResponse);
+}
+
+async function findOrCreateCustomer(
+	db: D1Database,
+	stripeFetch: typeof fetch,
+	secret: string,
+	userId: string
+): Promise<string | null> {
+	const existing = await db
+		.prepare("SELECT customer_id FROM stripe_customers WHERE user_id = ?")
+		.bind(userId)
+		.first<{ customer_id: string }>();
+	if (existing !== null) {
+		return existing.customer_id;
+	}
+
+	const customerId = await createStripeCustomer(
+		stripeFetch,
+		secret,
+		userId
+	);
+	if (customerId === null) {
+		return null;
+	}
+	await db
+		.prepare(
+			"INSERT INTO stripe_customers (user_id, customer_id, created_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING"
+		)
+		.bind(userId, customerId, Math.floor(Date.now() / 1000))
+		.run();
+	const stored = await db
+		.prepare("SELECT customer_id FROM stripe_customers WHERE user_id = ?")
+		.bind(userId)
+		.first<{ customer_id: string }>();
+	return stored?.customer_id ?? null;
+}
+
+async function createStripeCustomer(
+	stripeFetch: typeof fetch,
+	secret: string,
+	userId: string
+): Promise<string | null> {
+	const url = `${STRIPE_API}/customers`;
+	let response: Response;
+	try {
+		response = await stripeFetch(url, {
+			method: "POST",
+			headers: stripeHeaders(secret),
+			body: new URLSearchParams({ "metadata[userId]": userId })
+		});
+	} catch {
+		return null;
+	}
+	if (!response.ok) {
+		await logStripeFailure(url, response);
+		return null;
+	}
+
+	try {
+		const payload: unknown = await response.json();
+		return isRecord(payload) &&
+			typeof payload.id === "string" &&
+			payload.id.length > 0
+			? payload.id
+			: null;
+	} catch {
+		return null;
+	}
 }
 
 async function createStripeSession(
@@ -127,16 +218,14 @@ async function createStripeSession(
 	try {
 		response = await stripeFetch(url, {
 			method: "POST",
-			headers: {
-				authorization: `Bearer ${secret}`,
-				"content-type": "application/x-www-form-urlencoded"
-			},
+			headers: stripeHeaders(secret),
 			body
 		});
 	} catch {
 		return null;
 	}
 	if (!response.ok) {
+		await logStripeFailure(url, response);
 		return null;
 	}
 
@@ -152,35 +241,37 @@ async function createStripeSession(
 	}
 }
 
-async function requireSession(
-	c: Context<{ Bindings: Env }>,
-	options: BillingRouteOptions
-): Promise<SessionPrincipal | Response> {
-	let auth: AuthPrincipal;
-	try {
-		auth = await resolveAuth(c.req.raw, c.env, c.executionCtx, options.auth);
-	} catch (error) {
-		if (error instanceof AuthError) {
-			return errorResponse(401, "unauthorized", "Unauthorized.");
-		}
-		throw error;
-	}
-
-	if (auth.kind === "anon") {
-		return errorResponse(401, "unauthorized", "Authentication required.");
-	}
-	if (auth.kind === "key") {
-		return errorResponse(403, "forbidden", "API keys cannot manage billing.");
-	}
-	return auth;
+function stripeHeaders(secret: string): HeadersInit {
+	return {
+		authorization: `Bearer ${secret}`,
+		"content-type": "application/x-www-form-urlencoded"
+	};
 }
 
-async function readJson(request: Request): Promise<unknown> {
+async function logStripeFailure(url: string, response: Response): Promise<void> {
+	let type: string | undefined;
+	let code: string | undefined;
 	try {
-		return await request.json();
+		const payload: unknown = await response.json();
+		if (isRecord(payload) && isRecord(payload.error)) {
+			type =
+				typeof payload.error.type === "string"
+					? payload.error.type
+					: undefined;
+			code =
+				typeof payload.error.code === "string"
+					? payload.error.code
+					: undefined;
+		}
 	} catch {
-		return null;
+		// The status and endpoint are still useful when Stripe sends non-JSON.
 	}
+	console.error("Stripe request failed.", {
+		endpoint: new URL(url).pathname,
+		status: response.status,
+		type,
+		code
+	});
 }
 
 function stripeUnavailable(): Response {
@@ -189,8 +280,4 @@ function stripeUnavailable(): Response {
 		"billing_unavailable",
 		"Billing is temporarily unavailable."
 	);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
