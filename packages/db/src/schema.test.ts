@@ -6,9 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
 	accountTombstones,
 	apiKeys,
-	clerkSubscriptionItems,
-	clerkWebhookEvents,
 	links,
+	stripeSubscriptions,
+	stripeWebhookEvents,
 	users
 } from "./schema";
 
@@ -87,11 +87,18 @@ describe("schema", () => {
 			from: string;
 			table: string;
 		}>;
+		const stripeForeignKeys = sqlite.pragma(
+			"foreign_key_list('stripe_subscriptions')"
+		) as Array<{
+			from: string;
+			table: string;
+		}>;
 
 		expect(indexes.map(({ name }) => name)).toEqual(
 			expect.arrayContaining([
 				"account_tombstones_email_idx",
 				"api_keys_key_hash_unique",
+				"stripe_subscriptions_user_idx",
 				"links_owner_idx",
 				"links_owner_created_slug_idx",
 				"links_owner_external_ref_created_slug_idx"
@@ -105,6 +112,14 @@ describe("schema", () => {
 		expect(linkForeignKeys).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ from: "owner_id", table: "users" })
+			])
+		);
+		expect(stripeForeignKeys).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					from: "event_id",
+					table: "stripe_webhook_events"
+				})
 			])
 		);
 	});
@@ -177,29 +192,30 @@ describe("schema", () => {
 		]);
 	});
 
-	it("stores Clerk webhook and per-item subscription state", () => {
+	it("stores Stripe webhook and subscription state", () => {
 		const db = createDb();
 		db.insert(users).values({ id: "user_123" }).run();
-		db.insert(clerkWebhookEvents)
-			.values({ id: "msg_123", eventTimestamp: 1_700_000_000_000 })
+		db.insert(stripeWebhookEvents)
+			.values({ id: "evt_123", eventTimestamp: 1_700_000_000 })
 			.run();
-		db.insert(clerkSubscriptionItems)
+		db.insert(stripeSubscriptions)
 			.values({
-				id: "subi_123",
-				payerUserId: "user_123",
-				planSlug: "first_class",
+				id: "sub_123",
+				customerId: "cus_123",
+				userId: "user_123",
 				status: "active",
-				eventTimestamp: 1_700_000_000_000,
-				eventId: "msg_123"
+				eventTimestamp: 1_700_000_000,
+				eventId: "evt_123"
 			})
 			.run();
 
-		expect(db.select().from(clerkSubscriptionItems).all()).toMatchObject([
+		expect(db.select().from(stripeSubscriptions).all()).toMatchObject([
 			{
-				id: "subi_123",
-				payerUserId: "user_123",
+				id: "sub_123",
+				customerId: "cus_123",
+				userId: "user_123",
 				status: "active",
-				eventId: "msg_123"
+				eventId: "evt_123"
 			}
 		]);
 	});

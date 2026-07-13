@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	createBillingCheckout,
+	createBillingPortal,
 	createKey,
 	createLink,
 	deleteKey,
@@ -178,5 +180,36 @@ describe("keys and me", () => {
 		const { url, init } = lastRequest();
 		expect(url).toBe("https://uwu.land/api/v1/keys/k1");
 		expect(init.method).toBe("DELETE");
+	});
+});
+
+describe("billing", () => {
+	it("creates checkout with the requested cadence and session token", async () => {
+		fetchMock.mockResolvedValueOnce(
+			jsonResponse({ url: "https://checkout.stripe.com/c/pay_test" })
+		);
+
+		expect(await createBillingCheckout("tok", "yearly")).toEqual({
+			url: "https://checkout.stripe.com/c/pay_test"
+		});
+		const { url, init } = lastRequest();
+		expect(url).toBe("https://uwu.land/api/v1/billing/checkout");
+		expect(init.method).toBe("POST");
+		expect(new Headers(init.headers).get("Authorization")).toBe("Bearer tok");
+		expect(JSON.parse(init.body as string)).toEqual({ cadence: "yearly" });
+	});
+
+	it("creates a portal session without a request body", async () => {
+		fetchMock.mockResolvedValueOnce(
+			jsonResponse({ url: "https://billing.stripe.com/p/session_test" })
+		);
+
+		expect(await createBillingPortal("tok")).toEqual({
+			url: "https://billing.stripe.com/p/session_test"
+		});
+		const { url, init } = lastRequest();
+		expect(url).toBe("https://uwu.land/api/v1/billing/portal");
+		expect(init.method).toBe("POST");
+		expect(init.body).toBeUndefined();
 	});
 });

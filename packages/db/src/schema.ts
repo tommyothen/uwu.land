@@ -30,21 +30,38 @@ export const clerkWebhookEvents = sqliteTable("clerk_webhook_events", {
 		.$defaultFn(() => new Date())
 });
 
-export const clerkSubscriptionItems = sqliteTable(
-	"clerk_subscription_items",
+export const stripeWebhookEvents = sqliteTable("stripe_webhook_events", {
+	id: text("id").primaryKey(),
+	eventTimestamp: integer("event_timestamp").notNull(),
+	processedAt: integer("processed_at", { mode: "timestamp" })
+		.notNull()
+		.$defaultFn(() => new Date())
+});
+
+export const stripeSubscriptions = sqliteTable(
+	"stripe_subscriptions",
 	{
 		id: text("id").primaryKey(),
-		payerUserId: text("payer_user_id").notNull(),
-		planSlug: text("plan_slug").notNull(),
+		customerId: text("customer_id").notNull(),
+		userId: text("user_id").notNull(),
 		status: text("status", {
-			enum: ["active", "canceled", "ended", "abandoned"]
+			enum: [
+				"active",
+				"trialing",
+				"past_due",
+				"canceled",
+				"unpaid",
+				"incomplete",
+				"incomplete_expired",
+				"paused"
+			]
 		}).notNull(),
 		eventTimestamp: integer("event_timestamp").notNull(),
 		eventId: text("event_id")
 			.notNull()
-			.references(() => clerkWebhookEvents.id)
+			.references(() => stripeWebhookEvents.id)
 	},
-	(t) => [index("clerk_subscription_items_payer_idx").on(t.payerUserId)]
+	(t) => [index("stripe_subscriptions_user_idx").on(t.userId)]
 );
 
 export const apiKeys = sqliteTable("api_keys", {

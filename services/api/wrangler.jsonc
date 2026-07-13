@@ -27,9 +27,13 @@
   "triggers": {
 	"crons": ["*/5 * * * *", "0 6 * * *"]
   },
-  // Set CLERK_WEBHOOK_SIGNING_SECRET with `wrangler secret put`; do not add it to vars.
+  // Set CLERK_WEBHOOK_SIGNING_SECRET, STRIPE_SECRET_KEY, and STRIPE_WEBHOOK_SECRET
+  // with `wrangler secret put`; do not add them to vars.
   "vars": {
-    "CLERK_ISSUER": "https://clerk.uwu.land"
+    "CLERK_ISSUER": "https://clerk.uwu.land",
+    // Replace these placeholders with the Stripe Product's recurring Price IDs.
+    "STRIPE_PRICE_ID_MONTHLY": "price_REPLACE_ME",
+    "STRIPE_PRICE_ID_YEARLY": "price_REPLACE_ME"
   },
   "d1_databases": [
     {

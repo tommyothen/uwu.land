@@ -61,6 +61,18 @@ export interface MeResponse {
 	};
 }
 
+export interface BillingCheckoutRequest {
+	cadence: "monthly" | "yearly";
+}
+
+export interface BillingCheckoutResponse {
+	url: string;
+}
+
+export interface BillingPortalResponse {
+	url: string;
+}
+
 export interface LinkStatsResponse {
 	slug: string;
 	clicks: number;
@@ -84,4 +96,6 @@ export type ErrorCode =
 	| "unauthorized"
 	| "forbidden"
 	| "key_limit"
+	| "already_subscribed"
+	| "billing_unavailable"
 	| "publication_pending";

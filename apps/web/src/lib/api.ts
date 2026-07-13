@@ -1,5 +1,8 @@
 import type {
 	ApiError,
+	BillingCheckoutRequest,
+	BillingCheckoutResponse,
+	BillingPortalResponse,
 	CreateKeyRequest,
 	CreateKeyResponse,
 	CreateLinkRequest,
@@ -93,6 +96,19 @@ export async function deleteLink(slug: string, token: string): Promise<void> {
 
 export async function getMe(token: string): Promise<MeResponse> {
 	return request("GET", "/me", token);
+}
+
+export async function createBillingCheckout(
+	token: string,
+	cadence: BillingCheckoutRequest["cadence"]
+): Promise<BillingCheckoutResponse> {
+	return request("POST", "/billing/checkout", token, { cadence });
+}
+
+export async function createBillingPortal(
+	token: string
+): Promise<BillingPortalResponse> {
+	return request("POST", "/billing/portal", token);
 }
 
 export async function createKey(

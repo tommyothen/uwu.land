@@ -18,8 +18,10 @@ uwu.land is free forever, and will always be free with no ads or account creatio
 
 `apps/web` is the React Router v7 framework-mode app for app.uwu.land: landing page with
 anonymous shortening, Clerk-authenticated dashboard (links, API keys, account),
-and the public API docs at `/docs`. It is an ordinary consumer of `/api/v1`,
-calling it client-side with Clerk session JWTs.
+direct Stripe Billing for First-Class subscriptions, and the public API docs at
+`/docs`. It is an ordinary consumer of `/api/v1`, calling it client-side with
+Clerk session JWTs. Clerk remains the auth provider; Stripe Checkout, Billing
+Portal, and subscription webhooks handle billing.
 
 The visual system is "Riso Post Office" (riso-print postal metaphor).
 Type stack: Bricolage Grotesque (display/wordmark), Instrument Sans (body/UI),
@@ -72,6 +74,8 @@ The public JSON API is versioned under `/api/v1`. Authenticated endpoints accept
 | `POST /api/v1/keys` | Clerk session only | Create an API key. The secret is shown once in the response. |
 | `GET /api/v1/keys` | Clerk session only | List non-revoked API keys without hashes or secrets. |
 | `DELETE /api/v1/keys/:id` | Clerk session only | Revoke an API key. API keys cannot manage keys. |
+| `POST /api/v1/billing/checkout` | Clerk session only | Create a Stripe Checkout Session for a monthly or yearly First-Class subscription. |
+| `POST /api/v1/billing/portal` | Clerk session only | Create a Stripe Billing Portal Session for subscription management. |
 
 ### Errors
 
@@ -94,6 +98,8 @@ Stable `ErrorCode` values:
 | `unauthorized` | Authentication is missing or invalid. |
 | `forbidden` | Authenticated caller cannot perform this action. |
 | `key_limit` | Account has reached its non-revoked API key limit. |
+| `already_subscribed` | Account is already First-Class and cannot start another checkout. |
+| `billing_unavailable` | Stripe could not create the requested billing session. |
 
 ## Maintenance
 
@@ -117,6 +123,7 @@ Run these from `services/api`; they operate on remote production infrastructure.
 | 2026-07-10 | Verify Clerk JWTs in-worker | Use `@clerk/backend` JWT verification with configured issuer and JWKS, without Clerk network calls in tests. |
 | 2026-07-10 | Landing redesign: "Riso Post Office" visual system | Riso grain + postal metaphor on the 2021 brand; Bricolage/Instrument/Space Mono; one GSAP submit choreography; shadcn tokens. |
 | 2026-07-10 | apps/web on React Router v7 + @cloudflare/vite-plugin (replacing Next/OpenNext) | app used no Next-specific features; drop the adapter layer and its operational risk (build fork-bomb class bugs, env split-brain). |
+| 2026-07-13 | Billing: Clerk Billing → direct Stripe Billing (Checkout + Billing Portal + webhooks) | PayPal + 3DS support; Clerk checkout renders neither. Clerk remains auth-only. |
 
 ## License
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type {
 	ApiKeySummary,
+	BillingCheckoutRequest,
+	BillingCheckoutResponse,
+	BillingPortalResponse,
 	CreateKeyRequest,
 	CreateKeyResponse,
 	LinkStatsResponse,
@@ -43,5 +46,19 @@ describe("api contract types", () => {
 
 		const stats = { slug: "abc12", clicks: 42 } satisfies LinkStatsResponse;
 		expect(stats.clicks).toBe(42);
+	});
+
+	it("round-trips billing session shapes", () => {
+		const request = { cadence: "yearly" } satisfies BillingCheckoutRequest;
+		const checkout = {
+			url: "https://checkout.stripe.com/c/pay_test"
+		} satisfies BillingCheckoutResponse;
+		const portal = {
+			url: "https://billing.stripe.com/p/session_test"
+		} satisfies BillingPortalResponse;
+
+		expect(request.cadence).toBe("yearly");
+		expect(checkout.url).toContain("checkout.stripe.com");
+		expect(portal.url).toContain("billing.stripe.com");
 	});
 });
