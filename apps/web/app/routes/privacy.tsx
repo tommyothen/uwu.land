@@ -129,10 +129,6 @@ export default function PrivacyPage() {
 					tax and to respond to lawful requests.
 				</LI>
 			</UL>
-			<P>
-				This is our good-faith mapping and is the kind of thing worth a
-				solicitor confirming for your situation.
-			</P>
 
 			<H2 id="processors">Who else handles your data</H2>
 			<P>
