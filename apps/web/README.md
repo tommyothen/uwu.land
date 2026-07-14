@@ -69,22 +69,22 @@ cd services/api
 pnpm exec wrangler dev --port 8787
 
 # terminal 2: web app
-pnpm --filter uwu-land-web dev        # vite --port 3000
+pnpm --filter @uwu/web dev        # vite --port 3000
 ```
 
 ## Testing
 
 ```sh
-pnpm --filter uwu-land-web test         # vitest (component + lib specs, *.test.tsx / *.test.ts)
-pnpm --filter uwu-land-web check-types  # react-router typegen && tsc --noEmit
-pnpm --filter uwu-land-web lint         # biome
+pnpm --filter @uwu/web test         # vitest (component + lib specs, *.test.tsx / *.test.ts)
+pnpm --filter @uwu/web check-types  # react-router typegen && tsc --noEmit
+pnpm --filter @uwu/web lint         # biome
 ```
 
 ## Build and deploy
 
 ```sh
-pnpm --filter uwu-land-web build      # react-router build → build/
-pnpm --filter uwu-land-web deploy     # wrangler deploy
+pnpm --filter @uwu/web build      # react-router build → build/
+pnpm --filter @uwu/web deploy     # wrangler deploy
 ```
 
 Deploys run through Cloudflare Workers Builds on push to `main` (root directory
