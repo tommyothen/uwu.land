@@ -33,8 +33,7 @@ export default function PrivacyPage() {
 			</P>
 			<P>
 				For anything privacy-related, email{" "}
-				<A href="mailto:hello@uwu.land">hello@uwu.land</A>. To serve a formal or
-				legal notice, ask us at the same address for a postal address.
+				<A href="mailto:hello@uwu.land">hello@uwu.land</A>.
 			</P>
 
 			<H2 id="anonymous">Shortening a link without an account</H2>
