@@ -184,6 +184,23 @@ export default function Home() {
 					uwu.land is free forever, and will always be free with no ads or
 					account creation required.
 				</p>
+				<nav className="pointer-events-auto mx-auto mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[11px] text-foreground/60">
+					<Link to="/privacy" className="transition hover:text-foreground">
+						Privacy
+					</Link>
+					<Link to="/terms" className="transition hover:text-foreground">
+						Terms
+					</Link>
+					<Link
+						to="/acceptable-use"
+						className="transition hover:text-foreground"
+					>
+						Acceptable use
+					</Link>
+					<Link to="/refunds" className="transition hover:text-foreground">
+						Refunds
+					</Link>
+				</nav>
 			</footer>
 
 			<CloudField className="enter-field" />
