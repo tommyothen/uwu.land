@@ -6,7 +6,10 @@ import {
 	createBillingCheckout,
 	createBillingPortal
 } from "./billing-routes";
-import { clerkWebhook } from "./clerk-webhook";
+import {
+	clerkWebhook,
+	purgeExpiredAccountTombstones
+} from "./clerk-webhook";
 import { materializeClickCounts } from "./click-materialization";
 import {
 	createKey,
@@ -83,7 +86,10 @@ export function createWorker(options: WorkerOptions = {}): ExportedHandler<Env> 
 		scheduled: (event, env, ctx) => {
 			ctx.waitUntil(reconcilePendingLinks(env));
 			ctx.waitUntil(materializeClickCounts(env));
-			if (event.cron === "0 6 * * *") ctx.waitUntil(syncBannedDomains(env));
+			if (event.cron === "0 6 * * *") {
+				ctx.waitUntil(syncBannedDomains(env));
+				ctx.waitUntil(purgeExpiredAccountTombstones(env.DB));
+			}
 		}
 	};
 }

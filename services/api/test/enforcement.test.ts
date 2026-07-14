@@ -1,4 +1,8 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import {
+	env,
+	runDurableObjectAlarm,
+	runInDurableObject
+} from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -64,5 +68,64 @@ describe("atomic enforcement", () => {
 			count: 1,
 			resetAt: 25_000
 		});
+	});
+
+	it("keeps active state and reschedules its alarm to the latest expiry", async () => {
+		const stub = env.ENFORCEMENT.getByName("test:active-alarm");
+		const now = Date.now();
+		const fixedWindowExpiry = now + 60_000;
+		const blockExpiry = now + 120_000;
+
+		await stub.limitFixedWindow(1, 60, now);
+		await stub.recordBannedAttempt(
+			{ threshold: 1, windowSeconds: 30, blockSeconds: 120 },
+			now
+		);
+		await runInDurableObject(stub, async (_instance, state) => {
+			expect(await state.storage.getAlarm()).toBe(blockExpiry);
+		});
+
+		expect(await runDurableObjectAlarm(stub)).toBe(true);
+		expect(await stub.fixedWindowUsage(now)).toEqual({
+			count: 1,
+			resetAt: fixedWindowExpiry
+		});
+		expect(await stub.isBlocked(now)).toBe(true);
+		await runInDurableObject(stub, async (_instance, state) => {
+			expect(await state.storage.getAlarm()).toBe(blockExpiry);
+		});
+	});
+
+	it("deletes all stored state when the alarm finds every expiry elapsed", async () => {
+		const stub = env.ENFORCEMENT.getByName("test:expired-alarm");
+		const now = Date.now();
+
+		await stub.limitFixedWindow(1, 60, now);
+		await stub.recordBannedAttempt(
+			{ threshold: 1, windowSeconds: 60, blockSeconds: 120 },
+			now
+		);
+		await runInDurableObject(stub, async (_instance, state) => {
+			state.storage.sql.exec(
+				"UPDATE fixed_window SET reset_at = ? WHERE id = 1",
+				now - 1
+			);
+			state.storage.sql.exec(
+				"UPDATE abuse SET reset_at = ?, blocked_until = ? WHERE id = 1",
+				now - 1,
+				now - 1
+			);
+		});
+		expect(await runDurableObjectAlarm(stub)).toBe(true);
+		await runInDurableObject(stub, async (_instance, state) => {
+			const tables = state.storage.sql
+				.exec<{ name: string }>(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('fixed_window', 'abuse')"
+				)
+				.toArray();
+			expect(tables).toEqual([]);
+			expect(await state.storage.getAlarm()).toBeNull();
+		});
+		expect(await stub.fixedWindowUsage()).toBeNull();
 	});
 });
