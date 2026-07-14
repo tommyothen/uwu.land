@@ -11,7 +11,7 @@ const RELEVANT_EVENT_TYPES = new Set([
 	"user.deleted"
 ]);
 
-const THIRTY_DAYS_SECONDS = 30 * 86_400;
+export const ACCOUNT_TOMBSTONE_WINDOW_SECONDS = 30 * 86_400;
 const SEVEN_DAYS_SECONDS = 7 * 86_400;
 
 interface UserUpsertEvent {
@@ -76,8 +76,25 @@ export async function clerkWebhook(
 	) {
 		return c.text("Unable to cancel Stripe subscriptions.", 500);
 	}
-	await applyUserDeletedEvent(c.env.DB, event);
+	const emailHash = await applyUserDeletedEvent(c.env.DB, event);
+	await clearUserLimiterState(
+		c.env.ENFORCEMENT,
+		event.userId,
+		emailHash
+	);
 	return new Response(null, { status: 200 });
+}
+
+export async function purgeExpiredAccountTombstones(
+	db: D1Database,
+	now = Date.now()
+): Promise<void> {
+	const cutoffSeconds =
+		Math.floor(now / 1000) - ACCOUNT_TOMBSTONE_WINDOW_SECONDS;
+	await db
+		.prepare("DELETE FROM account_tombstones WHERE deleted_at < ?")
+		.bind(cutoffSeconds)
+		.run();
 }
 
 function parseUserUpsertEvent(
@@ -159,7 +176,7 @@ async function applyUserUpsertEvent(
 			.prepare(
 				"SELECT COUNT(*) AS count FROM account_tombstones WHERE email_hash = ? AND deleted_at >= ?"
 			)
-			.bind(emailHash, nowSeconds - THIRTY_DAYS_SECONDS)
+			.bind(emailHash, nowSeconds - ACCOUNT_TOMBSTONE_WINDOW_SECONDS)
 			.first<{ count: number }>();
 		shouldLimit = (tombstones?.count ?? 0) >= 2;
 	}
@@ -189,10 +206,15 @@ async function applyUserUpsertEvent(
 async function applyUserDeletedEvent(
 	db: D1Database,
 	event: UserDeletedEvent
-): Promise<void> {
+): Promise<string | null> {
 	const user = await db
-		.prepare("SELECT email_hash FROM users WHERE id = ?")
-		.bind(event.userId)
+		.prepare(
+			`SELECT coalesce(
+				(SELECT email_hash FROM users WHERE id = ?),
+				(SELECT email_hash FROM account_tombstones WHERE event_id = ?)
+			) AS email_hash`
+		)
+		.bind(event.userId, event.eventId)
 		.first<{ email_hash: string | null }>();
 	const nowMs = Date.now();
 	const nowSeconds = Math.floor(nowMs / 1000);
@@ -204,12 +226,17 @@ async function applyUserDeletedEvent(
 			.bind(event.eventId, event.eventTimestamp, nowMs),
 		db
 			.prepare(
-				"UPDATE api_keys SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL"
+				"UPDATE links SET owner_id = NULL, external_ref = NULL WHERE owner_id = ?"
 			)
-			.bind(nowSeconds, event.userId),
+			.bind(event.userId),
+		db.prepare("DELETE FROM api_keys WHERE user_id = ?").bind(event.userId),
 		db
-			.prepare("UPDATE users SET tier = 'free' WHERE id = ?")
-			.bind(event.userId)
+			.prepare("DELETE FROM stripe_subscriptions WHERE user_id = ?")
+			.bind(event.userId),
+		db
+			.prepare("DELETE FROM stripe_customers WHERE user_id = ?")
+			.bind(event.userId),
+		db.prepare("DELETE FROM users WHERE id = ?").bind(event.userId)
 	];
 	if (user?.email_hash != null) {
 		statements.push(
@@ -221,6 +248,23 @@ async function applyUserDeletedEvent(
 		);
 	}
 	await db.batch(statements);
+	return user?.email_hash ?? null;
+}
+
+async function clearUserLimiterState(
+	enforcement: DurableObjectNamespace<import("./enforcement").Enforcement>,
+	userId: string,
+	emailHash: string | null
+): Promise<void> {
+	const keys = new Set([`user:${userId}`]);
+	if (emailHash !== null) {
+		keys.add(`identity:${emailHash}`);
+	}
+	await Promise.all(
+		[...keys].map(async (key) =>
+			enforcement.getByName(key).clearStoredState()
+		)
+	);
 }
 
 async function cancelUserSubscriptions(

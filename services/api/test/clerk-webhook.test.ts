@@ -2,6 +2,8 @@ import { createExecutionContext, env } from "cloudflare:test";
 import {
 	accountTombstones,
 	apiKeys,
+	links,
+	stripeCustomers,
 	stripeSubscriptions,
 	stripeWebhookEvents,
 	users
@@ -73,13 +75,14 @@ describe("Clerk user webhook", () => {
 		);
 	});
 
-	it("revokes active keys, writes one tombstone, and keeps the user on redelivery", async () => {
+	it("erases account data, anonymizes links, and keeps one tombstone on redelivery", async () => {
 		const emailHash = await emailIdentityHash("deleted@example.com");
-		await drizzle(env.DB)
+		const db = drizzle(env.DB);
+		await db
 			.insert(users)
 			.values({ id: "user_deleted", emailHash })
 			.run();
-		await drizzle(env.DB)
+		await db
 			.insert(apiKeys)
 			.values([
 				{
@@ -106,22 +109,75 @@ describe("Clerk user webhook", () => {
 				}
 			])
 			.run();
+		await db
+			.insert(links)
+			.values({
+				slug: "owned-deleted",
+				url: "https://example.com/still-works",
+				ownerId: "user_deleted",
+				externalRef: "customer-visible-ref",
+				source: "api"
+			})
+			.run();
+		await db
+			.insert(stripeWebhookEvents)
+			.values({ id: "evt_deleted_subscription", eventTimestamp: 100 })
+			.run();
+		await db
+			.insert(stripeCustomers)
+			.values({ userId: "user_deleted", customerId: "cus_user_deleted" })
+			.run();
+		await db
+			.insert(stripeSubscriptions)
+			.values({
+				id: "sub_user_deleted",
+				customerId: "cus_user_deleted",
+				priceId: "price_any",
+				userId: "user_deleted",
+				status: "active",
+				eventTimestamp: 100,
+				eventId: "evt_deleted_subscription"
+			})
+			.run();
+		await env.ENFORCEMENT.getByName("user:user_deleted").limitFixedWindow(
+			1,
+			60
+		);
+		await env.ENFORCEMENT.getByName(
+			`identity:${emailHash}`
+		).limitFixedWindow(1, 60);
 		const payload = userDeletedPayload("user_deleted");
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({ status: "canceled" })
+		);
 
-		await sendWebhook(payload, { id: "msg_user_deleted" });
-		await sendWebhook(payload, { id: "msg_user_deleted" });
+		await sendWebhook(payload, { id: "msg_user_deleted", stripeFetch });
+		await sendWebhook(payload, { id: "msg_user_deleted", stripeFetch });
 
-		const keys = await drizzle(env.DB).select().from(apiKeys).all();
-		expect(keys.find(({ id }) => id === "key_active_one")?.revokedAt).not.toBeNull();
-		expect(keys.find(({ id }) => id === "key_active_two")?.revokedAt).not.toBeNull();
-		expect(
-			keys.find(({ id }) => id === "key_already_revoked")?.revokedAt
-		).toEqual(new Date("2026-01-01T00:00:00.000Z"));
-		expect(await drizzle(env.DB).select().from(accountTombstones).all()).toMatchObject([
+		expect(stripeFetch).toHaveBeenCalledTimes(1);
+		expect(await db.select().from(apiKeys).all()).toEqual([]);
+		expect(await db.select().from(stripeCustomers).all()).toEqual([]);
+		expect(await db.select().from(stripeSubscriptions).all()).toEqual([]);
+		expect(await db.select().from(links).all()).toMatchObject([
+			{
+				slug: "owned-deleted",
+				url: "https://example.com/still-works",
+				ownerId: null,
+				externalRef: null
+			}
+		]);
+		expect(await db.select().from(accountTombstones).all()).toMatchObject([
 			{ eventId: "msg_user_deleted", emailHash }
 		]);
-		expect(await findUser("user_deleted")).toBeDefined();
-		expect((await findUser("user_deleted"))?.tier).toBe("free");
+		expect(await findUser("user_deleted")).toBeUndefined();
+		expect(
+			await env.ENFORCEMENT.getByName("user:user_deleted").fixedWindowUsage()
+		).toBeNull();
+		expect(
+			await env.ENFORCEMENT.getByName(
+				`identity:${emailHash}`
+			).fixedWindowUsage()
+		).toBeNull();
 	});
 
 	it("cancels tracked entitling subscriptions when a user is deleted", async () => {
@@ -144,7 +200,13 @@ describe("Clerk user webhook", () => {
 		expect(new Headers(init?.headers).get("authorization")).toBe(
 			"Bearer sk_test_clerk_delete"
 		);
-		expect(await findTier("user_subscribed")).toBe("free");
+		expect(await findTier("user_subscribed")).toBeUndefined();
+		expect(
+			await drizzle(env.DB).select().from(stripeSubscriptions).all()
+		).toEqual([]);
+		expect(await drizzle(env.DB).select().from(stripeCustomers).all()).toEqual(
+			[]
+		);
 	});
 
 	it("returns 500 when Stripe subscription cancellation fails", async () => {
@@ -350,6 +412,9 @@ async function seedSubscription(userId: string, subscriptionId: string) {
 	await db.insert(users).values({ id: userId, tier: "pro" }).run();
 	await db.insert(stripeWebhookEvents)
 		.values({ id: `evt_${subscriptionId}`, eventTimestamp: 100 })
+		.run();
+	await db.insert(stripeCustomers)
+		.values({ userId, customerId: `cus_${userId}` })
 		.run();
 	await db.insert(stripeSubscriptions)
 		.values({
