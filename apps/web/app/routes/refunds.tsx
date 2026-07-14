@@ -50,9 +50,8 @@ export default function RefundsPage() {
 				paid, and we may keep a proportionate amount for the part of the period
 				you have already used. Tell us at{" "}
 				<A href="mailto:support@uwu.land">support@uwu.land</A> to cancel this way.
-				Nothing here removes your statutory rights. We are still settling the
-				exact wording of this section with a consumer-law adviser, and we will
-				always honour your legal rights.
+				Nothing here removes your statutory rights, and we will always honour
+				them.
 			</P>
 
 			<H2 id="when-we-refund">When we do refund</H2>
