@@ -349,6 +349,7 @@ export function AccountPanel() {
 								<button
 									type="button"
 									disabled={billingPending !== null}
+									aria-label={`Go First-Class, $${TIERS.pro.priceUsdMonthly} a month`}
 									onClick={() =>
 										void runBillingAction("monthly", (token) =>
 											createBillingCheckout(token, "monthly")
@@ -380,6 +381,7 @@ export function AccountPanel() {
 								<button
 									type="button"
 									disabled={billingPending !== null}
+									aria-label={`Go First-Class, $${TIERS.pro.priceUsdYearly} a year`}
 									onClick={() =>
 										void runBillingAction("yearly", (token) =>
 											createBillingCheckout(token, "yearly")

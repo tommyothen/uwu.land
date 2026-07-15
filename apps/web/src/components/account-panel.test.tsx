@@ -100,10 +100,10 @@ describe("AccountPanel", () => {
 		).toBeInTheDocument();
 		expect(screen.getByText(/handled securely by Stripe/i)).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Go First-Class — $4/mo" })
+			screen.getByRole("button", { name: "Go First-Class, $4 a month" })
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "$36/yr" })
+			screen.getByRole("button", { name: "Go First-Class, $36 a year" })
 		).toBeInTheDocument();
 		// Pro users' self-service surface must not appear for free users.
 		expect(
@@ -125,7 +125,7 @@ describe("AccountPanel", () => {
 
 		await user.click(
 			await screen.findByRole("button", {
-				name: "Go First-Class — $4/mo"
+				name: "Go First-Class, $4 a month"
 			})
 		);
 
@@ -150,12 +150,13 @@ describe("AccountPanel", () => {
 		const user = userEvent.setup();
 		render(<AccountPanel />);
 
-		const yearly = await screen.findByRole("button", { name: "$36/yr" });
+		const yearly = await screen.findByRole("button", { name: "Go First-Class, $36 a year" });
 		await user.click(yearly);
 
-		expect(screen.getByRole("button", { name: /opening checkout/i })).toBeDisabled();
+		expect(yearly).toBeDisabled();
+		expect(yearly).toHaveTextContent(/opening checkout/i);
 		expect(
-			screen.getByRole("button", { name: "Go First-Class — $4/mo" })
+			screen.getByRole("button", { name: "Go First-Class, $4 a month" })
 		).toBeDisabled();
 		resolveCheckout?.({ url: "#yearly" });
 		await waitFor(() => expect(window.location.hash).toBe("#yearly"));
@@ -181,7 +182,7 @@ describe("AccountPanel", () => {
 
 		await user.click(
 			await screen.findByRole("button", {
-				name: "Go First-Class — $4/mo"
+				name: "Go First-Class, $4 a month"
 			})
 		);
 
@@ -302,8 +303,8 @@ describe("AccountPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("button", { name: /go first-class/i })
-		).toBeInTheDocument();
+			screen.getAllByRole("button", { name: /go first-class/i })
+		).toHaveLength(2);
 		expect(
 			screen.getByText(/taking longer than expected.*refresh in a minute/i)
 		).toBeInTheDocument();
@@ -325,10 +326,10 @@ describe("AccountPanel", () => {
 
 		// Used count for the daily window.
 		expect(await screen.findByText("14")).toBeInTheDocument();
-		// Remaining allowance: 120 - 14 = 106.
-		expect(screen.getByText(/106 left/i)).toBeInTheDocument();
+		// Remaining allowance: 250 - 14 = 236.
+		expect(screen.getByText(/236 left/i)).toBeInTheDocument();
 		// Active API keys used against the allowance.
-		expect(screen.getByText(/1 of 1 slot available/i)).toBeInTheDocument();
+		expect(screen.getByText(/2 of 2 slots available/i)).toBeInTheDocument();
 	});
 
 	it("humanizes the reset time when a window is active", async () => {

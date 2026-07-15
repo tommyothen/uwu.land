@@ -119,6 +119,7 @@ export default function Home() {
 			</div>
 
 			<nav
+				aria-label="Primary"
 				className="enter-fade absolute top-4 right-5 z-[5] flex items-center gap-3 font-sans text-[13px] font-semibold sm:top-7 sm:right-[34px]"
 				style={{ animationDelay: "230ms" }}
 			>
@@ -184,7 +185,7 @@ export default function Home() {
 					uwu.land is free forever, and will always be free with no ads or
 					account creation required.
 				</p>
-				<nav className="pointer-events-auto mx-auto mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[11px] text-foreground/60">
+				<nav aria-label="Legal" className="pointer-events-auto mx-auto mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[11px] text-foreground/60">
 					<Link to="/privacy" className="transition hover:text-foreground">
 						Privacy
 					</Link>

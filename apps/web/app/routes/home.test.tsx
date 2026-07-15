@@ -46,7 +46,7 @@ describe("landing page", () => {
 
 	it("keeps the nav in the sans face, not mono", () => {
 		renderHome();
-		const nav = screen.getByRole("navigation");
+		const nav = screen.getByRole("navigation", { name: "Primary" });
 		expect(nav.className).toContain("font-sans");
 		expect(nav.className).not.toContain("font-mono");
 		expect(screen.getByRole("link", { name: "Docs" })).toBeInTheDocument();
