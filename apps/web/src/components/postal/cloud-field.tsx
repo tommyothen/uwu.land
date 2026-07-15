@@ -19,7 +19,7 @@ export function CloudField({ className = "" }: { className?: string }) {
 					aria-hidden="true"
 					className="cloud-plate"
 					viewBox={CLOUD_VIEWBOX}
-					preserveAspectRatio="none"
+					preserveAspectRatio="xMidYMax slice"
 					style={{ transform: PLATE_OFFSETS[index] }}
 				>
 					<path d={plate.d} fill={`var(${plate.token})`} />

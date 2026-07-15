@@ -10,7 +10,7 @@ describe("CloudField", () => {
 		expect(svgs).toHaveLength(3);
 		svgs.forEach((svg) => {
 			expect(svg.getAttribute("viewBox")).toBe(CLOUD_VIEWBOX);
-			expect(svg.getAttribute("preserveAspectRatio")).toBe("none");
+			expect(svg.getAttribute("preserveAspectRatio")).toBe("xMidYMax slice");
 		});
 		const paths = Array.from(container.querySelectorAll("path"));
 		expect(paths).toHaveLength(3);
