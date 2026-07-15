@@ -31,6 +31,11 @@ const ROWS = [
 	}
 ];
 
+// What a year of First-Class saves when paid yearly instead of month by month.
+// Derived from TIERS so it stays correct if the prices ever change.
+const YEARLY_SAVINGS =
+	TIERS.pro.priceUsdMonthly * 12 - TIERS.pro.priceUsdYearly;
+
 // Humanize the UTC reset instant relative to now. null means the current window
 // has not started yet (no create since the last reset), so there is nothing to
 // count down to.
@@ -332,7 +337,7 @@ export function AccountPanel() {
 					</h3>
 					{upgradePending ? (
 						<p className="mt-3 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-							Payment received — the postmaster is stamping your upgrade.
+							Payment received. The postmaster is stamping your upgrade.
 						</p>
 					) : (
 						<>
@@ -340,8 +345,8 @@ export function AccountPanel() {
 								Checkout is handled securely by Stripe and accepts cards, PayPal,
 								Apple Pay, and Google Pay. Your new limits apply when payment clears.
 							</p>
-							<div className="mt-4 flex flex-wrap gap-3">
-								<Button
+							<div className="mt-4 grid gap-3 sm:grid-cols-2">
+								<button
 									type="button"
 									disabled={billingPending !== null}
 									onClick={() =>
@@ -349,25 +354,59 @@ export function AccountPanel() {
 											createBillingCheckout(token, "monthly")
 										)
 									}
+									className="press rounded-xl border border-border bg-card p-4 text-left shadow-[3px_3px_0_var(--shadow-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
 								>
-									{billingPending === "monthly"
-										? "Opening checkout…"
-										: `Go First-Class — $${TIERS.pro.priceUsdMonthly}/mo`}
-								</Button>
-								<Button
+									<div className="flex items-baseline justify-between gap-2">
+										<span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+											Monthly
+										</span>
+										<span className="text-xs font-medium text-muted-foreground">
+											Billed monthly
+										</span>
+									</div>
+									<p className="mt-2 flex items-baseline gap-1.5">
+										<span className="font-display text-3xl font-semibold leading-none tabular-nums text-foreground">
+											${TIERS.pro.priceUsdMonthly}
+										</span>
+										<span className="text-sm text-muted-foreground">/mo</span>
+									</p>
+									<p className="mt-3 text-xs font-medium text-foreground">
+										{billingPending === "monthly"
+											? "Opening checkout…"
+											: "Go First-Class"}
+									</p>
+								</button>
+
+								<button
 									type="button"
-									variant="outline"
 									disabled={billingPending !== null}
 									onClick={() =>
 										void runBillingAction("yearly", (token) =>
 											createBillingCheckout(token, "yearly")
 										)
 									}
+									className="press rounded-xl border border-border bg-card p-4 text-left shadow-[3px_3px_0_var(--shadow-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
 								>
-									{billingPending === "yearly"
-										? "Opening checkout…"
-										: `$${TIERS.pro.priceUsdYearly}/yr`}
-								</Button>
+									<div className="flex items-baseline justify-between gap-2">
+										<span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+											Yearly
+										</span>
+										<span className="text-xs font-medium text-foreground">
+											Save ${YEARLY_SAVINGS}/yr
+										</span>
+									</div>
+									<p className="mt-2 flex items-baseline gap-1.5">
+										<span className="font-display text-3xl font-semibold leading-none tabular-nums text-foreground">
+											${TIERS.pro.priceUsdYearly}
+										</span>
+										<span className="text-sm text-muted-foreground">/yr</span>
+									</p>
+									<p className="mt-3 text-xs font-medium text-foreground">
+										{billingPending === "yearly"
+											? "Opening checkout…"
+											: "Go First-Class"}
+									</p>
+								</button>
 							</div>
 							{me.hasBillingHistory ? (
 								<div className="mt-5">
@@ -392,7 +431,7 @@ export function AccountPanel() {
 							) : null}
 							{upgradeDelayed ? (
 								<p className="mt-3 text-sm text-muted-foreground">
-									Your upgrade is taking longer than expected — refresh in a minute.
+									Your upgrade is taking longer than expected. Refresh in a minute.
 								</p>
 							) : null}
 						</>
