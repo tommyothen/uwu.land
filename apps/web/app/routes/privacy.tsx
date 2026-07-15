@@ -74,7 +74,7 @@ export default function PrivacyPage() {
 
 			<H2 id="accounts">If you create an account</H2>
 			<P>
-				Accounts are optional. They unlock the dashboard, API keys, custom slugs,
+				Accounts are optional. They add the dashboard, API keys, custom slugs,
 				and link management. Authentication is handled by Clerk, which stores
 				your email address and authentication profile. On our own side we keep
 				your Clerk user ID, your tier, when the account was created, and a hash
