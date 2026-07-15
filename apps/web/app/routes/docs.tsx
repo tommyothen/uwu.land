@@ -355,6 +355,12 @@ console.log(data.short_url);`}</Code>
 					IP; authenticated callers are limited per account, shared across every
 					API key and the dashboard.
 				</p>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Only anonymous callers can be IP-blocked for repeated banned-URL
+					attempts. Authenticated callers are never IP-blocked, so a shared
+					client such as a bot cannot be taken offline by one user&apos;s banned
+					links; abusive accounts are handled individually instead.
+				</p>
 				<div className="mt-3 overflow-x-auto rounded-xl border border-border">
 					<table className="w-full text-left text-sm">
 						<thead>

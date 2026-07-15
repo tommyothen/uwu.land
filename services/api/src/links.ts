@@ -67,8 +67,13 @@ export async function createLink(
 		return errorResponse(400, "invalid_body", "Invalid request body.");
 	}
 
+	// IP-based abuse blocking applies to anonymous callers only. Authenticated
+	// callers (API key or session) share one source IP across many end users (a
+	// Discord bot is the motivating case), so an IP block would let one bad actor
+	// take down every legitimate user behind that key. Their banned-URL attempts
+	// are still rejected below; abusive accounts are dealt with by hand.
 	const ip = ipKey(c.req.raw);
-	if (await isIpBlocked(c.env.ENFORCEMENT, ip)) {
+	if (auth.kind === "anon" && (await isIpBlocked(c.env.ENFORCEMENT, ip))) {
 		return errorResponse(
 			403,
 			"ip_blocked",
@@ -99,7 +104,9 @@ export async function createLink(
 	}
 
 	if (await isBannedHostname(c.env.UWU, destination.hostname)) {
-		await recordBannedAttempt(c.env.ENFORCEMENT, ip);
+		if (auth.kind === "anon") {
+			await recordBannedAttempt(c.env.ENFORCEMENT, ip);
+		}
 		return errorResponse(400, "url_banned", "URL host is banned.");
 	}
 
