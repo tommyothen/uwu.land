@@ -232,6 +232,52 @@ describe("anonymous link creation", () => {
 		).toBe(true);
 	});
 
+	it("does not count banned-destination attempts from authenticated callers", async () => {
+		const secret = await seedApiKey();
+		await env.UWU.put("banned:example.com", "1");
+		const ip = "203.0.113.70";
+
+		// Well past the anonymous threshold of 5, all from one shared IP (the
+		// Discord-bot case). None of these may accrue an abuse strike.
+		for (let index = 0; index < 6; index++) {
+			const request = createRequest({ url: "https://example.com/x" }, ip);
+			request.headers.set("authorization", `Bearer ${secret}`);
+			const response = await workerFetch(
+				request,
+				env as Env,
+				createExecutionContext()
+			);
+			const body = await response.json<{ code: string }>();
+			expect(response.status).toBe(400);
+			expect(body.code).toBe("url_banned");
+		}
+
+		expect(
+			await env.ENFORCEMENT.getByName(`abuse:${ip}`).isBlocked()
+		).toBe(false);
+	});
+
+	it("does not apply an existing IP block to authenticated callers", async () => {
+		const secret = await seedApiKey();
+		const ip = "203.0.113.71";
+		await Promise.all(
+			Array.from({ length: 5 }, () => recordBannedAttempt(env.ENFORCEMENT, ip))
+		);
+		expect(
+			await env.ENFORCEMENT.getByName(`abuse:${ip}`).isBlocked()
+		).toBe(true);
+
+		const request = createRequest({ url: "https://not-banned.example/ok" }, ip);
+		request.headers.set("authorization", `Bearer ${secret}`);
+		const response = await workerFetch(
+			request,
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(201);
+	});
+
 	it("rejects uwu.land URLs", async () => {
 		const response = await workerFetch(
 			createRequest({ url: "https://uwu.land/abc" }),
