@@ -155,7 +155,9 @@ export default function PrivacyPage() {
 				persist unless removed for abuse. When you close your account, we delete
 				or anonymise the personal data tied to it, including your API keys and
 				billing mappings, keeping only limited records the law requires us to
-				retain (for example for tax). Links you created may keep working as
+				retain (for example for tax) and, for about 30 days, a hashed version of
+				your email address so a closed account cannot be reopened to reset
+				free-tier limits. Links you created may keep working as
 				anonymous links, so delete any you want gone before closing. Abuse and
 				rate-limit state is cleared after its window (about 24 hours), and
 				analytics events roll off at about three months.
