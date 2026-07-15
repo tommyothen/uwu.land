@@ -298,7 +298,7 @@ describe("API key management", () => {
 		const { fetch, jwt } = await sessionFetch();
 
 		const responses = await Promise.all(
-			["First", "Second"].map((name) =>
+			["First", "Second", "Third"].map((name) =>
 				fetch(
 					request("/api/v1/keys", jwt, "POST", { name }),
 					env as Env,
@@ -309,7 +309,7 @@ describe("API key management", () => {
 		const successes = responses.filter(({ status }) => status === 201);
 		const rejected = responses.filter(({ status }) => status === 409);
 
-		expect(successes).toHaveLength(1);
+		expect(successes).toHaveLength(2);
 		expect(rejected).toHaveLength(1);
 		await expect(rejected[0]?.json()).resolves.toMatchObject({ code: "key_limit" });
 		const active = await drizzle(env.DB)
@@ -317,7 +317,7 @@ describe("API key management", () => {
 			.from(apiKeys)
 			.where(eq(apiKeys.userId, "user_session"))
 			.all();
-		expect(active).toHaveLength(1);
+		expect(active).toHaveLength(2);
 	});
 
 	it("frees quota when a key is revoked", async () => {

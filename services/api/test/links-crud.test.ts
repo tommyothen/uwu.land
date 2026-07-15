@@ -371,7 +371,7 @@ describe("owned links CRUD", () => {
 			user_id: "user_owner",
 			tier: "pro",
 			limits: {
-				createPerDay: 2000,
+				createPerDay: 10000,
 				apiKeys: 10
 			}
 		});

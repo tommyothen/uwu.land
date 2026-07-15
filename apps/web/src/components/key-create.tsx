@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { createKey, UwuApiError } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 
-const KEY_LIMIT_COPY = `The free plan includes ${TIERS.free.apiKeys} API ${
-	TIERS.free.apiKeys === 1 ? "key" : "keys"
+const FREE_API_KEYS: number = TIERS.free.apiKeys;
+const KEY_LIMIT_COPY = `The free plan includes ${FREE_API_KEYS} API ${
+	FREE_API_KEYS === 1 ? "key" : "keys"
 }. Revoke an existing key to create a new one.`;
 
 export function KeyCreate({
