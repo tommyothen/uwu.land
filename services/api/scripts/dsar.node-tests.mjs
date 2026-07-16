@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+	billingIncompleteReasons,
 	CONTEXT,
 	DELETION_RECORD_COPY,
 	emailIdentityHash,
@@ -19,13 +20,32 @@ import {
 const scriptPath = fileURLToPath(new URL("./dsar.mjs", import.meta.url));
 
 test("dsar.mjs rejects invalid usage before running Wrangler", () => {
-	for (const args of [[], ["not-an-email"], ["a@b.com", "extra"]]) {
+	for (const args of [
+		[],
+		["not-an-email"],
+		["a@b.com", "extra"],
+		["--allow-incomplete"]
+	]) {
 		const result = spawnSync(process.execPath, [scriptPath, ...args], {
 			encoding: "utf8"
 		});
 		assert.equal(result.status, 1);
 		assert.match(result.stderr, /Usage:/);
 	}
+});
+
+test("dsar.mjs accepts --allow-incomplete alongside the email", () => {
+	const env = { ...process.env };
+	delete env.CLERK_SECRET_KEY;
+	// Getting past argument parsing to the Clerk key check proves the flag
+	// parsed as a flag rather than as a second positional argument.
+	const result = spawnSync(
+		process.execPath,
+		[scriptPath, "a@b.com", "--allow-incomplete"],
+		{ encoding: "utf8", env }
+	);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /CLERK_SECRET_KEY is not set/);
 });
 
 test("dsar.mjs requires CLERK_SECRET_KEY before doing anything", () => {
@@ -124,10 +144,34 @@ test("fetchAllStripeInvoices stops on an empty page even if has_more lies", asyn
 	assert.deepEqual(invoices, []);
 });
 
+test("billingIncompleteReasons flags exactly the unfetchable Stripe cases", () => {
+	assert.deepEqual(billingIncompleteReasons(null, undefined), []);
+	assert.deepEqual(billingIncompleteReasons(null, "sk_test_x"), []);
+	assert.deepEqual(billingIncompleteReasons("cus_ABC123", "sk_test_x"), []);
+
+	const noKey = billingIncompleteReasons("cus_ABC123", undefined);
+	assert.equal(noKey.length, 1);
+	assert.match(noKey[0], /STRIPE_SECRET_KEY is not set/);
+
+	const emptyKey = billingIncompleteReasons("cus_ABC123", "");
+	assert.equal(emptyKey.length, 1);
+	assert.match(emptyKey[0], /STRIPE_SECRET_KEY is not set/);
+
+	const badId = billingIncompleteReasons("cus_bad id", "sk_test_x");
+	assert.equal(badId.length, 1);
+	assert.match(badId[0], /customer id looks wrong/);
+});
+
 // The context block ships to the person who asked for their data. Keep it
 // free of the em/en dashes and placeholder text the humanizer pass removes.
 test("requester-facing copy stays plain", () => {
-	const copy = [...Object.values(CONTEXT), DELETION_RECORD_COPY, NO_DATA_COPY];
+	const copy = [
+		...Object.values(CONTEXT),
+		DELETION_RECORD_COPY,
+		NO_DATA_COPY,
+		...billingIncompleteReasons("cus_ABC123", undefined),
+		...billingIncompleteReasons("cus_bad id", "sk_test_x")
+	];
 	for (const line of copy) {
 		assert.doesNotMatch(line, /[—–]/, `em/en dash in: ${line}`);
 		assert.doesNotMatch(line, /TODO|placeholder|lorem/i, `draft text in: ${line}`);

@@ -157,7 +157,10 @@ export default function PrivacyPage() {
 				billing mappings, keeping only limited records the law requires us to
 				retain (for example for tax) and, for about 30 days, a hashed version of
 				your email address so a closed account cannot be reopened to reset
-				free-tier limits. Links you created may keep working as
+				free-tier limits. We also keep the closed account's internal
+				identifier permanently. It contains no email address and no content,
+				and we keep it only so a closed account cannot be recreated or
+				reopened. Links you created may keep working as
 				anonymous links, so delete any you want gone before closing. Abuse and
 				rate-limit state is cleared after its window (about 24 hours), and
 				analytics events roll off at about three months.
