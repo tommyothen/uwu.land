@@ -13,3 +13,6 @@ docs/DEPLOY.md
 
 # Local Claude Code config/skills — not tracked
 .claude/
+
+# DSAR exports hold personal data and must never be committed
+dsar-*.json
