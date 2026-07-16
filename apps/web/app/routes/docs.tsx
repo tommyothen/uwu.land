@@ -1,5 +1,6 @@
 import { TIERS } from "@uwu/shared";
 import type { ReactNode } from "react";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import type { Route } from "./+types/docs";
 
@@ -112,9 +113,9 @@ function H2({ id, children }: { id: string; children: ReactNode }) {
 
 export default function DocsPage() {
 	return (
-		<div className="min-h-[100dvh]">
+		<div className="flex min-h-[100dvh] flex-col">
 			<SiteHeader />
-			<main className="mx-auto w-full max-w-3xl px-6 pt-10 pb-20">
+			<main className="mx-auto w-full max-w-3xl flex-1 px-6 pt-10 pb-20">
 				<h1 className="text-3xl font-semibold tracking-tighter">
 					uwu.land API
 				</h1>
@@ -451,6 +452,7 @@ console.log(data.short_url);`}</Code>
 					key is rejected immediately with 401 <code>unauthorized</code>.
 				</p>
 			</main>
+			<SiteFooter />
 		</div>
 	);
 }
