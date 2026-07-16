@@ -27,6 +27,7 @@ import {
 } from "./links";
 import { redirectSlug } from "./redirect";
 import type { IdGenerator } from "./slugs";
+import { sweepDeletedUserSubscriptions } from "./stripe-sweep";
 import { stripeWebhook } from "./stripe-webhook";
 
 export { Enforcement } from "./enforcement";
@@ -89,6 +90,9 @@ export function createWorker(options: WorkerOptions = {}): ExportedHandler<Env> 
 			if (event.cron === "0 6 * * *") {
 				ctx.waitUntil(syncBannedDomains(env));
 				ctx.waitUntil(purgeExpiredAccountTombstones(env.DB));
+				ctx.waitUntil(
+					sweepDeletedUserSubscriptions(env, options.stripeFetch)
+				);
 			}
 		}
 	};
