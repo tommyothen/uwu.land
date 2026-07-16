@@ -16,6 +16,7 @@
     "unban": "node scripts/banned.mjs unban",
     "banned": "node scripts/banned.mjs list",
     "abuse:top": "node scripts/abuse-top.mjs",
+    "dsar": "node scripts/dsar.mjs",
     "purge:domain": "node scripts/purge-domain.mjs"
   },
   "dependencies": {
