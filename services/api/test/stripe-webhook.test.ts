@@ -8,8 +8,9 @@ import {
 } from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { beforeEach, describe, expect, it } from "vitest";
-import { applySubscriptionEvent } from "../src/stripe-webhook";
+import { Hono } from "hono";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applySubscriptionEvent, stripeWebhook } from "../src/stripe-webhook";
 import type { Env } from "../src/worker";
 import { createApp } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
@@ -377,6 +378,142 @@ describe("Stripe subscription webhook", () => {
 		).toMatchObject([{ id: "evt_raced_update" }, { id: "evt_raced_delete" }]);
 	});
 
+	it("cancels the subscription in Stripe when a deleted user's checkout completes late", async () => {
+		// A Checkout session finished after the account deletion creates a live
+		// subscription we hold no rows for. The backstop must cancel it in
+		// Stripe so it cannot keep billing.
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_erased", deletedAt: new Date() })
+			.run();
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({ status: "canceled" })
+		);
+
+		const response = await sendInjectedWebhook(
+			payload("customer.subscription.created", "active", {
+				eventId: "evt_backstop_cancel",
+				userId: "user_erased",
+				subscriptionId: "sub_backstop"
+			}),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).toHaveBeenCalledTimes(1);
+		const [url, init] = stripeFetch.mock.calls[0] ?? [];
+		expect(url).toBe("https://api.stripe.com/v1/subscriptions/sub_backstop");
+		expect(init?.method).toBe("DELETE");
+		expect(new Headers(init?.headers).get("authorization")).toBe(
+			"Bearer sk_test_stripe_backstop"
+		);
+		expect(
+			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
+		).toMatchObject([{ id: "evt_backstop_cancel" }]);
+		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
+		expect(
+			await drizzle(env.DB).select().from(stripeSubscriptions).all()
+		).toEqual([]);
+	});
+
+	it("returns 500 without recording the event when the backstop cancel fails", async () => {
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_erased", deletedAt: new Date() })
+			.run();
+		const failingFetch = vi.fn<typeof fetch>(async () =>
+			Response.json(
+				{ error: { type: "api_error", code: "api_error" } },
+				{ status: 500 }
+			)
+		);
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const event = payload("customer.subscription.created", "active", {
+			eventId: "evt_backstop_retry",
+			userId: "user_erased",
+			subscriptionId: "sub_backstop_retry"
+		});
+
+		const failed = await sendInjectedWebhook(event, {
+			stripeFetch: failingFetch
+		});
+
+		expect(failed.status).toBe(500);
+		expect(consoleError).toHaveBeenCalled();
+		expect(
+			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
+		).toEqual([]);
+
+		// The event was not recorded, so Stripe's retry passes the replay check
+		// and re-attempts the cancel.
+		const succeedingFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({ status: "canceled" })
+		);
+		const retried = await sendInjectedWebhook(event, {
+			stripeFetch: succeedingFetch
+		});
+
+		expect(retried.status).toBe(200);
+		expect(succeedingFetch).toHaveBeenCalledTimes(1);
+		expect(
+			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
+		).toMatchObject([{ id: "evt_backstop_retry" }]);
+		consoleError.mockRestore();
+	});
+
+	it("does not attempt a cancel for a deleted user's cancellation echo", async () => {
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_erased", deletedAt: new Date() })
+			.run();
+		const stripeFetch = vi.fn<typeof fetch>();
+
+		const response = await sendInjectedWebhook(
+			payload("customer.subscription.deleted", "canceled", {
+				eventId: "evt_echo_no_cancel",
+				userId: "user_erased",
+				subscriptionId: "sub_echo_no_cancel"
+			}),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).not.toHaveBeenCalled();
+		expect(
+			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
+		).toMatchObject([{ id: "evt_echo_no_cancel" }]);
+	});
+
+	it("acknowledges and logs when the backstop has no secret to cancel with", async () => {
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_erased", deletedAt: new Date() })
+			.run();
+		const stripeFetch = vi.fn<typeof fetch>();
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		const response = await sendInjectedWebhook(
+			payload("customer.subscription.created", "active", {
+				eventId: "evt_backstop_no_secret",
+				userId: "user_erased",
+				subscriptionId: "sub_backstop_no_secret"
+			}),
+			{ stripeFetch, envOverride: { STRIPE_SECRET_KEY: undefined } }
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).not.toHaveBeenCalled();
+		expect(consoleError).toHaveBeenCalled();
+		expect(
+			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
+		).toMatchObject([{ id: "evt_backstop_no_secret" }]);
+		consoleError.mockRestore();
+	});
+
 	it("still applies subscription events for live users alongside a deleted one", async () => {
 		await drizzle(env.DB)
 			.insert(deletedUsers)
@@ -448,6 +585,31 @@ async function sendWebhook(
 	return app.fetch(
 		await signedRequest(payloadValue, options),
 		testEnv,
+		createExecutionContext()
+	);
+}
+
+// worker.ts registers stripeWebhook bare (default global fetch), so tests
+// that need to observe the deleted-user backstop's Stripe call route through
+// a local app that injects stripeFetch.
+async function sendInjectedWebhook(
+	payloadValue: StripePayload,
+	options: {
+		stripeFetch?: typeof fetch;
+		envOverride?: Partial<Env>;
+	} = {}
+): Promise<Response> {
+	const injectedApp = new Hono<{ Bindings: Env }>();
+	injectedApp.post("/webhooks/stripe", (c) =>
+		stripeWebhook(c, { stripeFetch: options.stripeFetch })
+	);
+	return injectedApp.fetch(
+		await signedRequest(payloadValue),
+		{
+			...testEnv,
+			STRIPE_SECRET_KEY: "sk_test_stripe_backstop",
+			...options.envOverride
+		},
 		createExecutionContext()
 	);
 }

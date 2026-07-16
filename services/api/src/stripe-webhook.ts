@@ -6,6 +6,7 @@ import {
 import { bufferToHex } from "./crypto-utils";
 import { isDeletedUser } from "./deletion";
 import { isRecord, readJson } from "./request-utils";
+import { cancelStripeSubscription } from "./stripe-cancel";
 import type { Env } from "./worker";
 
 const RELEVANT_EVENT_TYPES = new Set([
@@ -49,8 +50,13 @@ const UPSERT_SUBSCRIPTION_STRICT =
 const UPSERT_SUBSCRIPTION_DELETED =
 	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp >= stripe_subscriptions.event_timestamp";
 
+export interface StripeWebhookOptions {
+	stripeFetch?: typeof fetch;
+}
+
 export async function stripeWebhook(
-	c: Context<{ Bindings: Env }>
+	c: Context<{ Bindings: Env }>,
+	options: StripeWebhookOptions = {}
 ): Promise<Response> {
 	const rawBody = await c.req.text();
 	const signature = c.req.header("Stripe-Signature");
@@ -120,9 +126,36 @@ export async function stripeWebhook(
 	}
 
 	if (await isDeletedUser(c.env.DB, userId)) {
-		// Deletion already cancelled what it could; a late subscription event
-		// must not resurrect the users/customers/subscriptions rows. Mark the
-		// event processed so redelivery stays a no-op.
+		// Deletion already cancelled what it could, and a late subscription
+		// event must not resurrect the users/customers/subscriptions rows. But
+		// a Checkout session completed after the deletion creates a live
+		// subscription with no account behind it, so a non-cancellation event
+		// here is the backstop's cue to cancel that subscription in Stripe.
+		// On a cancel failure we fail closed with a 500 and do NOT record the
+		// event: the replay check above keys off the recorded row, so Stripe's
+		// retry re-runs this branch and re-attempts the cancel. (Accepted
+		// residual: the single first-invoice charge taken at checkout
+		// completion is not refunded, and sessions are not expired here.)
+		if (rawEvent.type !== "customer.subscription.deleted") {
+			const stripeSecret = c.env.STRIPE_SECRET_KEY;
+			if (stripeSecret === undefined || stripeSecret.length === 0) {
+				// We cannot act without a key, and a 500 would just make Stripe
+				// retry forever; log loudly and acknowledge instead.
+				console.error(
+					"deleted user's subscription could not be cancelled: STRIPE_SECRET_KEY unset",
+					{ subscriptionId: parsed.subscriptionId }
+				);
+			} else if (
+				(await cancelStripeSubscription(
+					options.stripeFetch ?? fetch,
+					stripeSecret,
+					parsed.subscriptionId
+				)) === "failed"
+			) {
+				return c.text("Unable to cancel Stripe subscription.", 500);
+			}
+		}
+		// Mark the event processed so redelivery stays a no-op.
 		await c.env.DB.prepare(
 			"INSERT INTO stripe_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
 		)

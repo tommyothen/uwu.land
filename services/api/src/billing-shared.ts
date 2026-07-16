@@ -4,20 +4,13 @@ export const ENTITLING_STATUS_SQL = ENTITLING_STATUSES.map(
 	(status) => `'${status}'`
 ).join(", ");
 
-// Every Stripe subscription status except the terminal two (canceled,
-// incomplete_expired). Account deletion must cancel all of these, not just
-// the entitling ones, or a paused/unpaid/incomplete subscription would
-// outlive the account and keep echoing webhook events at us.
-export const NON_TERMINAL_STATUSES = [
-	"active",
-	"trialing",
-	"past_due",
-	"unpaid",
-	"incomplete",
-	"paused"
-] as const;
+// The two terminal Stripe subscription statuses. Account deletion cancels
+// everything NOT in this list (a deny-list rather than an allow-list of
+// known live statuses), so an unknown future status is still cancelled
+// instead of outliving the account and echoing webhook events at us.
+export const TERMINAL_STATUSES = ["canceled", "incomplete_expired"] as const;
 
-export const NON_TERMINAL_STATUS_SQL = NON_TERMINAL_STATUSES.map(
+export const TERMINAL_STATUS_SQL = TERMINAL_STATUSES.map(
 	(status) => `'${status}'`
 ).join(", ");
 
