@@ -1,9 +1,10 @@
 import { verifyJwt } from "@clerk/backend/jwt";
-import { apiKeys, deletedUsers, users } from "@uwu/db/schema";
+import { apiKeys, users } from "@uwu/db/schema";
 import type { TierKey } from "@uwu/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { MiddlewareHandler } from "hono";
+import { isDeletedUser } from "./deletion";
 import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
 import type { Env } from "./worker";
@@ -165,17 +166,12 @@ async function resolveClerkSession(
 		throw new AuthError();
 	}
 
-	const db = drizzle(env.DB);
 	// A session JWT can outlive account deletion; it must not recreate the user.
-	const [tombstone] = await db
-		.select({ userId: deletedUsers.userId })
-		.from(deletedUsers)
-		.where(eq(deletedUsers.userId, payload.sub))
-		.limit(1)
-		.all();
-	if (tombstone !== undefined) {
+	if (await isDeletedUser(env.DB, payload.sub)) {
 		throw new AuthError();
 	}
+
+	const db = drizzle(env.DB);
 	await db.insert(users).values({ id: payload.sub }).onConflictDoNothing().run();
 	const [user] = await db
 		.select({

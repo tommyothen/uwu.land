@@ -3,8 +3,8 @@ import {
 	configuredPriceIds,
 	ENTITLING_STATUS_SQL
 } from "./billing-shared";
-import { isDeletedUser } from "./clerk-webhook";
 import { bufferToHex } from "./crypto-utils";
+import { isDeletedUser } from "./deletion";
 import { isRecord, readJson } from "./request-utils";
 import type { Env } from "./worker";
 
