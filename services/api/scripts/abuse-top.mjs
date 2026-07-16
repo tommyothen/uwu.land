@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 const days = parseDays(process.argv.slice(2));
-const sql = `SELECT url, source, created_at AS createdAt FROM links WHERE created_at >= (unixepoch('now') - ${days} * 86400) * 1000`;
+const sql = `SELECT url, source, created_at AS createdAt FROM links WHERE created_at >= unixepoch('now') - ${days} * 86400`;
 const rows = d1Rows(sql);
 const totals = new Map();
 
@@ -17,7 +17,7 @@ for (const row of rows) {
 		};
 		current.totalLinks += 1;
 		if (row.source === "web-anon") current.anonLinks += 1;
-		const createdAt = new Date(Number(row.createdAt));
+		const createdAt = new Date(Number(row.createdAt) * 1000);
 		if (!Number.isNaN(createdAt.getTime())) {
 			const iso = createdAt.toISOString();
 			if (current.newestCreatedAt === null || iso > current.newestCreatedAt) {
