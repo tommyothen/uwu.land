@@ -1,6 +1,7 @@
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import type { Context } from "hono";
 import { ENTITLING_STATUS_SQL } from "./billing-shared";
+import { isDeletedUser } from "./deletion";
 import { emailIdentityHash } from "./identity";
 import { isRecord, readJson } from "./request-utils";
 import type { Env } from "./worker";
@@ -281,17 +282,6 @@ async function clearUserLimiterState(
 			enforcement.getByName(key).clearStoredState()
 		)
 	);
-}
-
-export async function isDeletedUser(
-	db: D1Database,
-	userId: string
-): Promise<boolean> {
-	const row = await db
-		.prepare("SELECT 1 FROM deleted_users WHERE user_id = ?")
-		.bind(userId)
-		.first();
-	return row !== null;
 }
 
 async function cancelUserSubscriptions(
