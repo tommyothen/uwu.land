@@ -7,6 +7,7 @@ import {
 	CONTEXT,
 	DELETION_RECORD_COPY,
 	emailIdentityHash,
+	fetchAllStripeInvoices,
 	formatTimestamp,
 	isClerkUserId,
 	isStripeCustomerId,
@@ -64,15 +65,63 @@ test("identifier guards accept real shapes and reject SQL smuggling", () => {
 	assert.equal(isStripeCustomerId("cus_ABC 123"), false);
 });
 
-test("formatTimestamp converts millisecond values and passes null through", () => {
-	assert.equal(formatTimestamp(1784073600000), "2026-07-15T00:00:00.000Z");
+test("formatTimestamp converts D1 second values and passes null through", () => {
+	assert.equal(formatTimestamp(1784073600), "2026-07-15T00:00:00.000Z");
 	assert.equal(formatTimestamp(null), null);
 	assert.equal(formatTimestamp(undefined), null);
 	assert.equal(formatTimestamp("not-a-number"), null);
 });
 
-test("tombstonePurgeDate adds the 30-day retention window", () => {
-	assert.equal(tombstonePurgeDate(1784073600000), "2026-08-14T00:00:00.000Z");
+test("tombstonePurgeDate adds the 30-day retention window in seconds", () => {
+	assert.equal(tombstonePurgeDate(1784073600), "2026-08-14T00:00:00.000Z");
+});
+
+test("fetchAllStripeInvoices walks every page via starting_after", async () => {
+	const invoice = (id) => ({ id });
+	const pages = new Map([
+		[
+			"invoices?customer=cus_paged&limit=100",
+			{ data: [invoice("in_1"), invoice("in_2")], has_more: true }
+		],
+		[
+			"invoices?customer=cus_paged&limit=100&starting_after=in_2",
+			{ data: [invoice("in_3")], has_more: true }
+		],
+		[
+			"invoices?customer=cus_paged&limit=100&starting_after=in_3",
+			{ data: [invoice("in_4")], has_more: false }
+		]
+	]);
+	const requested = [];
+	const fetchPage = async (path, stripeKey) => {
+		assert.equal(stripeKey, "sk_test_paged");
+		requested.push(path);
+		const page = pages.get(path);
+		assert.notEqual(page, undefined, `unexpected page request: ${path}`);
+		return page;
+	};
+
+	const invoices = await fetchAllStripeInvoices(
+		"cus_paged",
+		"sk_test_paged",
+		fetchPage
+	);
+
+	assert.deepEqual(
+		invoices.map(({ id }) => id),
+		["in_1", "in_2", "in_3", "in_4"]
+	);
+	assert.equal(requested.length, 3);
+});
+
+test("fetchAllStripeInvoices stops on an empty page even if has_more lies", async () => {
+	const invoices = await fetchAllStripeInvoices(
+		"cus_empty",
+		"sk_test_empty",
+		async () => ({ data: [], has_more: true })
+	);
+
+	assert.deepEqual(invoices, []);
 });
 
 // The context block ships to the person who asked for their data. Keep it

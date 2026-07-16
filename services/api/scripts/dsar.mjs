@@ -69,17 +69,18 @@ export function isStripeCustomerId(value) {
 	return typeof value === "string" && /^cus_[A-Za-z0-9]+$/.test(value);
 }
 
-// D1 timestamps are stored as millisecond integers (see abuse-top.mjs, which
-// relies on the same convention). Null stays null.
+// D1 timestamps are stored as integer seconds since the epoch (drizzle's
+// mode: "timestamp"; every webhook writer binds whole seconds). Null stays
+// null.
 export function formatTimestamp(value) {
 	if (value === null || value === undefined) return null;
-	const date = new Date(Number(value));
+	const date = new Date(Number(value) * 1000);
 	return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-export function tombstonePurgeDate(deletedAtMs) {
+export function tombstonePurgeDate(deletedAtSeconds) {
 	return formatTimestamp(
-		Number(deletedAtMs) + TOMBSTONE_RETENTION_DAYS * 86_400_000
+		Number(deletedAtSeconds) + TOMBSTONE_RETENTION_DAYS * 86_400
 	);
 }
 
@@ -157,6 +158,34 @@ async function fetchStripe(path, stripeKey) {
 	return response.json();
 }
 
+// Stripe list endpoints return at most 100 rows per call; walk every page so
+// long billing histories export in full. fetchPage is injectable for tests.
+export async function fetchAllStripeInvoices(
+	customerId,
+	stripeKey,
+	fetchPage = fetchStripe
+) {
+	const invoices = [];
+	let startingAfter = null;
+	for (;;) {
+		const cursor =
+			startingAfter === null
+				? ""
+				: `&starting_after=${encodeURIComponent(startingAfter)}`;
+		const page = await fetchPage(
+			`invoices?customer=${customerId}&limit=100${cursor}`,
+			stripeKey
+		);
+		const data = Array.isArray(page.data) ? page.data : [];
+		invoices.push(...data);
+		const last = data.at(-1);
+		if (page.has_more !== true || last === undefined) {
+			return invoices;
+		}
+		startingAfter = last.id;
+	}
+}
+
 async function buildBilling(userId) {
 	const customers = d1Rows(
 		`SELECT customer_id, created_at FROM stripe_customers WHERE user_id = '${userId}'`
@@ -187,9 +216,7 @@ async function buildBilling(userId) {
 	}
 	console.error("Fetching billing data from Stripe…");
 	billing.stripe_customer = await fetchStripe(`customers/${customerId}`, stripeKey);
-	billing.stripe_invoices = (
-		await fetchStripe(`invoices?customer=${customerId}&limit=100`, stripeKey)
-	).data;
+	billing.stripe_invoices = await fetchAllStripeInvoices(customerId, stripeKey);
 	return billing;
 }
 
@@ -286,10 +313,26 @@ async function main() {
 			? buildNoAccountExport(email)
 			: await buildAccountExport(email, clerkUser);
 
-	const stamp = new Date().toISOString().slice(0, 10);
+	// Full date+time stamp (colons stripped) so re-runs get distinct names, and
+	// exclusive create with owner-only permissions: the export holds personal
+	// data and must never silently overwrite an earlier one.
+	const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "");
 	const name = `dsar-${clerkUser?.id ?? "no-account"}-${stamp}.json`;
 	const outPath = join(process.env.INIT_CWD ?? process.cwd(), name);
-	writeFileSync(outPath, `${JSON.stringify(record, null, "\t")}\n`);
+	try {
+		writeFileSync(outPath, `${JSON.stringify(record, null, "\t")}\n`, {
+			mode: 0o600,
+			flag: "wx"
+		});
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+			console.error(
+				`Refusing to overwrite ${outPath}. Move or delete it, then run again.`
+			);
+			process.exit(1);
+		}
+		throw error;
+	}
 
 	console.error(
 		"This file holds personal data. Send it to the requester, then delete your copy."
