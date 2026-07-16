@@ -257,6 +257,56 @@ describe("anonymous link creation", () => {
 		).toBe(false);
 	});
 
+	it("counts an authenticated banned-hostname attempt against the create quota", async () => {
+		// A dedicated user: the limiter's Durable Object state survives resetD1,
+		// so reusing another test's user would inherit its consumed quota.
+		const secret = await seedKeyForUser({
+			userId: "user_banned_quota",
+			keyId: "key_banned_quota",
+			secret: "uwu_banned_quota0000000000000000000"
+		});
+		await env.UWU.put("banned:example.com", "1");
+		const quotaFetch = createWorker({ createPerDayLimit: 1 }).fetch as TestFetch;
+
+		const banned = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/banned" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const followUp = await quotaFetch(
+			createAuthedRequest({ url: "https://not-banned.example/ok" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(banned.status).toBe(400);
+		expect((await banned.json<{ code: string }>()).code).toBe("url_banned");
+		expect(followUp.status).toBe(429);
+	});
+
+	it("does not consume quota for malformed URLs", async () => {
+		const secret = await seedKeyForUser({
+			userId: "user_malformed_quota",
+			keyId: "key_malformed_quota",
+			secret: "uwu_malformed_quota0000000000000000"
+		});
+		const quotaFetch = createWorker({ createPerDayLimit: 1 }).fetch as TestFetch;
+
+		const malformed = await quotaFetch(
+			createAuthedRequest({ url: "https://user:pass@example.com" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const followUp = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/fine" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(malformed.status).toBe(400);
+		expect(followUp.status).toBe(201);
+	});
+
 	it("does not apply an existing IP block to authenticated callers", async () => {
 		const secret = await seedApiKey();
 		const ip = "203.0.113.71";
