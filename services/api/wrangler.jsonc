@@ -23,7 +23,9 @@
   "analytics_engine_datasets": [
     { "binding": "CLICK_EVENTS", "dataset": "uwu_click_events" }
   ],
-  // Reconcile links every five minutes; refresh the blocklist daily at 06:00 UTC.
+  // Reconcile links every five minutes; daily at 06:00 UTC: refresh the
+  // blocklist, purge expired account tombstones, and sweep Stripe
+  // subscriptions orphaned by account deletion.
   "triggers": {
 	"crons": ["*/5 * * * *", "0 6 * * *"]
   },
