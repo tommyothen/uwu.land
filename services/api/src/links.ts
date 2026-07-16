@@ -103,13 +103,6 @@ export async function createLink(
 		return errorResponse(400, "invalid_body", "uwu.land URLs are not allowed.");
 	}
 
-	if (await isBannedHostname(c.env.UWU, destination.hostname)) {
-		if (auth.kind === "anon") {
-			await recordBannedAttempt(c.env.ENFORCEMENT, ip);
-		}
-		return errorResponse(400, "url_banned", "URL host is banned.");
-	}
-
 	const rateLimit = await limitCreate(c, auth, options.createPerDayLimit);
 	if (!rateLimit.allowed) {
 		return errorResponse(
@@ -118,6 +111,17 @@ export async function createLink(
 			"Rate limit exceeded.",
 			rateLimit.retryAfterSeconds
 		);
+	}
+
+	// After the rate limit on purpose: a banned-hostname attempt is a
+	// well-formed create and must consume one token, so authenticated callers
+	// (who are exempt from IP abuse blocking above) cannot probe banned hosts
+	// without burning their own quota.
+	if (await isBannedHostname(c.env.UWU, destination.hostname)) {
+		if (auth.kind === "anon") {
+			await recordBannedAttempt(c.env.ENFORCEMENT, ip);
+		}
+		return errorResponse(400, "url_banned", "URL host is banned.");
 	}
 
 	if (auth.kind === "anon") {
