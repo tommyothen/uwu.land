@@ -1,9 +1,10 @@
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import type { Context } from "hono";
-import { NON_TERMINAL_STATUS_SQL } from "./billing-shared";
+import { TERMINAL_STATUS_SQL } from "./billing-shared";
 import { isDeletedUser } from "./deletion";
 import { emailIdentityHash } from "./identity";
 import { isRecord, readJson } from "./request-utils";
+import { cancelStripeSubscription } from "./stripe-cancel";
 import type { Env } from "./worker";
 
 const RELEVANT_EVENT_TYPES = new Set([
@@ -322,12 +323,13 @@ async function cancelUserSubscriptions(
 	secret: string | undefined,
 	userId: string
 ): Promise<boolean> {
-	// Non-terminal, not just entitling: a paused/unpaid/incomplete
-	// subscription must not outlive the account either, and it counts toward
-	// the unset-secret fail-safe below.
+	// Everything except terminal statuses, so an unknown future status is
+	// still cancelled: a paused/unpaid/incomplete subscription must not
+	// outlive the account either, and it counts toward the unset-secret
+	// fail-safe below.
 	const subscriptions = await db
 		.prepare(
-			`SELECT id FROM stripe_subscriptions WHERE user_id = ? AND status IN (${NON_TERMINAL_STATUS_SQL})`
+			`SELECT id FROM stripe_subscriptions WHERE user_id = ? AND status NOT IN (${TERMINAL_STATUS_SQL})`
 		)
 		.bind(userId)
 		.all<{ id: string }>();
@@ -342,50 +344,14 @@ async function cancelUserSubscriptions(
 	}
 
 	for (const subscription of subscriptions.results) {
-		const url = `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscription.id)}`;
-		let response: Response;
-		try {
-			response = await stripeFetch(url, {
-				method: "DELETE",
-				headers: { authorization: `Bearer ${secret}` }
-			});
-		} catch {
-			console.error("Stripe subscription cancellation failed.", {
-				endpoint: new URL(url).pathname
-			});
+		const result = await cancelStripeSubscription(
+			stripeFetch,
+			secret,
+			subscription.id
+		);
+		if (result === "failed") {
 			return false;
 		}
-		if (response.ok || response.status === 404) {
-			continue;
-		}
-
-		let type: string | undefined;
-		let code: string | undefined;
-		try {
-			const payload: unknown = await response.json();
-			if (isRecord(payload) && isRecord(payload.error)) {
-				type =
-					typeof payload.error.type === "string"
-						? payload.error.type
-						: undefined;
-				code =
-					typeof payload.error.code === "string"
-						? payload.error.code
-						: undefined;
-			}
-		} catch {
-			// Status and endpoint still identify the failed Stripe operation.
-		}
-		if (code === "resource_missing") {
-			continue;
-		}
-		console.error("Stripe subscription cancellation failed.", {
-			endpoint: new URL(url).pathname,
-			status: response.status,
-			type,
-			code
-		});
-		return false;
 	}
 	return true;
 }
