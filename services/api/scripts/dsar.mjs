@@ -25,6 +25,8 @@ export const CONTEXT = {
 		"Each click event holds three fields: the link slug, the visitor's country, and the hostname of the referring site. They contain no IP address and no user agent, and they are not tied to your account.",
 	server_logs:
 		"Cloudflare keeps short-lived operational logs so we can diagnose faults. These can include IP addresses, roll off within a few days, and cannot be searched by person.",
+	account_closure:
+		"If an account is closed, we keep a permanent internal record of the closed account's identifier so the account cannot be recreated or reopened. It holds no email address and cannot be looked up from an email address, so it does not appear in this export.",
 	policy: "https://uwu.land/privacy",
 	contact: "hello@uwu.land"
 };
@@ -85,11 +87,13 @@ export function tombstonePurgeDate(deletedAtSeconds) {
 }
 
 function parseArgs(args) {
-	if (args.length === 1 && args[0].includes("@")) {
-		return args[0];
+	const allowIncomplete = args.includes("--allow-incomplete");
+	const rest = args.filter((arg) => arg !== "--allow-incomplete");
+	if (rest.length === 1 && rest[0].includes("@")) {
+		return { email: rest[0], allowIncomplete };
 	}
 	console.error(
-		"Usage: dsar.mjs <email>\nExports everything uwu.land holds for that address as a JSON file (a GDPR subject access request)."
+		"Usage: dsar.mjs <email> [--allow-incomplete]\nExports everything uwu.land holds for that address as a JSON file (a GDPR subject access request).\nWithout --allow-incomplete the script refuses to write an export it knows is missing data."
 	);
 	process.exit(1);
 }
@@ -186,6 +190,26 @@ export async function fetchAllStripeInvoices(
 	}
 }
 
+// Explains why the Stripe half of a billing export cannot be fetched, in
+// requester-safe wording. An empty array means the fetch can (or need not)
+// happen. Exported so the node-tests can pin the reasons and their copy.
+export function billingIncompleteReasons(customerId, stripeKey) {
+	if (customerId === null) {
+		return [];
+	}
+	if (typeof stripeKey !== "string" || stripeKey === "") {
+		return [
+			"Stripe customer and invoice records were not fetched because STRIPE_SECRET_KEY is not set. Export them from the Stripe dashboard or set the key and run again."
+		];
+	}
+	if (!isStripeCustomerId(customerId)) {
+		return [
+			`Stripe customer and invoice records were not fetched because the stored customer id looks wrong: ${customerId}. Export them from the Stripe dashboard.`
+		];
+	}
+	return [];
+}
+
 async function buildBilling(userId) {
 	const customers = d1Rows(
 		`SELECT customer_id, created_at FROM stripe_customers WHERE user_id = '${userId}'`
@@ -201,23 +225,14 @@ async function buildBilling(userId) {
 
 	const stripeKey = process.env.STRIPE_SECRET_KEY;
 	const customerId = billing.customer_id;
-	if (customerId === null) {
-		return billing;
-	}
-	if (typeof stripeKey !== "string" || stripeKey === "") {
-		console.error(
-			"STRIPE_SECRET_KEY is not set, so invoices were not fetched from Stripe. Export them from the Stripe dashboard before replying."
-		);
-		return billing;
-	}
-	if (!isStripeCustomerId(customerId)) {
-		console.error(`Skipping Stripe fetch: unexpected customer id ${customerId}.`);
-		return billing;
+	const incompleteReasons = billingIncompleteReasons(customerId, stripeKey);
+	if (customerId === null || incompleteReasons.length > 0) {
+		return { billing, incompleteReasons };
 	}
 	console.error("Fetching billing data from Stripe…");
 	billing.stripe_customer = await fetchStripe(`customers/${customerId}`, stripeKey);
 	billing.stripe_invoices = await fetchAllStripeInvoices(customerId, stripeKey);
-	return billing;
+	return { billing, incompleteReasons: [] };
 }
 
 async function buildAccountExport(email, clerkUser) {
@@ -239,9 +254,14 @@ async function buildAccountExport(email, clerkUser) {
 	);
 
 	const account = accountRows[0] ?? null;
+	const { billing, incompleteReasons } = await buildBilling(userId);
 	return {
 		generated_at: new Date().toISOString(),
 		requested_for: email,
+		export_complete: incompleteReasons.length === 0,
+		...(incompleteReasons.length > 0
+			? { incomplete_reasons: incompleteReasons }
+			: {}),
 		identity: clerkUser,
 		database: {
 			account:
@@ -271,7 +291,7 @@ async function buildAccountExport(email, clerkUser) {
 				clicks: row.clicks,
 				created_at: formatTimestamp(row.created_at)
 			})),
-			billing: await buildBilling(userId)
+			billing
 		},
 		context: CONTEXT
 	};
@@ -287,6 +307,7 @@ function buildNoAccountExport(email) {
 	return {
 		generated_at: new Date().toISOString(),
 		requested_for: email,
+		export_complete: true,
 		identity: null,
 		database: null,
 		deletion_record:
@@ -303,7 +324,7 @@ function buildNoAccountExport(email) {
 }
 
 async function main() {
-	const email = parseArgs(process.argv.slice(2));
+	const { email, allowIncomplete } = parseArgs(process.argv.slice(2));
 	const clerkKey = requireClerkKey();
 
 	console.error("Looking up the account in Clerk…");
@@ -312,6 +333,20 @@ async function main() {
 		clerkUser === null
 			? buildNoAccountExport(email)
 			: await buildAccountExport(email, clerkUser);
+
+	// An export that says "everything we hold" must actually be everything.
+	// Refuse to write a knowingly incomplete file unless explicitly overridden;
+	// the override still stamps export_complete: false into the record.
+	if (record.export_complete !== true && !allowIncomplete) {
+		console.error("INCOMPLETE: this export is missing data, so it was not written.");
+		for (const reason of record.incomplete_reasons) {
+			console.error(`  - ${reason}`);
+		}
+		console.error(
+			"Fetch the missing pieces and run again, or pass --allow-incomplete to write it anyway."
+		);
+		process.exit(1);
+	}
 
 	// Full date+time stamp (colons stripped) so re-runs get distinct names, and
 	// exclusive create with owner-only permissions: the export holds personal
@@ -334,6 +369,14 @@ async function main() {
 		throw error;
 	}
 
+	if (record.export_complete !== true) {
+		console.error(
+			"INCOMPLETE: the file is stamped export_complete: false. Fetch the missing pieces before sending it."
+		);
+		for (const reason of record.incomplete_reasons) {
+			console.error(`  - ${reason}`);
+		}
+	}
 	console.error(
 		"This file holds personal data. Send it to the requester, then delete your copy."
 	);
