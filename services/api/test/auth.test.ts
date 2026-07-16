@@ -3,7 +3,7 @@ import {
 	env,
 	waitOnExecutionContext
 } from "cloudflare:test";
-import { apiKeys, users } from "@uwu/db/schema";
+import { apiKeys, deletedUsers, users } from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
@@ -257,6 +257,22 @@ describe("auth middleware", () => {
 				tier: "free"
 			}
 		]);
+	});
+
+	it("rejects a still-valid session JWT for a deleted user without recreating it", async () => {
+		const { jwt, jwks } = await createJwt("user_deleted_session");
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_deleted_session", deletedAt: new Date() })
+			.run();
+
+		await expect(
+			resolveAuth(bearer(jwt), env as Env, createExecutionContext(), {
+				clerkIssuer: issuer,
+				jwks
+			})
+		).rejects.toThrow("Unauthorized");
+		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
 	});
 
 	it("fetches the issuer JWKS when none is injected", async () => {

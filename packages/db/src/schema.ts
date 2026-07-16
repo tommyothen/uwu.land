@@ -22,6 +22,16 @@ export const accountTombstones = sqliteTable(
 	]
 );
 
+// Permanent record of deleted Clerk user ids. Late webhook deliveries and
+// still-valid session JWTs must never recreate a deleted account, and a
+// surviving non-entitling Stripe subscription can emit events long after the
+// 30-day tombstone window, so rows here are never purged. Stores opaque Clerk
+// ids only, no email.
+export const deletedUsers = sqliteTable("deleted_users", {
+	userId: text("user_id").primaryKey(),
+	deletedAt: integer("deleted_at", { mode: "timestamp" }).notNull()
+});
+
 export const clerkWebhookEvents = sqliteTable("clerk_webhook_events", {
 	id: text("id").primaryKey(),
 	eventTimestamp: integer("event_timestamp").notNull(),
