@@ -98,5 +98,6 @@ export type ErrorCode =
 	| "forbidden"
 	| "key_limit"
 	| "already_subscribed"
+	| "account_deleted"
 	| "billing_unavailable"
 	| "publication_pending";

@@ -4,7 +4,7 @@ import type { TierKey } from "@uwu/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { MiddlewareHandler } from "hono";
-import { isDeletedUser } from "./deletion";
+import { insertUserUnlessDeleted, isDeletedUser } from "./deletion";
 import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
 import type { Env } from "./worker";
@@ -171,8 +171,12 @@ async function resolveClerkSession(
 		throw new AuthError();
 	}
 
+	// The check above is a cheap fast path with a race: a deletion can commit
+	// between it and this insert. Folding the guard into the statement makes
+	// the write itself atomic against that race; the re-select below then
+	// comes back empty and the session is rejected.
+	await insertUserUnlessDeleted(env.DB, payload.sub);
 	const db = drizzle(env.DB);
-	await db.insert(users).values({ id: payload.sub }).onConflictDoNothing().run();
 	const [user] = await db
 		.select({
 			emailHash: users.emailHash,
