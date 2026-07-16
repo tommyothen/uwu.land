@@ -1,5 +1,11 @@
 import { createExecutionContext, env } from "cloudflare:test";
-import { stripeSubscriptions, stripeWebhookEvents, users } from "@uwu/db/schema";
+import {
+	deletedUsers,
+	stripeCustomers,
+	stripeSubscriptions,
+	stripeWebhookEvents,
+	users
+} from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -295,6 +301,52 @@ describe("Stripe subscription webhook", () => {
 		expect((await findSubscription("sub_transferred"))?.userId).toBe(
 			"user_new_owner"
 		);
+	});
+
+	it("does not resurrect a deleted user from a late subscription event", async () => {
+		// Account deletion cancels the Stripe subscription, which makes Stripe
+		// emit customer.subscription.deleted back at us after the local rows are
+		// gone. That echo must not recreate the account.
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_erased", deletedAt: new Date() })
+			.run();
+
+		const response = await sendWebhook(
+			payload("customer.subscription.deleted", "canceled", {
+				eventId: "evt_deleted_echo",
+				userId: "user_erased",
+				subscriptionId: "sub_erased",
+				eventTimestamp: 200
+			})
+		);
+
+		expect(response.status).toBe(200);
+		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
+		expect(await drizzle(env.DB).select().from(stripeCustomers).all()).toEqual([]);
+		expect(
+			await drizzle(env.DB).select().from(stripeSubscriptions).all()
+		).toEqual([]);
+		expect(
+			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
+		).toMatchObject([{ id: "evt_deleted_echo" }]);
+	});
+
+	it("still applies subscription events for live users alongside a deleted one", async () => {
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_erased", deletedAt: new Date() })
+			.run();
+
+		const response = await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_alive",
+				subscriptionId: "sub_alive"
+			})
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_alive")).toBe("pro");
 	});
 
 	it("acknowledges an unknown event type without mutation", async () => {

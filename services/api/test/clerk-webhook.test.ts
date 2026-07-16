@@ -2,6 +2,8 @@ import { createExecutionContext, env } from "cloudflare:test";
 import {
 	accountTombstones,
 	apiKeys,
+	clerkWebhookEvents,
+	deletedUsers,
 	links,
 	stripeCustomers,
 	stripeSubscriptions,
@@ -169,6 +171,9 @@ describe("Clerk user webhook", () => {
 		expect(await db.select().from(accountTombstones).all()).toMatchObject([
 			{ eventId: "msg_user_deleted", emailHash }
 		]);
+		expect(await db.select().from(deletedUsers).all()).toMatchObject([
+			{ userId: "user_deleted" }
+		]);
 		expect(await findUser("user_deleted")).toBeUndefined();
 		expect(
 			await env.ENFORCEMENT.getByName("user:user_deleted").fixedWindowUsage()
@@ -246,7 +251,7 @@ describe("Clerk user webhook", () => {
 		expect(response.status).toBe(200);
 	});
 
-	it("skips Stripe cancellation when the secret is unset", async () => {
+	it("blocks deletion when the secret is unset and a subscription needs cancelling", async () => {
 		await seedSubscription("user_no_secret", "sub_no_secret");
 		const stripeFetch = vi.fn<typeof fetch>();
 		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -256,10 +261,52 @@ describe("Clerk user webhook", () => {
 			envOverride: { STRIPE_SECRET_KEY: undefined }
 		});
 
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(500);
 		expect(stripeFetch).not.toHaveBeenCalled();
 		expect(consoleError).toHaveBeenCalled();
+		expect(await findTier("user_no_secret")).toBe("pro");
 		consoleError.mockRestore();
+	});
+
+	it("deletes a user with nothing to cancel even when the secret is unset", async () => {
+		await drizzle(env.DB).insert(users).values({ id: "user_no_subs" }).run();
+		const stripeFetch = vi.fn<typeof fetch>();
+
+		const response = await sendWebhook(userDeletedPayload("user_no_subs"), {
+			stripeFetch,
+			envOverride: { STRIPE_SECRET_KEY: undefined }
+		});
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).not.toHaveBeenCalled();
+		expect(await findUser("user_no_subs")).toBeUndefined();
+	});
+
+	it("does not resurrect a deleted user on a late user.created redelivery", async () => {
+		await drizzle(env.DB)
+			.insert(users)
+			.values({ id: "user_late_upsert" })
+			.run();
+		await sendWebhook(userDeletedPayload("user_late_upsert"), {
+			id: "msg_late_upsert_delete"
+		});
+
+		const response = await sendWebhook(
+			userUpsertPayload("user.created", "user_late_upsert", [
+				{ id: "email_late", email_address: "late@example.com" }
+			], "email_late"),
+			{ id: "msg_late_upsert_create" }
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findUser("user_late_upsert")).toBeUndefined();
+		// The skipped upsert must still be marked processed.
+		const recordedEvents = await drizzle(env.DB)
+			.select({ id: clerkWebhookEvents.id })
+			.from(clerkWebhookEvents)
+			.where(eq(clerkWebhookEvents.id, "msg_late_upsert_create"))
+			.all();
+		expect(recordedEvents).toEqual([{ id: "msg_late_upsert_create" }]);
 	});
 
 	it("limits a recreated identity after two recent tombstones", async () => {

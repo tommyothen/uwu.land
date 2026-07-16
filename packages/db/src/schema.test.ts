@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
 	accountTombstones,
 	apiKeys,
+	deletedUsers,
 	links,
 	stripeCustomers,
 	stripeSubscriptions,
@@ -192,6 +193,24 @@ describe("schema", () => {
 		expect(db.select().from(accountTombstones).all()).toEqual([
 			{ eventId: "msg_deleted", emailHash: "email_hash", deletedAt }
 		]);
+	});
+
+	it("stores permanent deleted-user markers keyed by user id", () => {
+		const db = createDb();
+		const deletedAt = new Date("2026-07-12T12:00:00.000Z");
+
+		db.insert(deletedUsers)
+			.values({ userId: "user_deleted", deletedAt })
+			.run();
+
+		expect(db.select().from(deletedUsers).all()).toEqual([
+			{ userId: "user_deleted", deletedAt }
+		]);
+		expect(() =>
+			db.insert(deletedUsers)
+				.values({ userId: "user_deleted", deletedAt })
+				.run()
+		).toThrow();
 	});
 
 	it("stores Stripe webhook and subscription state", () => {

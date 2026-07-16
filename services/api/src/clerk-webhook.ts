@@ -168,6 +168,17 @@ async function applyUserUpsertEvent(
 ): Promise<void> {
 	const nowMs = Date.now();
 	const nowSeconds = Math.floor(nowMs / 1000);
+	if (await isDeletedUser(db, event.userId)) {
+		// A late or retried upsert must not resurrect a deleted account. Still
+		// record the event so redelivery stays idempotent.
+		await db
+			.prepare(
+				"INSERT INTO clerk_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
+			)
+			.bind(event.eventId, event.eventTimestamp, nowMs)
+			.run();
+		return;
+	}
 	const emailHash =
 		event.email === null ? null : await emailIdentityHash(event.email);
 	let shouldLimit = false;
@@ -236,7 +247,12 @@ async function applyUserDeletedEvent(
 		db
 			.prepare("DELETE FROM stripe_customers WHERE user_id = ?")
 			.bind(event.userId),
-		db.prepare("DELETE FROM users WHERE id = ?").bind(event.userId)
+		db.prepare("DELETE FROM users WHERE id = ?").bind(event.userId),
+		db
+			.prepare(
+				"INSERT INTO deleted_users (user_id, deleted_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING"
+			)
+			.bind(event.userId, nowSeconds)
 	];
 	if (user?.email_hash != null) {
 		statements.push(
@@ -267,25 +283,39 @@ async function clearUserLimiterState(
 	);
 }
 
+export async function isDeletedUser(
+	db: D1Database,
+	userId: string
+): Promise<boolean> {
+	const row = await db
+		.prepare("SELECT 1 FROM deleted_users WHERE user_id = ?")
+		.bind(userId)
+		.first();
+	return row !== null;
+}
+
 async function cancelUserSubscriptions(
 	db: D1Database,
 	stripeFetch: typeof fetch,
 	secret: string | undefined,
 	userId: string
 ): Promise<boolean> {
-	if (secret === undefined || secret.length === 0) {
-		console.error(
-			"STRIPE_SECRET_KEY is unset; skipping subscription cancellation for deleted user."
-		);
-		return true;
-	}
-
 	const subscriptions = await db
 		.prepare(
 			`SELECT id FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL})`
 		)
 		.bind(userId)
 		.all<{ id: string }>();
+	if (secret === undefined || secret.length === 0) {
+		if (subscriptions.results.length === 0) {
+			return true;
+		}
+		console.error(
+			"STRIPE_SECRET_KEY is unset; cannot cancel subscriptions for deleted user."
+		);
+		return false;
+	}
+
 	for (const subscription of subscriptions.results) {
 		const url = `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscription.id)}`;
 		let response: Response;

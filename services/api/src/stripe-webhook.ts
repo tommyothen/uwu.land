@@ -3,6 +3,7 @@ import {
 	configuredPriceIds,
 	ENTITLING_STATUS_SQL
 } from "./billing-shared";
+import { isDeletedUser } from "./clerk-webhook";
 import { bufferToHex } from "./crypto-utils";
 import { isRecord, readJson } from "./request-utils";
 import type { Env } from "./worker";
@@ -112,6 +113,18 @@ export async function stripeWebhook(
 			? metadataUserId
 			: existing?.user_id;
 	if (userId === undefined) {
+		return new Response(null, { status: 200 });
+	}
+
+	if (await isDeletedUser(c.env.DB, userId)) {
+		// Deletion already cancelled what it could; a late subscription event
+		// must not resurrect the users/customers/subscriptions rows. Mark the
+		// event processed so redelivery stays a no-op.
+		await c.env.DB.prepare(
+			"INSERT INTO stripe_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
+		)
+			.bind(parsed.eventId, parsed.eventTimestamp, Date.now())
+			.run();
 		return new Response(null, { status: 200 });
 	}
 
