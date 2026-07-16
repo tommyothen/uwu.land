@@ -1,6 +1,6 @@
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import type { Context } from "hono";
-import { ENTITLING_STATUS_SQL } from "./billing-shared";
+import { NON_TERMINAL_STATUS_SQL } from "./billing-shared";
 import { isDeletedUser } from "./deletion";
 import { emailIdentityHash } from "./identity";
 import { isRecord, readJson } from "./request-utils";
@@ -15,7 +15,7 @@ const RELEVANT_EVENT_TYPES = new Set([
 export const ACCOUNT_TOMBSTONE_WINDOW_SECONDS = 30 * 86_400;
 const SEVEN_DAYS_SECONDS = 7 * 86_400;
 
-interface UserUpsertEvent {
+export interface UserUpsertEvent {
 	type: "user.created" | "user.updated";
 	eventId: string;
 	eventTimestamp: number;
@@ -55,6 +55,20 @@ export async function clerkWebhook(
 
 	const timestamp = isRecord(rawEvent) ? rawEvent.timestamp : null;
 	const eventId = c.req.header("svix-id") ?? null;
+	if (eventId !== null) {
+		// Mirrors the Stripe webhook: an exact Svix redelivery of an already
+		// processed event must not re-mutate (for example re-extend
+		// limited_until). Out-of-order DISTINCT events remain best-effort; we
+		// deliberately do not build per-user timestamp ordering here.
+		const replay = await c.env.DB.prepare(
+			"SELECT 1 FROM clerk_webhook_events WHERE id = ?"
+		)
+			.bind(eventId)
+			.first();
+		if (replay !== null) {
+			return new Response(null, { status: 200 });
+		}
+	}
 	if (verified.type === "user.created" || verified.type === "user.updated") {
 		const event = parseUserUpsertEvent(verified, eventId, timestamp);
 		if (event === null) {
@@ -193,6 +207,22 @@ async function applyUserUpsertEvent(
 		shouldLimit = (tombstones?.count ?? 0) >= 2;
 	}
 
+	await applyUserUpsertWrites(db, event, emailHash, shouldLimit, nowMs);
+}
+
+// The write half of a user upsert. A deletion can commit between the
+// isDeletedUser fast path above and this batch, so every statement folds the
+// deleted_users guard into itself: the write is atomic against that race and
+// cannot resurrect a deleted account. Exported so the race test can run it
+// with the deletion already committed.
+export async function applyUserUpsertWrites(
+	db: D1Database,
+	event: UserUpsertEvent,
+	emailHash: string | null,
+	shouldLimit: boolean,
+	nowMs: number
+): Promise<void> {
+	const nowSeconds = Math.floor(nowMs / 1000);
 	const statements = [
 		db
 			.prepare(
@@ -201,15 +231,17 @@ async function applyUserUpsertEvent(
 			.bind(event.eventId, event.eventTimestamp, nowMs),
 		db
 			.prepare(
-				"INSERT INTO users (id, tier, created_at, email_hash) VALUES (?, 'free', ?, ?) ON CONFLICT(id) DO UPDATE SET email_hash = coalesce(excluded.email_hash, users.email_hash)"
+				"INSERT INTO users (id, tier, created_at, email_hash) SELECT ?, 'free', ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT(id) DO UPDATE SET email_hash = coalesce(excluded.email_hash, users.email_hash)"
 			)
-			.bind(event.userId, nowSeconds, emailHash)
+			.bind(event.userId, nowSeconds, emailHash, event.userId)
 	];
 	if (shouldLimit) {
 		statements.push(
 			db
-				.prepare("UPDATE users SET limited_until = ? WHERE id = ?")
-				.bind(nowSeconds + SEVEN_DAYS_SECONDS, event.userId)
+				.prepare(
+					"UPDATE users SET limited_until = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?)"
+				)
+				.bind(nowSeconds + SEVEN_DAYS_SECONDS, event.userId, event.userId)
 		);
 	}
 	await db.batch(statements);
@@ -290,9 +322,12 @@ async function cancelUserSubscriptions(
 	secret: string | undefined,
 	userId: string
 ): Promise<boolean> {
+	// Non-terminal, not just entitling: a paused/unpaid/incomplete
+	// subscription must not outlive the account either, and it counts toward
+	// the unset-secret fail-safe below.
 	const subscriptions = await db
 		.prepare(
-			`SELECT id FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL})`
+			`SELECT id FROM stripe_subscriptions WHERE user_id = ? AND status IN (${NON_TERMINAL_STATUS_SQL})`
 		)
 		.bind(userId)
 		.all<{ id: string }>();

@@ -13,6 +13,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUserUpsertWrites } from "../src/clerk-webhook";
 import { emailIdentityHash } from "../src/identity";
 import { hashKey } from "../src/keys";
 import type { Env } from "../src/worker";
@@ -309,6 +310,113 @@ describe("Clerk user webhook", () => {
 		expect(recordedEvents).toEqual([{ id: "msg_late_upsert_create" }]);
 	});
 
+	it("does not resurrect a deleted user when a deletion commits after the fast-path check", async () => {
+		// Simulates the TOCTOU inside applyUserUpsertEvent: the isDeletedUser
+		// fast path passed, then the deletion committed before the write batch
+		// ran. The guards folded into the statements themselves must refuse to
+		// recreate the account.
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_raced_upsert", deletedAt: new Date() })
+			.run();
+
+		await applyUserUpsertWrites(
+			env.DB,
+			{
+				type: "user.created",
+				eventId: "msg_raced_upsert",
+				eventTimestamp: 100,
+				userId: "user_raced_upsert",
+				email: "raced@example.com"
+			},
+			await emailIdentityHash("raced@example.com"),
+			true,
+			Date.now()
+		);
+
+		expect(await findUser("user_raced_upsert")).toBeUndefined();
+		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
+		// The event is still recorded so redelivery stays idempotent.
+		expect(
+			await drizzle(env.DB)
+				.select({ id: clerkWebhookEvents.id })
+				.from(clerkWebhookEvents)
+				.where(eq(clerkWebhookEvents.id, "msg_raced_upsert"))
+				.all()
+		).toEqual([{ id: "msg_raced_upsert" }]);
+	});
+
+	it("ignores an exact user.created redelivery instead of re-extending limited_until", async () => {
+		const email = "replayed@example.com";
+		const emailHash = await emailIdentityHash(email);
+		const now = Date.now();
+		await drizzle(env.DB)
+			.insert(accountTombstones)
+			.values([
+				{ eventId: "replay_ts_one", emailHash, deletedAt: new Date(now - 1_000) },
+				{ eventId: "replay_ts_two", emailHash, deletedAt: new Date(now - 2_000) }
+			])
+			.run();
+		const payload = userUpsertPayload("user.created", "user_replayed", [
+			{ id: "email_replayed", email_address: email }
+		], "email_replayed");
+
+		await sendWebhook(payload, { id: "msg_replayed_created" });
+		expect((await findUser("user_replayed"))?.limitedUntil).not.toBeNull();
+		// Move the stored value so any re-mutation by the replay would show.
+		const sentinel = new Date(1_700_000_000_000);
+		await drizzle(env.DB)
+			.update(users)
+			.set({ limitedUntil: sentinel })
+			.where(eq(users.id, "user_replayed"))
+			.run();
+
+		const response = await sendWebhook(payload, { id: "msg_replayed_created" });
+
+		expect(response.status).toBe(200);
+		expect((await findUser("user_replayed"))?.limitedUntil).toEqual(sentinel);
+	});
+
+	it("cancels paused and unpaid subscriptions when a user is deleted", async () => {
+		await seedSubscription("user_paused_delete", "sub_paused_delete", "paused");
+		await seedSubscription("user_unpaid_delete", "sub_unpaid_delete", "unpaid");
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({ status: "canceled" })
+		);
+
+		const pausedResponse = await sendWebhook(
+			userDeletedPayload("user_paused_delete"),
+			{ stripeFetch }
+		);
+		const unpaidResponse = await sendWebhook(
+			userDeletedPayload("user_unpaid_delete"),
+			{ stripeFetch }
+		);
+
+		expect(pausedResponse.status).toBe(200);
+		expect(unpaidResponse.status).toBe(200);
+		expect(stripeFetch).toHaveBeenCalledTimes(2);
+		expect(stripeFetch.mock.calls.map(([url]) => String(url))).toEqual([
+			"https://api.stripe.com/v1/subscriptions/sub_paused_delete",
+			"https://api.stripe.com/v1/subscriptions/sub_unpaid_delete"
+		]);
+	});
+
+	it("blocks deletion when the secret is unset and a paused subscription remains", async () => {
+		await seedSubscription("user_paused_no_secret", "sub_paused_no_secret", "paused");
+		const stripeFetch = vi.fn<typeof fetch>();
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const response = await sendWebhook(
+			userDeletedPayload("user_paused_no_secret"),
+			{ stripeFetch, envOverride: { STRIPE_SECRET_KEY: undefined } }
+		);
+
+		expect(response.status).toBe(500);
+		expect(stripeFetch).not.toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
 	it("limits a recreated identity after two recent tombstones", async () => {
 		const email = "repeat@example.com";
 		const emailHash = await emailIdentityHash(email);
@@ -454,7 +562,11 @@ async function findTier(id: string): Promise<"free" | "pro" | undefined> {
 	return (await findUser(id))?.tier;
 }
 
-async function seedSubscription(userId: string, subscriptionId: string) {
+async function seedSubscription(
+	userId: string,
+	subscriptionId: string,
+	status: "active" | "paused" | "unpaid" = "active"
+) {
 	const db = drizzle(env.DB);
 	await db.insert(users).values({ id: userId, tier: "pro" }).run();
 	await db.insert(stripeWebhookEvents)
@@ -469,7 +581,7 @@ async function seedSubscription(userId: string, subscriptionId: string) {
 			customerId: `cus_${userId}`,
 			priceId: "price_any",
 			userId,
-			status: "active",
+			status,
 			eventTimestamp: 100,
 			eventId: `evt_${subscriptionId}`
 		})

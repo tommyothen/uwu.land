@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
+import { applySubscriptionEvent } from "../src/stripe-webhook";
 import type { Env } from "../src/worker";
 import { createApp } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
@@ -330,6 +331,50 @@ describe("Stripe subscription webhook", () => {
 		expect(
 			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
 		).toMatchObject([{ id: "evt_deleted_echo" }]);
+	});
+
+	it("does not resurrect a deleted user when a deletion commits after the fast-path check", async () => {
+		// Simulates the TOCTOU in stripeWebhook: the isDeletedUser fast path
+		// passed, then the deletion committed before applySubscriptionEvent
+		// ran. The guards folded into each write must refuse to recreate the
+		// users, stripe_customers, and stripe_subscriptions rows. Both upsert
+		// variants (live update and deletion echo) are exercised.
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_raced", deletedAt: new Date() })
+			.run();
+
+		for (const [eventId, isDeleted] of [
+			["evt_raced_update", false],
+			["evt_raced_delete", true]
+		] as const) {
+			await applySubscriptionEvent(
+				env.DB,
+				testEnv,
+				{
+					eventId,
+					eventTimestamp: 200,
+					subscriptionId: "sub_raced",
+					customerId: "cus_raced",
+					priceId: env.STRIPE_PRICE_ID_MONTHLY,
+					status: isDeleted ? "canceled" : "active",
+					userId: "user_raced"
+				},
+				isDeleted,
+				undefined,
+				"user_raced"
+			);
+		}
+
+		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
+		expect(await drizzle(env.DB).select().from(stripeCustomers).all()).toEqual([]);
+		expect(
+			await drizzle(env.DB).select().from(stripeSubscriptions).all()
+		).toEqual([]);
+		// The events are still recorded so redelivery stays idempotent.
+		expect(
+			await drizzle(env.DB).select().from(stripeWebhookEvents).all()
+		).toMatchObject([{ id: "evt_raced_update" }, { id: "evt_raced_delete" }]);
 	});
 
 	it("still applies subscription events for live users alongside a deleted one", async () => {

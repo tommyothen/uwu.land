@@ -10,6 +10,7 @@ import {
 	configuredPriceIds,
 	ENTITLING_STATUS_SQL
 } from "./billing-shared";
+import { isDeletedUser } from "./deletion";
 import { errorResponse } from "./errors";
 import { isRecord, readJson, requireSession } from "./request-utils";
 import type { Env } from "./worker";
@@ -36,6 +37,12 @@ export async function createBillingCheckout(
 	);
 	if (auth instanceof Response) {
 		return auth;
+	}
+	// A session resolved just before account deletion committed must not be
+	// able to start a payable checkout. The atomic backstop is the guarded
+	// insert in findOrCreateCustomer; this is the cheap early-out.
+	if (await isDeletedUser(c.env.DB, auth.userId)) {
+		return errorResponse(403, "account_deleted", "This account has been closed.");
 	}
 
 	const body = await readJson(c.req.raw);
@@ -140,7 +147,9 @@ export async function createBillingPortal(
 	return Response.json({ url } satisfies BillingPortalResponse);
 }
 
-async function findOrCreateCustomer(
+// Exported so the deletion race test can run it with a deletion committing
+// mid-flight (inside the injected stripeFetch).
+export async function findOrCreateCustomer(
 	db: D1Database,
 	stripeFetch: typeof fetch,
 	secret: string,
@@ -162,11 +171,19 @@ async function findOrCreateCustomer(
 	if (customerId === null) {
 		return null;
 	}
+	// The deleted_users guard is folded into the insert so it is atomic
+	// against a deletion committing while the Stripe call above was in
+	// flight. When blocked, the re-select below finds nothing and checkout
+	// aborts without handing back a session. Accepted residual: a checkout
+	// session ISSUED before deletion can still be completed on Stripe's side;
+	// the stripe webhook blackholes subscription events for deleted users (no
+	// service is granted) and cancelUserSubscriptions covers tracked
+	// subscriptions, so we do not try to expire Stripe sessions here.
 	await db
 		.prepare(
-			"INSERT INTO stripe_customers (user_id, customer_id, created_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING"
+			"INSERT INTO stripe_customers (user_id, customer_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (user_id) DO NOTHING"
 		)
-		.bind(userId, customerId, Math.floor(Date.now() / 1000))
+		.bind(userId, customerId, Math.floor(Date.now() / 1000), userId)
 		.run();
 	const stored = await db
 		.prepare("SELECT customer_id FROM stripe_customers WHERE user_id = ?")

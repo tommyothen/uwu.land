@@ -9,6 +9,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it } from "vitest";
 import { authMiddleware, resolveAuth, type TestJwks } from "../src/auth";
+import { insertUserUnlessDeleted } from "../src/deletion";
 import { generateApiKey, hashKey } from "../src/keys";
 import type { Env } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
@@ -272,6 +273,28 @@ describe("auth middleware", () => {
 				jwks
 			})
 		).rejects.toThrow("Unauthorized");
+		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
+	});
+
+	it("creates the users row through the guarded session insert", async () => {
+		await insertUserUnlessDeleted(env.DB, "user_fresh_session");
+
+		expect(await drizzle(env.DB).select().from(users).all()).toMatchObject([
+			{ id: "user_fresh_session", tier: "free" }
+		]);
+	});
+
+	it("blocks the session insert at statement level when a deletion has committed", async () => {
+		// Simulates the TOCTOU the isDeletedUser fast path leaves open: the
+		// deletion committed after the check, so only the guard folded into
+		// the INSERT itself stands between a stale session and resurrection.
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_raced_session", deletedAt: new Date() })
+			.run();
+
+		await insertUserUnlessDeleted(env.DB, "user_raced_session");
+
 		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
 	});
 

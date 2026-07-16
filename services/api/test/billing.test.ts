@@ -1,11 +1,13 @@
 import { createExecutionContext, env } from "cloudflare:test";
 import {
 	apiKeys,
+	deletedUsers,
 	stripeCustomers,
 	stripeSubscriptions,
 	stripeWebhookEvents,
 	users
 } from "@uwu/db/schema";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TestJwks } from "../src/auth";
@@ -186,6 +188,63 @@ describe("Stripe billing routes", () => {
 			code: "already_subscribed"
 		});
 		expect(stripeFetch).not.toHaveBeenCalled();
+	});
+
+	it("blocks checkout for a deleted account and writes no Stripe customer", async () => {
+		// A still-valid session JWT for a deleted account is rejected at auth,
+		// before any billing code runs.
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_billing", deletedAt: new Date() })
+			.run();
+		const stripeFetch = vi.fn<typeof fetch>();
+
+		const response = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			stripeFetch
+		);
+
+		expect(response.status).toBe(401);
+		expect(stripeFetch).not.toHaveBeenCalled();
+		expect(await drizzle(env.DB).select().from(stripeCustomers).all()).toEqual(
+			[]
+		);
+	});
+
+	it("aborts checkout without persisting a customer when deletion commits mid-request", async () => {
+		// The account is deleted while the Stripe create-customer call is in
+		// flight: after auth and the isDeletedUser guard passed. The guarded
+		// stripe_customers insert must refuse the write, and checkout must not
+		// hand back a payable session.
+		const stripeFetch = vi.fn<typeof fetch>(async (input) => {
+			if (String(input).endsWith("/customers")) {
+				await drizzle(env.DB)
+					.insert(deletedUsers)
+					.values({ userId: "user_billing", deletedAt: new Date() })
+					.run();
+				await drizzle(env.DB)
+					.delete(users)
+					.where(eq(users.id, "user_billing"))
+					.run();
+				return Response.json({ id: "cus_raced_checkout" });
+			}
+			return Response.json({
+				url: "https://checkout.stripe.com/c/never_issued"
+			});
+		});
+
+		const response = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			stripeFetch
+		);
+
+		expect(response.status).toBe(502);
+		// Only the customer-create call happened; no Checkout Session was
+		// requested from Stripe.
+		expect(stripeFetch).toHaveBeenCalledTimes(1);
+		expect(await drizzle(env.DB).select().from(stripeCustomers).all()).toEqual(
+			[]
+		);
 	});
 
 	it("creates a Billing Portal Session for a lapsed user customer", async () => {

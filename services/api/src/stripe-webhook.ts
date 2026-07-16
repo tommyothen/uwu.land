@@ -41,10 +41,13 @@ interface SubscriptionEvent extends ParsedSubscriptionEvent {
 	userId: string;
 }
 
+// The deleted_users guard is folded into each upsert (INSERT ... SELECT ...
+// WHERE NOT EXISTS) so the write itself is atomic against a deletion
+// committing after the isDeletedUser fast path in stripeWebhook.
 const UPSERT_SUBSCRIPTION_STRICT =
-	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp > stripe_subscriptions.event_timestamp";
+	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp > stripe_subscriptions.event_timestamp";
 const UPSERT_SUBSCRIPTION_DELETED =
-	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp >= stripe_subscriptions.event_timestamp";
+	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp >= stripe_subscriptions.event_timestamp";
 
 export async function stripeWebhook(
 	c: Context<{ Bindings: Env }>
@@ -230,7 +233,12 @@ function parseSubscriptionEvent(
 	};
 }
 
-async function applySubscriptionEvent(
+// The write half of a subscription event. A deletion can commit between the
+// isDeletedUser fast path in stripeWebhook and this batch, so every row
+// creation folds the deleted_users guard into the statement itself and cannot
+// resurrect a deleted account. Exported so the race test can run it with the
+// deletion already committed.
+export async function applySubscriptionEvent(
 	db: D1Database,
 	env: Env,
 	event: SubscriptionEvent,
@@ -250,14 +258,19 @@ async function applySubscriptionEvent(
 			.bind(event.eventId, event.eventTimestamp, nowMs),
 		db
 			.prepare(
-				"INSERT INTO users (id, tier, created_at) VALUES (?, 'free', ?) ON CONFLICT (id) DO NOTHING"
+				"INSERT INTO users (id, tier, created_at) SELECT ?, 'free', ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"
 			)
-			.bind(event.userId, nowSeconds),
+			.bind(event.userId, nowSeconds, event.userId),
 		db
 			.prepare(
-				"INSERT INTO stripe_customers (user_id, customer_id, created_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING"
+				"INSERT INTO stripe_customers (user_id, customer_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (user_id) DO NOTHING"
 			)
-			.bind(customerMappingUserId, event.customerId, nowSeconds),
+			.bind(
+				customerMappingUserId,
+				event.customerId,
+				nowSeconds,
+				customerMappingUserId
+			),
 		db
 			.prepare(
 				isDeleted ? UPSERT_SUBSCRIPTION_DELETED : UPSERT_SUBSCRIPTION_STRICT
@@ -269,7 +282,8 @@ async function applySubscriptionEvent(
 				event.userId,
 				event.status,
 				event.eventTimestamp,
-				event.eventId
+				event.eventId,
+				event.userId
 			),
 		db
 			.prepare(tierUpdateSql)
