@@ -23,3 +23,15 @@ export function configuredPriceIds(env: {
 		env.STRIPE_PRICE_ID_YEARLY ?? ""
 	];
 }
+
+// Regular and launch lifetime prices both entitle forever; which one a user
+// bought is a historical fact, not a config lookup.
+export function configuredLifetimePriceIds(env: {
+	STRIPE_PRICE_ID_LIFETIME?: string;
+	STRIPE_PRICE_ID_LIFETIME_LAUNCH?: string;
+}): [string, string] {
+	return [
+		env.STRIPE_PRICE_ID_LIFETIME ?? "",
+		env.STRIPE_PRICE_ID_LIFETIME_LAUNCH ?? ""
+	];
+}

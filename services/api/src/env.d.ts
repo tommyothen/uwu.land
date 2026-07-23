@@ -9,6 +9,9 @@ interface __BaseEnv_Env {
 	CLERK_ISSUER: "https://clerk.uwu.land";
 	STRIPE_PRICE_ID_MONTHLY: "price_REPLACE_ME";
 	STRIPE_PRICE_ID_YEARLY: "price_REPLACE_ME";
+	STRIPE_PRICE_ID_LIFETIME: "price_LIFETIME_REPLACE_ME";
+	STRIPE_PRICE_ID_LIFETIME_LAUNCH: "price_LIFETIME_LAUNCH_REPLACE_ME";
+	STRIPE_LAUNCH_COUPON_ID: "coupon_LAUNCH25_REPLACE_ME";
 	ENFORCEMENT: DurableObjectNamespace<import("./worker").Enforcement>;
 }
 declare namespace Cloudflare {
