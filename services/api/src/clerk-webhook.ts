@@ -279,6 +279,9 @@ async function applyUserDeletedEvent(
 			.prepare("DELETE FROM stripe_subscriptions WHERE user_id = ?")
 			.bind(event.userId),
 		db
+			.prepare("DELETE FROM stripe_lifetime_purchases WHERE user_id = ?")
+			.bind(event.userId),
+		db
 			.prepare("DELETE FROM stripe_customers WHERE user_id = ?")
 			.bind(event.userId),
 		db.prepare("DELETE FROM users WHERE id = ?").bind(event.userId),

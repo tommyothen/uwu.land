@@ -6,6 +6,7 @@ import {
 	deletedUsers,
 	links,
 	stripeCustomers,
+	stripeLifetimePurchases,
 	stripeSubscriptions,
 	stripeWebhookEvents,
 	users
@@ -145,6 +146,19 @@ describe("Clerk user webhook", () => {
 				eventId: "evt_deleted_subscription"
 			})
 			.run();
+		await db
+			.insert(stripeLifetimePurchases)
+			.values({
+				id: "cs_user_deleted",
+				paymentIntentId: "pi_user_deleted",
+				customerId: "cus_user_deleted",
+				priceId: "price_any_lifetime",
+				userId: "user_deleted",
+				status: "paid",
+				eventTimestamp: 100,
+				eventId: "evt_deleted_subscription"
+			})
+			.run();
 		await env.ENFORCEMENT.getByName("user:user_deleted").limitFixedWindow(
 			1,
 			60
@@ -164,6 +178,9 @@ describe("Clerk user webhook", () => {
 		expect(await db.select().from(apiKeys).all()).toEqual([]);
 		expect(await db.select().from(stripeCustomers).all()).toEqual([]);
 		expect(await db.select().from(stripeSubscriptions).all()).toEqual([]);
+		expect(
+			await db.select().from(stripeLifetimePurchases).all()
+		).toEqual([]);
 		expect(await db.select().from(links).all()).toMatchObject([
 			{
 				slug: "owned-deleted",
