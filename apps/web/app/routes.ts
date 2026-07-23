@@ -12,6 +12,7 @@ export default [
 	route("terms", "routes/terms.tsx"),
 	route("acceptable-use", "routes/acceptable-use.tsx"),
 	route("refunds", "routes/refunds.tsx"),
+	route("dev/account-preview", "routes/dev-account-preview.tsx"),
 	route("sign-in/*", "routes/sign-in/route.tsx"),
 	route("sign-up/*", "routes/sign-up/route.tsx"),
 	route("dashboard", "routes/dashboard/layout.tsx", [

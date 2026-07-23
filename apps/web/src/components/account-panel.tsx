@@ -190,103 +190,23 @@ function LifetimeUpgradeCard({
 	);
 }
 
-export function AccountPanel() {
-	const { isLoaded, isSignedIn, getToken } = useAuth();
-	const [me, setMe] = useState<MeResponse | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [billingError, setBillingError] = useState<string | null>(null);
-	const [billingPending, setBillingPending] = useState<
-		"monthly" | "lifetime" | "portal" | null
-	>(null);
-	const [upgradePending, setUpgradePending] = useState(
-		() =>
-			typeof window !== "undefined" &&
-			new URLSearchParams(window.location.search).get("upgraded") === "1"
-	);
-	const [upgradeDelayed, setUpgradeDelayed] = useState(false);
-
-	useEffect(() => {
-		// Wait for Clerk to resolve the session; getToken() returns null before
-		// isLoaded and would strand the UI on its loading skeleton.
-		if (!isLoaded) {
-			return;
-		}
-		if (!isSignedIn) {
-			return;
-		}
-		let cancelled = false;
-		let pollTimer: ReturnType<typeof setTimeout> | undefined;
-		const shouldPollForUpgrade =
-			new URLSearchParams(window.location.search).get("upgraded") === "1";
-		(async () => {
-			const token = await getToken();
-			if (token === null) {
-				if (!cancelled) {
-					setError("Your session expired. Refresh and sign in again.");
-				}
-				return;
-			}
-			const startedAt = Date.now();
-			try {
-				while (!cancelled) {
-					const response = await getMe(token);
-					if (cancelled) {
-						return;
-					}
-					setMe(response);
-					if (!shouldPollForUpgrade || response.tier === "pro") {
-						if (shouldPollForUpgrade) {
-							const url = new URL(window.location.href);
-							url.searchParams.delete("upgraded");
-							window.history.replaceState(null, "", url);
-							setUpgradePending(false);
-						}
-						return;
-					}
-					if (Date.now() - startedAt >= 30_000) {
-						setUpgradePending(false);
-						setUpgradeDelayed(true);
-						return;
-					}
-					await new Promise<void>((resolve) => {
-						pollTimer = setTimeout(resolve, 2_000);
-					});
-				}
-			} catch (err) {
-				if (!cancelled) {
-					setError(friendlyError(err));
-				}
-			}
-		})();
-		return () => {
-			cancelled = true;
-			if (pollTimer !== undefined) {
-				clearTimeout(pollTimer);
-			}
-		};
-	}, [isLoaded, isSignedIn, getToken]);
-
-	if (error !== null) {
-		return (
-			<p role="alert" className="mt-6 text-sm text-destructive">
-				{error}
-			</p>
-		);
-	}
-
-	if (me === null) {
-		return (
-			<div className="mt-6 grid gap-3" aria-hidden>
-				{[0, 1].map((i) => (
-					<Skeleton
-						key={i}
-						className="h-20 animate-pulse rounded-lg bg-secondary"
-					/>
-				))}
-			</div>
-		);
-	}
-
+export function AccountPanelView({
+	me,
+	billingPending,
+	billingError,
+	upgradePending,
+	upgradeDelayed,
+	onCheckout,
+	onPortal
+}: {
+	me: MeResponse;
+	billingPending: "monthly" | "lifetime" | "portal" | null;
+	billingError: string | null;
+	upgradePending: boolean;
+	upgradeDelayed: boolean;
+	onCheckout: (cadence: "monthly" | "lifetime") => void;
+	onPortal: () => void;
+}) {
 	const created = me.usage.createdToday;
 	const createLimit = me.limits.createPerDay;
 	const createLeft = Math.max(0, createLimit - created);
@@ -296,26 +216,6 @@ export function AccountPanel() {
 	const keyLimit = me.limits.apiKeys;
 	const keysLeft = Math.max(0, keyLimit - activeKeys);
 	const keysAtLimit = activeKeys >= keyLimit;
-	const runBillingAction = async (
-		pendingKey: "monthly" | "lifetime" | "portal",
-		action: (token: string) => Promise<{ url: string }>
-	) => {
-		setBillingError(null);
-		setBillingPending(pendingKey);
-		try {
-			const token = await getToken();
-			if (token === null) {
-				setBillingError("Your session expired. Refresh and sign in again.");
-				return;
-			}
-			const response = await action(token);
-			window.location.assign(response.url);
-		} catch (err) {
-			setBillingError(friendlyError(err));
-		} finally {
-			setBillingPending(null);
-		}
-	};
 
 	return (
 		<div className="mt-6">
@@ -417,11 +317,7 @@ export function AccountPanel() {
 									type="button"
 									disabled={billingPending !== null}
 									aria-label={`Go First-Class, $${MONTHLY_STICKER} a month`}
-									onClick={() =>
-										void runBillingAction("monthly", (token) =>
-											createBillingCheckout(token, "monthly")
-										)
-									}
+									onClick={() => onCheckout("monthly")}
 									className="press rounded-xl border border-border bg-card p-4 text-left shadow-[3px_3px_0_var(--shadow-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
 								>
 									<div className="flex items-baseline justify-between gap-2">
@@ -454,11 +350,7 @@ export function AccountPanel() {
 									ariaLabel={`Go First-Class for life, $${LIFETIME_STICKER} once`}
 									pending={billingPending === "lifetime"}
 									disabled={billingPending !== null}
-									onClick={() =>
-										void runBillingAction("lifetime", (token) =>
-											createBillingCheckout(token, "lifetime")
-										)
-									}
+									onClick={() => onCheckout("lifetime")}
 								/>
 							</div>
 							{me.hasBillingHistory ? (
@@ -472,9 +364,7 @@ export function AccountPanel() {
 										size="sm"
 										className="mt-2"
 										disabled={billingPending !== null}
-										onClick={() =>
-											void runBillingAction("portal", createBillingPortal)
-										}
+										onClick={onPortal}
 									>
 										{billingPending === "portal"
 											? "Opening portal…"
@@ -503,9 +393,7 @@ export function AccountPanel() {
 							size="sm"
 							className="mt-3"
 							disabled={billingPending !== null}
-							onClick={() =>
-								void runBillingAction("portal", createBillingPortal)
-							}
+							onClick={onPortal}
 						>
 							{billingPending === "portal"
 								? "Opening portal…"
@@ -526,9 +414,7 @@ export function AccountPanel() {
 							size="sm"
 							className="mt-3"
 							disabled={billingPending !== null}
-							onClick={() =>
-								void runBillingAction("portal", createBillingPortal)
-							}
+							onClick={onPortal}
 						>
 							{billingPending === "portal"
 								? "Opening portal…"
@@ -541,11 +427,7 @@ export function AccountPanel() {
 							ariaLabel={`Make it lifetime, $${LIFETIME_STICKER} once`}
 							pending={billingPending === "lifetime"}
 							disabled={billingPending !== null}
-							onClick={() =>
-								void runBillingAction("lifetime", (token) =>
-									createBillingCheckout(token, "lifetime")
-								)
-							}
+							onClick={() => onCheckout("lifetime")}
 						/>
 					</div>
 				</section>
@@ -556,5 +438,140 @@ export function AccountPanel() {
 				</p>
 			) : null}
 		</div>
+	);
+}
+
+export function AccountPanel() {
+	const { isLoaded, isSignedIn, getToken } = useAuth();
+	const [me, setMe] = useState<MeResponse | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [billingError, setBillingError] = useState<string | null>(null);
+	const [billingPending, setBillingPending] = useState<
+		"monthly" | "lifetime" | "portal" | null
+	>(null);
+	const [upgradePending, setUpgradePending] = useState(
+		() =>
+			typeof window !== "undefined" &&
+			new URLSearchParams(window.location.search).get("upgraded") === "1"
+	);
+	const [upgradeDelayed, setUpgradeDelayed] = useState(false);
+
+	useEffect(() => {
+		// Wait for Clerk to resolve the session; getToken() returns null before
+		// isLoaded and would strand the UI on its loading skeleton.
+		if (!isLoaded) {
+			return;
+		}
+		if (!isSignedIn) {
+			return;
+		}
+		let cancelled = false;
+		let pollTimer: ReturnType<typeof setTimeout> | undefined;
+		const shouldPollForUpgrade =
+			new URLSearchParams(window.location.search).get("upgraded") === "1";
+		(async () => {
+			const token = await getToken();
+			if (token === null) {
+				if (!cancelled) {
+					setError("Your session expired. Refresh and sign in again.");
+				}
+				return;
+			}
+			const startedAt = Date.now();
+			try {
+				while (!cancelled) {
+					const response = await getMe(token);
+					if (cancelled) {
+						return;
+					}
+					setMe(response);
+					if (!shouldPollForUpgrade || response.tier === "pro") {
+						if (shouldPollForUpgrade) {
+							const url = new URL(window.location.href);
+							url.searchParams.delete("upgraded");
+							window.history.replaceState(null, "", url);
+							setUpgradePending(false);
+						}
+						return;
+					}
+					if (Date.now() - startedAt >= 30_000) {
+						setUpgradePending(false);
+						setUpgradeDelayed(true);
+						return;
+					}
+					await new Promise<void>((resolve) => {
+						pollTimer = setTimeout(resolve, 2_000);
+					});
+				}
+			} catch (err) {
+				if (!cancelled) {
+					setError(friendlyError(err));
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+			if (pollTimer !== undefined) {
+				clearTimeout(pollTimer);
+			}
+		};
+	}, [isLoaded, isSignedIn, getToken]);
+
+	if (error !== null) {
+		return (
+			<p role="alert" className="mt-6 text-sm text-destructive">
+				{error}
+			</p>
+		);
+	}
+
+	if (me === null) {
+		return (
+			<div className="mt-6 grid gap-3" aria-hidden>
+				{[0, 1].map((i) => (
+					<Skeleton
+						key={i}
+						className="h-20 animate-pulse rounded-lg bg-secondary"
+					/>
+				))}
+			</div>
+		);
+	}
+
+	const runBillingAction = async (
+		pendingKey: "monthly" | "lifetime" | "portal",
+		action: (token: string) => Promise<{ url: string }>
+	) => {
+		setBillingError(null);
+		setBillingPending(pendingKey);
+		try {
+			const token = await getToken();
+			if (token === null) {
+				setBillingError("Your session expired. Refresh and sign in again.");
+				return;
+			}
+			const response = await action(token);
+			window.location.assign(response.url);
+		} catch (err) {
+			setBillingError(friendlyError(err));
+		} finally {
+			setBillingPending(null);
+		}
+	};
+
+	return (
+		<AccountPanelView
+			me={me}
+			billingPending={billingPending}
+			billingError={billingError}
+			upgradePending={upgradePending}
+			upgradeDelayed={upgradeDelayed}
+			onCheckout={(cadence) =>
+				void runBillingAction(cadence, (token) =>
+					createBillingCheckout(token, cadence)
+				)
+			}
+			onPortal={() => void runBillingAction("portal", createBillingPortal)}
+		/>
 	);
 }
