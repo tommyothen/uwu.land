@@ -158,7 +158,7 @@ function LifetimeUpgradeCard({
 		>
 			{LAUNCH_OFFER ? (
 				<span className="rounded-full border border-foreground px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-foreground">
-					Launch offer — {LAUNCH_DISCOUNT_PCT}% off
+					Launch offer · {LAUNCH_DISCOUNT_PCT}% off
 				</span>
 			) : null}
 			<div
@@ -537,7 +537,7 @@ export function AccountPanel() {
 					</div>
 					<div className="mt-4 sm:max-w-xs">
 						<LifetimeUpgradeCard
-							actionLabel={`Make it lifetime — $${LIFETIME_STICKER} once`}
+							actionLabel={`Make it lifetime for $${LIFETIME_STICKER}`}
 							ariaLabel={`Make it lifetime, $${LIFETIME_STICKER} once`}
 							pending={billingPending === "lifetime"}
 							disabled={billingPending !== null}

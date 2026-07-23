@@ -24,12 +24,12 @@ export default function RefundsPage() {
 			<P>
 				First-Class costs US$4 per month, or US$79 as a single lifetime purchase,
 				billed through Stripe (cards, and PayPal via Stripe Checkout). Prices are in
-				US dollars and include any VAT or sales tax that applies — the price you see
-				is the price you pay. Promotional launch pricing, when shown, is applied at
-				checkout; a discounted subscription keeps its discounted price for as long as
-				it stays active. Monthly subscriptions renew automatically until you cancel.
-				The lifetime purchase is a one-time payment and never renews. We do not store
-				your card details; see the{" "}
+				US dollars and include any VAT or sales tax that applies: the price you see
+				is the price you pay. When we run a launch or promotional discount, checkout
+				applies it for you, and a discounted subscription keeps that price for as
+				long as it stays active. Monthly subscriptions renew automatically until you
+				cancel. The lifetime purchase is a one-time payment and never renews. We do
+				not store your card details; see the{" "}
 				<A href="/privacy">Privacy Policy</A> for how payment data is handled.
 			</P>
 
@@ -59,10 +59,9 @@ export default function RefundsPage() {
 				them.
 			</P>
 			<P>
-				The same 14-day right applies to the lifetime purchase. It gives you access
-				straight away, so by buying it you ask us to start the service during that
-				period. If you cancel within the 14 days, we refund what you paid in full,
-				less a proportionate amount for any use where that applies.
+				The lifetime purchase carries the same 14-day right, on the same terms:
+				access starts straight away, and if you cancel within the 14 days we refund
+				the payment in full, less a proportionate amount for any use.
 			</P>
 
 			<H2 id="when-we-refund">When we do refund</H2>

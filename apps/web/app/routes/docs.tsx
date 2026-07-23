@@ -398,10 +398,9 @@ console.log(data.short_url);`}</Code>
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					First-Class (the <code>pro</code> tier) costs $4/month, or $79 once for
-					lifetime;
-					Free and anonymous use stay free forever. Subscriptions are purchased
-					and managed from the account dashboard through Stripe Checkout and the
-					Stripe Billing Portal.
+					a lifetime. Free and anonymous use stays free forever. Upgrade and
+					manage billing from the account dashboard, which uses Stripe Checkout
+					and the Stripe Billing Portal.
 				</p>
 
 				<H2 id="me">Your account</H2>
