@@ -54,6 +54,8 @@ export interface MeResponse {
 	user_id: string;
 	tier: "free" | "pro";
 	hasBillingHistory: boolean;
+	/** "yearly" survives for grandfathered subscribers; new checkouts are monthly or lifetime only. */
+	plan: "monthly" | "yearly" | "lifetime" | null;
 	limits: TierLimits;
 	usage: {
 		createdToday: number;
@@ -63,7 +65,7 @@ export interface MeResponse {
 }
 
 export interface BillingCheckoutRequest {
-	cadence: "monthly" | "yearly";
+	cadence: "monthly" | "lifetime";
 }
 
 export interface BillingCheckoutResponse {

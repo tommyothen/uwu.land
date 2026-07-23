@@ -5,7 +5,7 @@ export interface TierLimits {
 	apiKeys: number;
 	displayName: string;
 	priceUsdMonthly?: number | null;
-	priceUsdYearly?: number | null;
+	priceUsdLifetime?: number | null;
 }
 
 export const TIERS = {
@@ -24,10 +24,19 @@ export const TIERS = {
 		apiKeys: 10,
 		displayName: "First-Class",
 		priceUsdMonthly: 4,
-		priceUsdYearly: 36
+		priceUsdLifetime: 79
 	}
 } as const satisfies Record<TierKey, TierLimits>;
 
 export function limitsFor(tier: TierKey): (typeof TIERS)[TierKey] {
 	return TIERS[tier];
 }
+
+// Launch offer. Flipping LAUNCH_OFFER to false ends it everywhere: the web
+// badge and the checkout discount both read this constant, so they cannot
+// drift. Existing launch subscribers keep their forever-duration Stripe
+// coupon; nothing else changes.
+export const LAUNCH_OFFER = true;
+export const LAUNCH_DISCOUNT_PCT = 25;
+// Explicit sticker prices, not computed, so they stay exact ($59 is 25.3% off).
+export const LAUNCH_PRICES = { monthly: 3, lifetime: 59 } as const;

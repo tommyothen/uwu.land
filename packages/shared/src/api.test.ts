@@ -40,6 +40,7 @@ describe("api contract types", () => {
 			user_id: "user_123",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		} satisfies MeResponse;
@@ -50,7 +51,7 @@ describe("api contract types", () => {
 	});
 
 	it("round-trips billing session shapes", () => {
-		const request = { cadence: "yearly" } satisfies BillingCheckoutRequest;
+		const request = { cadence: "lifetime" } satisfies BillingCheckoutRequest;
 		const checkout = {
 			url: "https://checkout.stripe.com/c/pay_test"
 		} satisfies BillingCheckoutResponse;
@@ -58,7 +59,7 @@ describe("api contract types", () => {
 			url: "https://billing.stripe.com/p/session_test"
 		} satisfies BillingPortalResponse;
 
-		expect(request.cadence).toBe("yearly");
+		expect(request.cadence).toBe("lifetime");
 		expect(checkout.url).toContain("checkout.stripe.com");
 		expect(portal.url).toContain("billing.stripe.com");
 	});
