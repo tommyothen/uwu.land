@@ -189,14 +189,14 @@ describe("billing", () => {
 			jsonResponse({ url: "https://checkout.stripe.com/c/pay_test" })
 		);
 
-		expect(await createBillingCheckout("tok", "yearly")).toEqual({
+		expect(await createBillingCheckout("tok", "lifetime")).toEqual({
 			url: "https://checkout.stripe.com/c/pay_test"
 		});
 		const { url, init } = lastRequest();
 		expect(url).toBe("https://uwu.land/api/v1/billing/checkout");
 		expect(init.method).toBe("POST");
 		expect(new Headers(init.headers).get("Authorization")).toBe("Bearer tok");
-		expect(JSON.parse(init.body as string)).toEqual({ cadence: "yearly" });
+		expect(JSON.parse(init.body as string)).toEqual({ cadence: "lifetime" });
 	});
 
 	it("creates a portal session without a request body", async () => {

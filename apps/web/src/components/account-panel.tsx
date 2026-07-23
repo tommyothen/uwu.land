@@ -1,7 +1,13 @@
 "use client";
 
 import { useAuth } from "@clerk/react-router";
-import { type MeResponse, TIERS } from "@uwu/shared";
+import {
+	LAUNCH_DISCOUNT_PCT,
+	LAUNCH_OFFER,
+	LAUNCH_PRICES,
+	type MeResponse,
+	TIERS
+} from "@uwu/shared";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,10 +37,14 @@ const ROWS = [
 	}
 ];
 
-// What a year of First-Class saves when paid yearly instead of month by month.
-// Derived from TIERS so it stays correct if the prices ever change.
-const YEARLY_SAVINGS =
-	TIERS.pro.priceUsdMonthly * 12 - TIERS.pro.priceUsdYearly;
+// Prices to show on the cards. During the launch offer these are the discounted
+// stickers; the regular TIERS prices survive as struck-through references.
+const MONTHLY_STICKER = LAUNCH_OFFER
+	? LAUNCH_PRICES.monthly
+	: TIERS.pro.priceUsdMonthly;
+const LIFETIME_STICKER = LAUNCH_OFFER
+	? LAUNCH_PRICES.lifetime
+	: TIERS.pro.priceUsdLifetime;
 
 // Humanize the UTC reset instant relative to now. null means the current window
 // has not started yet (no create since the last reset), so there is nothing to
@@ -123,13 +133,70 @@ function UsageMeter({
 	);
 }
 
+// The featured lifetime checkout card. Reused for a free user's upgrade grid
+// and for a subscriber's "make it lifetime" affordance.
+function LifetimeUpgradeCard({
+	actionLabel,
+	ariaLabel,
+	pending,
+	disabled,
+	onClick
+}: {
+	actionLabel: string;
+	ariaLabel: string;
+	pending: boolean;
+	disabled: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			disabled={disabled}
+			aria-label={ariaLabel}
+			onClick={onClick}
+			className="press rounded-xl border border-foreground bg-card p-4 text-left shadow-[3px_3px_0_var(--shadow-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+		>
+			{LAUNCH_OFFER ? (
+				<span className="rounded-full border border-foreground px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-foreground">
+					Launch offer — {LAUNCH_DISCOUNT_PCT}% off
+				</span>
+			) : null}
+			<div
+				className={`flex items-baseline justify-between gap-2 ${
+					LAUNCH_OFFER ? "mt-3" : ""
+				}`}
+			>
+				<span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+					Lifetime
+				</span>
+				<span className="text-xs font-medium text-muted-foreground">
+					Pay once
+				</span>
+			</div>
+			<p className="mt-2 flex items-baseline gap-1.5">
+				<span className="font-display text-3xl font-semibold leading-none tabular-nums text-foreground">
+					${LIFETIME_STICKER}
+				</span>
+				{LAUNCH_OFFER ? (
+					<s className="text-base text-muted-foreground">
+						${TIERS.pro.priceUsdLifetime}
+					</s>
+				) : null}
+			</p>
+			<p className="mt-3 text-xs font-medium text-foreground">
+				{pending ? "Opening checkout…" : actionLabel}
+			</p>
+		</button>
+	);
+}
+
 export function AccountPanel() {
 	const { isLoaded, isSignedIn, getToken } = useAuth();
 	const [me, setMe] = useState<MeResponse | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [billingError, setBillingError] = useState<string | null>(null);
 	const [billingPending, setBillingPending] = useState<
-		"monthly" | "yearly" | "portal" | null
+		"monthly" | "lifetime" | "portal" | null
 	>(null);
 	const [upgradePending, setUpgradePending] = useState(
 		() =>
@@ -230,7 +297,7 @@ export function AccountPanel() {
 	const keysLeft = Math.max(0, keyLimit - activeKeys);
 	const keysAtLimit = activeKeys >= keyLimit;
 	const runBillingAction = async (
-		pendingKey: "monthly" | "yearly" | "portal",
+		pendingKey: "monthly" | "lifetime" | "portal",
 		action: (token: string) => Promise<{ url: string }>
 	) => {
 		setBillingError(null);
@@ -305,7 +372,7 @@ export function AccountPanel() {
 									{me.tier === "pro" ? " (you)" : ""}
 								</span>
 								<span className="block text-xs font-normal normal-case text-muted-foreground">
-									${TIERS.pro.priceUsdMonthly}/mo · ${TIERS.pro.priceUsdYearly}/yr
+									${MONTHLY_STICKER}/mo · ${LIFETIME_STICKER} lifetime
 								</span>
 							</TableHead>
 						</TableRow>
@@ -328,7 +395,7 @@ export function AccountPanel() {
 			</div>
 			<p className="mt-4 text-xs text-muted-foreground">
 				Anonymous shortening stays free forever regardless of plan. First-Class is
-				$4/month or $36/year.
+				${MONTHLY_STICKER}/month or ${LIFETIME_STICKER} once, forever.
 			</p>
 			{me.tier === "free" ? (
 				<section className="mt-8">
@@ -349,7 +416,7 @@ export function AccountPanel() {
 								<button
 									type="button"
 									disabled={billingPending !== null}
-									aria-label={`Go First-Class, $${TIERS.pro.priceUsdMonthly} a month`}
+									aria-label={`Go First-Class, $${MONTHLY_STICKER} a month`}
 									onClick={() =>
 										void runBillingAction("monthly", (token) =>
 											createBillingCheckout(token, "monthly")
@@ -367,48 +434,32 @@ export function AccountPanel() {
 									</div>
 									<p className="mt-2 flex items-baseline gap-1.5">
 										<span className="font-display text-3xl font-semibold leading-none tabular-nums text-foreground">
-											${TIERS.pro.priceUsdMonthly}
+											${MONTHLY_STICKER}
 										</span>
-										<span className="text-sm text-muted-foreground">/mo</span>
+										{LAUNCH_OFFER ? (
+											<s className="text-base text-muted-foreground">
+												${TIERS.pro.priceUsdMonthly}
+											</s>
+										) : null}
 									</p>
 									<p className="mt-3 text-xs font-medium text-foreground">
 										{billingPending === "monthly"
 											? "Opening checkout…"
-											: "Go First-Class"}
+											: `Lock in $${MONTHLY_STICKER}/mo for as long as you stay subscribed.`}
 									</p>
 								</button>
 
-								<button
-									type="button"
+								<LifetimeUpgradeCard
+									actionLabel="Own it forever"
+									ariaLabel={`Go First-Class for life, $${LIFETIME_STICKER} once`}
+									pending={billingPending === "lifetime"}
 									disabled={billingPending !== null}
-									aria-label={`Go First-Class, $${TIERS.pro.priceUsdYearly} a year`}
 									onClick={() =>
-										void runBillingAction("yearly", (token) =>
-											createBillingCheckout(token, "yearly")
+										void runBillingAction("lifetime", (token) =>
+											createBillingCheckout(token, "lifetime")
 										)
 									}
-									className="press rounded-xl border border-border bg-card p-4 text-left shadow-[3px_3px_0_var(--shadow-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
-								>
-									<div className="flex items-baseline justify-between gap-2">
-										<span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-											Yearly
-										</span>
-										<span className="text-xs font-medium text-foreground">
-											Save ${YEARLY_SAVINGS}/yr
-										</span>
-									</div>
-									<p className="mt-2 flex items-baseline gap-1.5">
-										<span className="font-display text-3xl font-semibold leading-none tabular-nums text-foreground">
-											${TIERS.pro.priceUsdYearly}
-										</span>
-										<span className="text-sm text-muted-foreground">/yr</span>
-									</p>
-									<p className="mt-3 text-xs font-medium text-foreground">
-										{billingPending === "yearly"
-											? "Opening checkout…"
-											: "Go First-Class"}
-									</p>
-								</button>
+								/>
 							</div>
 							{me.hasBillingHistory ? (
 								<div className="mt-5">
@@ -439,26 +490,64 @@ export function AccountPanel() {
 						</>
 					)}
 				</section>
-			) : (
+			) : me.plan === "lifetime" ? (
 				<section className="mt-8 rounded-xl border border-border bg-card p-4">
 					<p className="text-sm text-muted-foreground">
-						You&rsquo;re on First-Class. Thanks for keeping the post office
-						running.
+						You&rsquo;re First-Class for life. Thanks for keeping the post
+						office running forever.
 					</p>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						className="mt-3"
-						disabled={billingPending !== null}
-						onClick={() =>
-							void runBillingAction("portal", createBillingPortal)
-						}
-					>
-						{billingPending === "portal"
-							? "Opening portal…"
-							: "Manage subscription"}
-					</Button>
+					{me.hasBillingHistory ? (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="mt-3"
+							disabled={billingPending !== null}
+							onClick={() =>
+								void runBillingAction("portal", createBillingPortal)
+							}
+						>
+							{billingPending === "portal"
+								? "Opening portal…"
+								: "Receipts & invoices"}
+						</Button>
+					) : null}
+				</section>
+			) : (
+				<section className="mt-8">
+					<div className="rounded-xl border border-border bg-card p-4">
+						<p className="text-sm text-muted-foreground">
+							You&rsquo;re on First-Class. Thanks for keeping the post office
+							running.
+						</p>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="mt-3"
+							disabled={billingPending !== null}
+							onClick={() =>
+								void runBillingAction("portal", createBillingPortal)
+							}
+						>
+							{billingPending === "portal"
+								? "Opening portal…"
+								: "Manage subscription"}
+						</Button>
+					</div>
+					<div className="mt-4 sm:max-w-xs">
+						<LifetimeUpgradeCard
+							actionLabel={`Make it lifetime — $${LIFETIME_STICKER} once`}
+							ariaLabel={`Make it lifetime, $${LIFETIME_STICKER} once`}
+							pending={billingPending === "lifetime"}
+							disabled={billingPending !== null}
+							onClick={() =>
+								void runBillingAction("lifetime", (token) =>
+									createBillingCheckout(token, "lifetime")
+								)
+							}
+						/>
+					</div>
 				</section>
 			)}
 			{billingError !== null ? (

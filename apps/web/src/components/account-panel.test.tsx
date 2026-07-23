@@ -51,6 +51,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -67,22 +68,52 @@ describe("AccountPanel", () => {
 		).toBeInTheDocument();
 	});
 
-	it("shows the First-Class column and pricing without a coming-soon badge", async () => {
+	it("shows the First-Class column and lifetime pricing without a coming-soon badge", async () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
 		render(<AccountPanel />);
 
 		expect(await screen.findByText("First-Class")).toBeInTheDocument();
-		expect(screen.getByText("$4/mo · $36/yr")).toBeInTheDocument();
+		expect(screen.getByText("$3/mo · $59 lifetime")).toBeInTheDocument();
 		expect(screen.queryByText("coming soon")).not.toBeInTheDocument();
 		expect(
 			screen.getByText(String(TIERS.pro.createPerDay))
 		).toBeInTheDocument();
+	});
+
+	it("presents the launch offer with struck regular prices for free users", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "free",
+			hasBillingHistory: false,
+			plan: null,
+			limits: TIERS.free,
+			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
+		});
+		render(<AccountPanel />);
+
+		// Launch badge advertising the discount.
+		expect(await screen.findByText(/25% off/i)).toBeInTheDocument();
+
+		// Regular prices survive as struck-through references.
+		const struck = document.querySelectorAll("s");
+		const struckText = Array.from(struck).map((el) => el.textContent);
+		expect(struckText).toContain("$4");
+		expect(struckText).toContain("$79");
+
+		// Sticker prices are the launch prices.
+		expect(screen.getByText("$3")).toBeInTheDocument();
+		expect(screen.getByText("$59")).toBeInTheDocument();
+
+		// Monthly loyalty copy and the lifetime card are both present.
+		expect(screen.getByText(/lock in/i)).toBeInTheDocument();
+		expect(screen.getByText("Lifetime")).toBeInTheDocument();
 	});
 
 	it("renders Stripe checkout choices for free-tier users", async () => {
@@ -90,6 +121,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -100,10 +132,10 @@ describe("AccountPanel", () => {
 		).toBeInTheDocument();
 		expect(screen.getByText(/handled securely by Stripe/i)).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Go First-Class, $4 a month" })
+			screen.getByRole("button", { name: "Go First-Class, $3 a month" })
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Go First-Class, $36 a year" })
+			screen.getByRole("button", { name: "Go First-Class for life, $59 once" })
 		).toBeInTheDocument();
 		// Pro users' self-service surface must not appear for free users.
 		expect(
@@ -116,6 +148,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -125,7 +158,7 @@ describe("AccountPanel", () => {
 
 		await user.click(
 			await screen.findByRole("button", {
-				name: "Go First-Class, $4 a month"
+				name: "Go First-Class, $3 a month"
 			})
 		);
 
@@ -133,11 +166,35 @@ describe("AccountPanel", () => {
 		await waitFor(() => expect(window.location.hash).toBe("#checkout"));
 	});
 
+	it("starts lifetime checkout when the lifetime card is clicked", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "free",
+			hasBillingHistory: false,
+			plan: null,
+			limits: TIERS.free,
+			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
+		});
+		createBillingCheckoutMock.mockResolvedValueOnce({ url: "#lifetime" });
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		await user.click(
+			await screen.findByRole("button", {
+				name: "Go First-Class for life, $59 once"
+			})
+		);
+
+		expect(createBillingCheckoutMock).toHaveBeenCalledWith("tok", "lifetime");
+		await waitFor(() => expect(window.location.hash).toBe("#lifetime"));
+	});
+
 	it("disables checkout choices while a request is pending", async () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -150,16 +207,18 @@ describe("AccountPanel", () => {
 		const user = userEvent.setup();
 		render(<AccountPanel />);
 
-		const yearly = await screen.findByRole("button", { name: "Go First-Class, $36 a year" });
-		await user.click(yearly);
+		const lifetime = await screen.findByRole("button", {
+			name: "Go First-Class for life, $59 once"
+		});
+		await user.click(lifetime);
 
-		expect(yearly).toBeDisabled();
-		expect(yearly).toHaveTextContent(/opening checkout/i);
+		expect(lifetime).toBeDisabled();
+		expect(lifetime).toHaveTextContent(/opening checkout/i);
 		expect(
-			screen.getByRole("button", { name: "Go First-Class, $4 a month" })
+			screen.getByRole("button", { name: "Go First-Class, $3 a month" })
 		).toBeDisabled();
-		resolveCheckout?.({ url: "#yearly" });
-		await waitFor(() => expect(window.location.hash).toBe("#yearly"));
+		resolveCheckout?.({ url: "#done" });
+		await waitFor(() => expect(window.location.hash).toBe("#done"));
 	});
 
 	it("shows a friendly checkout error", async () => {
@@ -167,6 +226,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt: null }
 		});
@@ -182,7 +242,7 @@ describe("AccountPanel", () => {
 
 		await user.click(
 			await screen.findByRole("button", {
-				name: "Go First-Class, $4 a month"
+				name: "Go First-Class, $3 a month"
 			})
 		);
 
@@ -191,29 +251,124 @@ describe("AccountPanel", () => {
 		);
 	});
 
-	it("shows the thanks line and opens Stripe's portal for pro users", async () => {
+	it("lets a monthly subscriber manage billing and make it lifetime", async () => {
 		getMeMock.mockResolvedValueOnce({
 			user_id: "user_1",
 			tier: "pro",
-			hasBillingHistory: false,
+			hasBillingHistory: true,
+			plan: "monthly",
 			limits: TIERS.pro,
 			usage: { createdToday: 2, apiKeys: 1, resetAt: null }
 		});
 		createBillingPortalMock.mockResolvedValueOnce({ url: "#portal" });
+		createBillingCheckoutMock.mockResolvedValueOnce({ url: "#lifetime" });
 		const user = userEvent.setup();
 		render(<AccountPanel />);
 
 		expect(
 			await screen.findByText(/keeping the post office running/i)
 		).toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: /go first-class/i })
-		).not.toBeInTheDocument();
 
-		const manage = screen.getByRole("button", { name: /manage subscription/i });
+		const manage = screen.getByRole("button", {
+			name: /manage subscription/i
+		});
 		await user.click(manage);
 		expect(createBillingPortalMock).toHaveBeenCalledWith("tok");
 		await waitFor(() => expect(window.location.hash).toBe("#portal"));
+
+		const makeLifetime = screen.getByText(/make it lifetime/i);
+		await user.click(makeLifetime);
+		expect(createBillingCheckoutMock).toHaveBeenCalledWith("tok", "lifetime");
+		await waitFor(() => expect(window.location.hash).toBe("#lifetime"));
+	});
+
+	it("thanks lifetime owners and hides subscription management", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "pro",
+			hasBillingHistory: true,
+			plan: "lifetime",
+			limits: TIERS.pro,
+			usage: { createdToday: 2, apiKeys: 1, resetAt: null }
+		});
+		createBillingPortalMock.mockResolvedValueOnce({ url: "#receipts" });
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		expect(
+			await screen.findByText(/first-class for life/i)
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /manage subscription/i })
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /go first-class/i })
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByText(/make it lifetime/i)
+		).not.toBeInTheDocument();
+
+		const receipts = screen.getByRole("button", {
+			name: /receipts & invoices/i
+		});
+		await user.click(receipts);
+		expect(createBillingPortalMock).toHaveBeenCalledWith("tok");
+		await waitFor(() => expect(window.location.hash).toBe("#receipts"));
+	});
+
+	it("hides the receipts button for lifetime owners without billing history", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "pro",
+			hasBillingHistory: false,
+			plan: "lifetime",
+			limits: TIERS.pro,
+			usage: { createdToday: 2, apiKeys: 1, resetAt: null }
+		});
+		render(<AccountPanel />);
+
+		expect(
+			await screen.findByText(/first-class for life/i)
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /receipts & invoices/i })
+		).not.toBeInTheDocument();
+	});
+
+	it("never renders yearly cadence copy in any account state", async () => {
+		for (const me of [
+			{
+				user_id: "u",
+				tier: "free" as const,
+				hasBillingHistory: false,
+				plan: null,
+				limits: TIERS.free,
+				usage: { createdToday: 1, apiKeys: 0, resetAt: null }
+			},
+			{
+				user_id: "u",
+				tier: "pro" as const,
+				hasBillingHistory: true,
+				plan: "monthly" as const,
+				limits: TIERS.pro,
+				usage: { createdToday: 1, apiKeys: 0, resetAt: null }
+			},
+			{
+				user_id: "u",
+				tier: "pro" as const,
+				hasBillingHistory: true,
+				plan: "lifetime" as const,
+				limits: TIERS.pro,
+				usage: { createdToday: 1, apiKeys: 0, resetAt: null }
+			}
+		]) {
+			getMeMock.mockResolvedValueOnce(me);
+			const { container, unmount } = render(<AccountPanel />);
+			await screen.findByText(/current plan/i);
+			expect(container.textContent).not.toMatch(/yearly/i);
+			expect(container.textContent).not.toMatch(/\/yr/);
+			unmount();
+		}
 	});
 
 	it("offers the billing portal to a lapsed free user", async () => {
@@ -221,6 +376,7 @@ describe("AccountPanel", () => {
 			user_id: "user_lapsed",
 			tier: "free",
 			hasBillingHistory: true,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 0, apiKeys: 0, resetAt: null }
 		});
@@ -245,6 +401,7 @@ describe("AccountPanel", () => {
 				user_id: "user_upgrade",
 				tier: "free",
 				hasBillingHistory: true,
+				plan: null,
 				limits: TIERS.free,
 				usage: { createdToday: 0, apiKeys: 0, resetAt: null }
 			})
@@ -252,6 +409,7 @@ describe("AccountPanel", () => {
 				user_id: "user_upgrade",
 				tier: "pro",
 				hasBillingHistory: true,
+				plan: "monthly",
 				limits: TIERS.pro,
 				usage: { createdToday: 0, apiKeys: 0, resetAt: null }
 			});
@@ -285,6 +443,7 @@ describe("AccountPanel", () => {
 			user_id: "user_slow_upgrade",
 			tier: "free",
 			hasBillingHistory: true,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 0, apiKeys: 0, resetAt: null }
 		});
@@ -315,6 +474,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 0, resetAt: null }
 		});
@@ -340,6 +500,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 14, apiKeys: 1, resetAt }
 		});
@@ -357,6 +518,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: { createdToday: 0, apiKeys: 1, resetAt: null }
 		});
@@ -376,6 +538,7 @@ describe("AccountPanel", () => {
 			user_id: "user_1",
 			tier: "free",
 			hasBillingHistory: false,
+			plan: null,
 			limits: TIERS.free,
 			usage: {
 				createdToday: TIERS.free.createPerDay,
