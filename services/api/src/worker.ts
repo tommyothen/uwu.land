@@ -59,7 +59,7 @@ export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> 
 	);
 
 	app.post("/webhooks/clerk", (c) => clerkWebhook(c, options));
-	app.post("/webhooks/stripe", (c) => stripeWebhook(c));
+	app.post("/webhooks/stripe", (c) => stripeWebhook(c, options));
 	app.get("/", (c) => c.redirect("https://app.uwu.land", 302));
 	app.post("/api/v1/links", (c) => createLink(c, options));
 	app.get("/api/v1/links", (c) => listLinks(c, options));

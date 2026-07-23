@@ -1,15 +1,19 @@
 import type { Context } from "hono";
 import {
+	configuredLifetimePriceIds,
 	configuredPriceIds,
-	ENTITLING_STATUS_SQL
+	ENTITLING_STATUS_SQL,
+	TERMINAL_STATUS_SQL
 } from "./billing-shared";
 import { bufferToHex } from "./crypto-utils";
 import { isDeletedUser } from "./deletion";
 import { isRecord, readJson } from "./request-utils";
 import { cancelStripeSubscription } from "./stripe-cancel";
+import { refundStripePaymentIntent } from "./stripe-refund";
 import type { Env } from "./worker";
 
 const RELEVANT_EVENT_TYPES = new Set([
+	"checkout.session.completed",
 	"customer.subscription.created",
 	"customer.subscription.updated",
 	"customer.subscription.paused",
@@ -96,6 +100,11 @@ export async function stripeWebhook(
 		isRecord(rawEvent.data) && isRecord(rawEvent.data.object)
 			? rawEvent.data.object
 			: null;
+
+	if (rawEvent.type === "checkout.session.completed") {
+		return handleCheckoutSessionCompleted(c, rawEvent, object, options);
+	}
+
 	const parsed = parseSubscriptionEvent(rawEvent, object);
 	if (parsed === null) {
 		return c.text("Invalid webhook payload.", 400);
@@ -281,8 +290,6 @@ export async function applySubscriptionEvent(
 ): Promise<void> {
 	const nowMs = Date.now();
 	const nowSeconds = Math.floor(nowMs / 1000);
-	const [monthlyPriceId, yearlyPriceId] = configuredPriceIds(env);
-	const tierUpdateSql = `UPDATE users SET tier = CASE WHEN EXISTS (SELECT 1 FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL}) AND price_id IN (?, ?)) THEN 'pro' ELSE 'free' END WHERE id = ?`;
 	const statements = [
 		db
 			.prepare(
@@ -318,21 +325,234 @@ export async function applySubscriptionEvent(
 				event.eventId,
 				event.userId
 			),
-		db
-			.prepare(tierUpdateSql)
-			.bind(
-				event.userId,
-				monthlyPriceId,
-				yearlyPriceId,
-				event.userId
-			)
+		tierRecomputeStatement(db, env, event.userId)
 	];
 	if (oldUserId !== undefined && oldUserId !== event.userId) {
-		statements.push(
-			db
-				.prepare(tierUpdateSql)
-				.bind(oldUserId, monthlyPriceId, yearlyPriceId, oldUserId)
-		);
+		statements.push(tierRecomputeStatement(db, env, oldUserId));
 	}
 	await db.batch(statements);
+}
+
+// Recomputes a single user's tier from D1, the source of truth: `pro` iff an
+// entitling subscription on a configured price OR a paid lifetime purchase on
+// a configured lifetime price exists. Shared by the subscription and lifetime
+// write paths so both notions of entitlement stay in one place.
+function tierRecomputeStatement(
+	db: D1Database,
+	env: Env,
+	userId: string
+): D1PreparedStatement {
+	const [monthlyPriceId, yearlyPriceId] = configuredPriceIds(env);
+	const [lifetimePriceId, lifetimeLaunchPriceId] =
+		configuredLifetimePriceIds(env);
+	return db
+		.prepare(
+			`UPDATE users SET tier = CASE WHEN EXISTS (SELECT 1 FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL}) AND price_id IN (?, ?)) OR EXISTS (SELECT 1 FROM stripe_lifetime_purchases WHERE user_id = ? AND status = 'paid' AND price_id IN (?, ?)) THEN 'pro' ELSE 'free' END WHERE id = ?`
+		)
+		.bind(
+			userId,
+			monthlyPriceId,
+			yearlyPriceId,
+			userId,
+			lifetimePriceId,
+			lifetimeLaunchPriceId,
+			userId
+		);
+}
+
+// Records a webhook event so redelivery of the same event id stays a no-op.
+// Used by the lifetime handler's "not ours / unattributable / refunded"
+// acknowledgements. The subscription path inlines its own equivalent.
+async function recordWebhookEvent(
+	db: D1Database,
+	eventId: string,
+	eventTimestamp: number
+): Promise<void> {
+	await db
+		.prepare(
+			"INSERT INTO stripe_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
+		)
+		.bind(eventId, eventTimestamp, Date.now())
+		.run();
+}
+
+// The write half of a completed Checkout session. Only lifetime payments we
+// actually sell (mode=payment, paid, on a configured lifetime price) become a
+// stripe_lifetime_purchases row; everything else is acknowledged so Stripe
+// stops redelivering. Subscription checkouts are ignored here — they arrive as
+// customer.subscription.* events.
+async function handleCheckoutSessionCompleted(
+	c: Context<{ Bindings: Env }>,
+	rawEvent: Record<string, unknown>,
+	object: Record<string, unknown> | null,
+	options: StripeWebhookOptions
+): Promise<Response> {
+	// rawEvent.id and rawEvent.type were validated by the caller.
+	const eventId = rawEvent.id as string;
+	if (
+		object === null ||
+		typeof rawEvent.created !== "number" ||
+		!Number.isSafeInteger(rawEvent.created) ||
+		typeof object.id !== "string" ||
+		object.id.length === 0
+	) {
+		return c.text("Invalid webhook payload.", 400);
+	}
+	const eventTimestamp = rawEvent.created;
+	const sessionId = object.id;
+	const mode = typeof object.mode === "string" ? object.mode : undefined;
+	const paymentStatus =
+		typeof object.payment_status === "string"
+			? object.payment_status
+			: undefined;
+	const customer =
+		typeof object.customer === "string" && object.customer.length > 0
+			? object.customer
+			: undefined;
+	const paymentIntent =
+		typeof object.payment_intent === "string" &&
+		object.payment_intent.length > 0
+			? object.payment_intent
+			: undefined;
+	const metadata = isRecord(object.metadata) ? object.metadata : null;
+	const metadataUserId =
+		typeof metadata?.userId === "string" && metadata.userId.length > 0
+			? metadata.userId
+			: undefined;
+	const priceId =
+		typeof metadata?.priceId === "string" && metadata.priceId.length > 0
+			? metadata.priceId
+			: undefined;
+	const clientReferenceId =
+		typeof object.client_reference_id === "string" &&
+		object.client_reference_id.length > 0
+			? object.client_reference_id
+			: undefined;
+
+	// Not a lifetime purchase we sell. Subscription-mode checkouts and anything
+	// unpaid or on an unrecognised price are acknowledged, not stored.
+	if (
+		mode !== "payment" ||
+		paymentStatus !== "paid" ||
+		priceId === undefined ||
+		!configuredLifetimePriceIds(c.env).includes(priceId)
+	) {
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	// Attribution: explicit metadata, then the client reference, then the
+	// customer mapping we recorded at an earlier checkout.
+	let userId = metadataUserId ?? clientReferenceId;
+	if (userId === undefined && customer !== undefined) {
+		const mapping = await c.env.DB.prepare(
+			"SELECT user_id FROM stripe_customers WHERE customer_id = ?"
+		)
+			.bind(customer)
+			.first<{ user_id: string }>();
+		userId = mapping?.user_id;
+	}
+	if (userId === undefined) {
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	// A lifetime payment always carries a payment intent and customer; their
+	// absence means a malformed payload, not a business case.
+	if (paymentIntent === undefined || customer === undefined) {
+		return c.text("Invalid webhook payload.", 400);
+	}
+
+	if (await isDeletedUser(c.env.DB, userId)) {
+		// The account is gone but Checkout still took the money. Refund it and
+		// never entitle anyone. On refund failure fail closed with a 500 and do
+		// NOT record the event, so Stripe's retry re-runs this branch. A missing
+		// key can't be fixed by retrying forever, so log loudly and acknowledge
+		// instead (mirrors the subscription backstop above).
+		const stripeSecret = c.env.STRIPE_SECRET_KEY;
+		if (stripeSecret === undefined || stripeSecret.length === 0) {
+			console.error(
+				"deleted user's lifetime payment could not be refunded: STRIPE_SECRET_KEY unset",
+				{ paymentIntentId: paymentIntent }
+			);
+			await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+			return new Response(null, { status: 200 });
+		}
+		if (
+			(await refundStripePaymentIntent(
+				options.stripeFetch ?? fetch,
+				stripeSecret,
+				paymentIntent
+			)) === "failed"
+		) {
+			return c.text("Unable to refund Stripe payment.", 500);
+		}
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	// Upgrade path: a lifetime purchase supersedes any live subscription, so
+	// cancel every non-terminal one BEFORE recording anything. Recording the
+	// event first would neuter this fail-closed 500 — Stripe's retry would hit
+	// the replay check and 200 without re-attempting the cancel. Cancellation
+	// is idempotent, so the retry safely re-runs it.
+	const liveSubscriptions = await c.env.DB.prepare(
+		`SELECT id FROM stripe_subscriptions WHERE user_id = ? AND status NOT IN (${TERMINAL_STATUS_SQL})`
+	)
+		.bind(userId)
+		.all<{ id: string }>();
+	if (liveSubscriptions.results.length > 0) {
+		const stripeSecret = c.env.STRIPE_SECRET_KEY;
+		if (stripeSecret === undefined || stripeSecret.length === 0) {
+			// Don't block entitlement on our own config gap; log so we can
+			// reconcile the stray subscription out of band.
+			console.error(
+				"lifetime upgrade could not cancel live subscriptions: STRIPE_SECRET_KEY unset",
+				{ userId }
+			);
+		} else {
+			for (const { id } of liveSubscriptions.results) {
+				if (
+					(await cancelStripeSubscription(
+						options.stripeFetch ?? fetch,
+						stripeSecret,
+						id
+					)) === "failed"
+				) {
+					return c.text("Unable to cancel Stripe subscription.", 500);
+				}
+			}
+		}
+	}
+
+	const nowMs = Date.now();
+	const nowSeconds = Math.floor(nowMs / 1000);
+	// Single batch, guarded like applySubscriptionEvent: a deletion committing
+	// after the isDeletedUser fast path must not resurrect any row, so the
+	// deleted_users guard is folded into every write.
+	await c.env.DB.batch([
+		c.env.DB.prepare(
+			"INSERT INTO stripe_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
+		).bind(eventId, eventTimestamp, nowMs),
+		c.env.DB.prepare(
+			"INSERT INTO users (id, tier, created_at) SELECT ?, 'free', ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"
+		).bind(userId, nowSeconds, userId),
+		c.env.DB.prepare(
+			"INSERT INTO stripe_customers (user_id, customer_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (user_id) DO NOTHING"
+		).bind(userId, customer, nowSeconds, userId),
+		c.env.DB.prepare(
+			"INSERT INTO stripe_lifetime_purchases (id, payment_intent_id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, 'paid', ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"
+		).bind(
+			sessionId,
+			paymentIntent,
+			customer,
+			priceId,
+			userId,
+			eventTimestamp,
+			eventId,
+			userId
+		),
+		tierRecomputeStatement(c.env.DB, c.env, userId)
+	]);
+	return new Response(null, { status: 200 });
 }
