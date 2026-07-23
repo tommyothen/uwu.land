@@ -43,6 +43,8 @@ export interface WorkerOptions {
 	auth?: AuthOptions;
 	createPerDayLimit?: number;
 	stripeFetch?: typeof fetch;
+	/** Test seam for the launch offer; production follows the shared constant. */
+	launchOffer?: boolean;
 }
 
 export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> {

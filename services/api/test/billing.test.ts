@@ -3,6 +3,7 @@ import {
 	apiKeys,
 	deletedUsers,
 	stripeCustomers,
+	stripeLifetimePurchases,
 	stripeSubscriptions,
 	stripeWebhookEvents,
 	users
@@ -151,7 +152,7 @@ describe("Stripe billing routes", () => {
 		);
 
 		const response = await workerFetch(
-			billingRequest("/checkout", jwt, { cadence: "yearly" }),
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
 			stripeFetch
 		);
 
@@ -179,7 +180,7 @@ describe("Stripe billing routes", () => {
 		const stripeFetch = vi.fn<typeof fetch>();
 
 		const response = await workerFetch(
-			billingRequest("/checkout", jwt, { cadence: "yearly" }),
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
 			stripeFetch
 		);
 
@@ -287,6 +288,168 @@ describe("Stripe billing routes", () => {
 		expect(stripeFetch).not.toHaveBeenCalled();
 	});
 
+	it("creates a payment-mode session at the launch price for lifetime", async () => {
+		const stripeFetch = checkoutStripeFetch();
+
+		const response = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "lifetime" }),
+			stripeFetch
+		);
+
+		expect(response.status).toBe(200);
+		const [url, init] = stripeFetch.mock.calls[1] ?? [];
+		expect(url).toBe("https://api.stripe.com/v1/checkout/sessions");
+		const body = new URLSearchParams(String(init?.body));
+		expect(body.get("mode")).toBe("payment");
+		expect(body.get("line_items[0][price]")).toBe(
+			env.STRIPE_PRICE_ID_LIFETIME_LAUNCH
+		);
+		expect(body.get("metadata[userId]")).toBe("user_billing");
+		expect(body.get("metadata[priceId]")).toBe(
+			env.STRIPE_PRICE_ID_LIFETIME_LAUNCH
+		);
+		expect(body.get("payment_intent_data[metadata][userId]")).toBe(
+			"user_billing"
+		);
+		expect(body.get("automatic_tax[enabled]")).toBe("true");
+		expect(body.get("discounts[0][coupon]")).toBe(null);
+	});
+
+	it("applies the forever launch coupon to monthly checkout", async () => {
+		const stripeFetch = checkoutStripeFetch();
+
+		const response = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			stripeFetch
+		);
+
+		expect(response.status).toBe(200);
+		const [, init] = stripeFetch.mock.calls[1] ?? [];
+		const body = new URLSearchParams(String(init?.body));
+		expect(body.get("mode")).toBe("subscription");
+		expect(body.get("discounts[0][coupon]")).toBe(
+			env.STRIPE_LAUNCH_COUPON_ID
+		);
+		expect(body.get("automatic_tax[enabled]")).toBe("true");
+	});
+
+	it("rejects the retired yearly cadence", async () => {
+		const stripeFetch = vi.fn<typeof fetch>();
+
+		const response = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "yearly" }),
+			stripeFetch
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toMatchObject({
+			code: "invalid_body"
+		});
+		expect(stripeFetch).not.toHaveBeenCalled();
+	});
+
+	it("blocks all checkout once a lifetime purchase is paid", async () => {
+		await seedLifetimePurchase("paid", env.STRIPE_PRICE_ID_LIFETIME);
+
+		for (const cadence of ["monthly", "lifetime"] as const) {
+			const stripeFetch = vi.fn<typeof fetch>();
+			const response = await workerFetch(
+				billingRequest("/checkout", jwt, { cadence }),
+				stripeFetch
+			);
+
+			expect(response.status).toBe(409);
+			await expect(response.json()).resolves.toMatchObject({
+				code: "already_subscribed"
+			});
+			expect(stripeFetch).not.toHaveBeenCalled();
+		}
+	});
+
+	it("ignores a refunded lifetime purchase when checking out", async () => {
+		await seedLifetimePurchase("refunded", env.STRIPE_PRICE_ID_LIFETIME);
+
+		for (const cadence of ["monthly", "lifetime"] as const) {
+			const stripeFetch = checkoutStripeFetch();
+			const response = await workerFetch(
+				billingRequest("/checkout", jwt, { cadence }),
+				stripeFetch
+			);
+
+			expect(response.status).toBe(200);
+		}
+	});
+
+	it("blocks monthly but allows a lifetime upgrade for a monthly subscriber", async () => {
+		await seedSubscription(env.STRIPE_PRICE_ID_MONTHLY);
+
+		const blocked = vi.fn<typeof fetch>();
+		const monthlyResponse = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			blocked
+		);
+		expect(monthlyResponse.status).toBe(409);
+		await expect(monthlyResponse.json()).resolves.toMatchObject({
+			code: "already_subscribed"
+		});
+		expect(blocked).not.toHaveBeenCalled();
+
+		const stripeFetch = checkoutStripeFetch();
+		const lifetimeResponse = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "lifetime" }),
+			stripeFetch
+		);
+		expect(lifetimeResponse.status).toBe(200);
+	});
+
+	it("blocks monthly but allows a lifetime upgrade for a yearly subscriber", async () => {
+		await seedSubscription(env.STRIPE_PRICE_ID_YEARLY);
+
+		const blocked = vi.fn<typeof fetch>();
+		const monthlyResponse = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			blocked
+		);
+		expect(monthlyResponse.status).toBe(409);
+		await expect(monthlyResponse.json()).resolves.toMatchObject({
+			code: "already_subscribed"
+		});
+		expect(blocked).not.toHaveBeenCalled();
+
+		const stripeFetch = checkoutStripeFetch();
+		const lifetimeResponse = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "lifetime" }),
+			stripeFetch
+		);
+		expect(lifetimeResponse.status).toBe(200);
+	});
+
+	it("uses the regular price and no coupon when the launch offer is off", async () => {
+		const lifetimeFetch = checkoutStripeFetch();
+		const lifetimeResponse = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "lifetime" }),
+			lifetimeFetch,
+			false
+		);
+		expect(lifetimeResponse.status).toBe(200);
+		const [, lifetimeInit] = lifetimeFetch.mock.calls[1] ?? [];
+		const lifetimeBody = new URLSearchParams(String(lifetimeInit?.body));
+		expect(lifetimeBody.get("line_items[0][price]")).toBe(
+			env.STRIPE_PRICE_ID_LIFETIME
+		);
+
+		const monthlyFetch = checkoutStripeFetch();
+		const monthlyResponse = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			monthlyFetch,
+			false
+		);
+		expect(monthlyResponse.status).toBe(200);
+		const [, monthlyInit] = monthlyFetch.mock.calls[1] ?? [];
+		const monthlyBody = new URLSearchParams(String(monthlyInit?.body));
+		expect(monthlyBody.get("discounts[0][coupon]")).toBe(null);
+	});
+
 	it("maps Stripe failures to a 502 without leaking the upstream body", async () => {
 		const stripeFetch = vi.fn<typeof fetch>(async () =>
 			Response.json(
@@ -302,7 +465,7 @@ describe("Stripe billing routes", () => {
 		);
 
 		const response = await workerFetch(
-			billingRequest("/checkout", jwt, { cadence: "yearly" }),
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
 			stripeFetch
 		);
 		const body = await response.json<{ code: string; message: string }>();
@@ -315,13 +478,69 @@ describe("Stripe billing routes", () => {
 
 async function workerFetch(
 	request: Request,
-	stripeFetch?: typeof fetch
+	stripeFetch?: typeof fetch,
+	launchOffer?: boolean
 ): Promise<Response> {
 	const worker = createWorker({
 		auth: { clerkIssuer: issuer, jwks },
-		stripeFetch
+		stripeFetch,
+		launchOffer
 	});
 	return (worker.fetch as TestFetch)(request, testEnv, createExecutionContext());
+}
+
+// A stripeFetch double that answers customer creation then session creation,
+// so mock.calls[1] is always the Checkout Session request.
+function checkoutStripeFetch(): ReturnType<typeof vi.fn<typeof fetch>> {
+	return vi.fn<typeof fetch>(async (input) =>
+		String(input).endsWith("/customers")
+			? Response.json({ id: "cus_checkout" })
+			: Response.json({ url: "https://checkout.stripe.com/c/pay_test" })
+	);
+}
+
+// stripe_lifetime_purchases has an FK on event_id, so a parent webhook-event
+// row must exist before the purchase row.
+async function seedLifetimePurchase(
+	status: "paid" | "refunded",
+	priceId: string
+): Promise<void> {
+	const db = drizzle(env.DB);
+	await db.insert(users).values({ id: "user_billing", tier: "pro" }).run();
+	await db.insert(stripeWebhookEvents)
+		.values({ id: `evt_lifetime_${status}`, eventTimestamp: 100 })
+		.run();
+	await db.insert(stripeLifetimePurchases)
+		.values({
+			id: `cs_lifetime_${status}`,
+			paymentIntentId: "pi_lifetime",
+			customerId: "cus_lifetime",
+			priceId,
+			userId: "user_billing",
+			status,
+			eventTimestamp: 100,
+			eventId: `evt_lifetime_${status}`
+		})
+		.run();
+}
+
+async function seedSubscription(priceId: string): Promise<void> {
+	const db = drizzle(env.DB);
+	await db.insert(users).values({ id: "user_billing", tier: "pro" }).run();
+	await db.insert(stripeWebhookEvents)
+		.values({ id: "evt_sub", eventTimestamp: 100 })
+		.run();
+	await db.insert(stripeSubscriptions)
+		.values({
+			id: "sub_active",
+			customerId: "cus_active",
+			priceId,
+			userId: "user_billing",
+			status: "active",
+			eventTimestamp: 100,
+			eventId: "evt_sub"
+		})
+		.run();
 }
 
 function billingRequest(path: string, token: string, body?: unknown): Request {

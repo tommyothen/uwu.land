@@ -13,6 +13,7 @@ export async function resetD1(db: D1Database): Promise<void> {
 		db.prepare("DELETE FROM api_keys"),
 		db.prepare("DELETE FROM links"),
 		db.prepare("DELETE FROM stripe_subscriptions"),
+		db.prepare("DELETE FROM stripe_lifetime_purchases"),
 		db.prepare("DELETE FROM stripe_customers"),
 		db.prepare("DELETE FROM stripe_webhook_events"),
 		db.prepare("DELETE FROM clerk_webhook_events"),

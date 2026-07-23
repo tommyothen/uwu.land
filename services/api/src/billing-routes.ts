@@ -3,10 +3,12 @@ import type {
 	BillingCheckoutResponse,
 	BillingPortalResponse
 } from "@uwu/shared";
+import { LAUNCH_OFFER } from "@uwu/shared";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { AuthOptions } from "./auth";
 import {
+	configuredLifetimePriceIds,
 	configuredPriceIds,
 	ENTITLING_STATUS_SQL
 } from "./billing-shared";
@@ -18,12 +20,14 @@ import type { Env } from "./worker";
 const ACCOUNT_URL = "https://app.uwu.land/dashboard/account";
 const STRIPE_API = "https://api.stripe.com/v1";
 const checkoutSchema = z.object({
-	cadence: z.enum(["monthly", "yearly"])
+	cadence: z.enum(["monthly", "lifetime"])
 }).strict() satisfies z.ZodType<BillingCheckoutRequest>;
 
 export interface BillingRouteOptions {
 	auth?: AuthOptions;
 	stripeFetch?: typeof fetch;
+	/** Test seam; production always follows the shared constant. */
+	launchOffer?: boolean;
 }
 
 export async function createBillingCheckout(
@@ -51,18 +55,39 @@ export async function createBillingCheckout(
 		return errorResponse(400, "invalid_body", "Invalid request body.");
 	}
 
+	const launchOffer = options.launchOffer ?? LAUNCH_OFFER;
 	const [monthlyPriceId, yearlyPriceId] = configuredPriceIds(c.env);
-	const subscription = await c.env.DB.prepare(
-		`SELECT 1 FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL}) AND price_id IN (?, ?) LIMIT 1`
+	const [lifetimePriceId, lifetimeLaunchPriceId] =
+		configuredLifetimePriceIds(c.env);
+
+	// A paid lifetime purchase is terminal: nothing further to buy.
+	const lifetime = await c.env.DB.prepare(
+		"SELECT 1 FROM stripe_lifetime_purchases WHERE user_id = ? AND status = 'paid' AND price_id IN (?, ?) LIMIT 1"
 	)
-		.bind(auth.userId, monthlyPriceId, yearlyPriceId)
+		.bind(auth.userId, lifetimePriceId, lifetimeLaunchPriceId)
 		.first();
-	if (subscription !== null) {
+	if (lifetime !== null) {
 		return errorResponse(
 			409,
 			"already_subscribed",
 			"This account is already First-Class."
 		);
+	}
+	// An active subscriber may still buy lifetime (the upgrade path); only a
+	// second subscription is blocked.
+	if (parsed.data.cadence === "monthly") {
+		const subscription = await c.env.DB.prepare(
+			`SELECT 1 FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL}) AND price_id IN (?, ?) LIMIT 1`
+		)
+			.bind(auth.userId, monthlyPriceId, yearlyPriceId)
+			.first();
+		if (subscription !== null) {
+			return errorResponse(
+				409,
+				"already_subscribed",
+				"This account is already First-Class."
+			);
+		}
 	}
 
 	const secret = c.env.STRIPE_SECRET_KEY;
@@ -80,18 +105,42 @@ export async function createBillingCheckout(
 		return stripeUnavailable();
 	}
 
-	const priceId =
-		parsed.data.cadence === "monthly" ? monthlyPriceId : yearlyPriceId;
-	const params = new URLSearchParams({
-		mode: "subscription",
-		customer: customerId,
-		"line_items[0][price]": priceId,
-		"line_items[0][quantity]": "1",
-		client_reference_id: auth.userId,
-		"subscription_data[metadata][userId]": auth.userId,
-		success_url: `${ACCOUNT_URL}?upgraded=1`,
-		cancel_url: ACCOUNT_URL
-	});
+	let params: URLSearchParams;
+	if (parsed.data.cadence === "monthly") {
+		params = new URLSearchParams({
+			mode: "subscription",
+			customer: customerId,
+			"line_items[0][price]": monthlyPriceId,
+			"line_items[0][quantity]": "1",
+			client_reference_id: auth.userId,
+			"subscription_data[metadata][userId]": auth.userId,
+			"automatic_tax[enabled]": "true",
+			success_url: `${ACCOUNT_URL}?upgraded=1`,
+			cancel_url: ACCOUNT_URL
+		});
+		if (launchOffer) {
+			// duration:forever coupon — launch subscribers renew at the
+			// discounted price for as long as they stay subscribed.
+			params.set("discounts[0][coupon]", c.env.STRIPE_LAUNCH_COUPON_ID);
+		}
+	} else {
+		const priceId = launchOffer ? lifetimeLaunchPriceId : lifetimePriceId;
+		params = new URLSearchParams({
+			mode: "payment",
+			customer: customerId,
+			"line_items[0][price]": priceId,
+			"line_items[0][quantity]": "1",
+			client_reference_id: auth.userId,
+			// The completed-session webhook has no line items; the price
+			// travels in metadata so the webhook can validate and record it.
+			"metadata[userId]": auth.userId,
+			"metadata[priceId]": priceId,
+			"payment_intent_data[metadata][userId]": auth.userId,
+			"automatic_tax[enabled]": "true",
+			success_url: `${ACCOUNT_URL}?upgraded=1`,
+			cancel_url: ACCOUNT_URL
+		});
+	}
 	const url = await createStripeSession(
 		stripeFetch,
 		`${STRIPE_API}/checkout/sessions`,
