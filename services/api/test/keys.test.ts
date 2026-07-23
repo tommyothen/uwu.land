@@ -3,7 +3,14 @@ import {
 	env,
 	waitOnExecutionContext
 } from "cloudflare:test";
-import { apiKeys, stripeCustomers, users } from "@uwu/db/schema";
+import {
+	apiKeys,
+	stripeCustomers,
+	stripeLifetimePurchases,
+	stripeSubscriptions,
+	stripeWebhookEvents,
+	users
+} from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -132,6 +139,46 @@ async function seedApiKey(secret = "uwu_seeded000000000000000000000"): Promise<s
 	return secret;
 }
 
+async function seedLifetimePurchase(
+	priceId: string,
+	userId = "user_session"
+): Promise<void> {
+	const db = drizzle(env.DB);
+	await db.insert(stripeWebhookEvents)
+		.values({ id: "evt_lifetime", eventTimestamp: 100 })
+		.run();
+	await db.insert(stripeLifetimePurchases)
+		.values({
+			id: "cs_lifetime",
+			paymentIntentId: "pi_lifetime",
+			customerId: "cus_lifetime",
+			priceId,
+			userId,
+			status: "paid",
+			eventTimestamp: 100,
+			eventId: "evt_lifetime"
+		})
+		.run();
+}
+
+async function seedSubscription(priceId: string): Promise<void> {
+	const db = drizzle(env.DB);
+	await db.insert(stripeWebhookEvents)
+		.values({ id: "evt_sub", eventTimestamp: 100 })
+		.run();
+	await db.insert(stripeSubscriptions)
+		.values({
+			id: "sub_active",
+			customerId: "cus_active",
+			priceId,
+			userId: "user_session",
+			status: "active",
+			eventTimestamp: 100,
+			eventId: "evt_sub"
+		})
+		.run();
+}
+
 describe("API key management", () => {
 	beforeEach(async () => {
 		await resetD1(env.DB);
@@ -242,6 +289,79 @@ describe("API key management", () => {
 		await expect(keyResponse.json()).resolves.toMatchObject({
 			hasBillingHistory: false
 		});
+	});
+
+	it("reports plan 'lifetime' when a paid lifetime purchase exists", async () => {
+		await seedLifetimePurchase(env.STRIPE_PRICE_ID_LIFETIME);
+		const { fetch, jwt } = await sessionFetch();
+
+		const response = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(response.json()).resolves.toMatchObject({ plan: "lifetime" });
+	});
+
+	it("reports plan 'monthly' for an entitling monthly subscription", async () => {
+		await seedSubscription(env.STRIPE_PRICE_ID_MONTHLY);
+		const { fetch, jwt } = await sessionFetch();
+
+		const response = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(response.json()).resolves.toMatchObject({ plan: "monthly" });
+	});
+
+	it("reports plan 'yearly' for an entitling yearly subscription", async () => {
+		await seedSubscription(env.STRIPE_PRICE_ID_YEARLY);
+		const { fetch, jwt } = await sessionFetch();
+
+		const response = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(response.json()).resolves.toMatchObject({ plan: "yearly" });
+	});
+
+	it("reports plan null when there is no billing", async () => {
+		const { fetch, jwt } = await sessionFetch();
+
+		const response = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(response.json()).resolves.toMatchObject({ plan: null });
+	});
+
+	it("prefers 'lifetime' over an entitling subscription", async () => {
+		await seedLifetimePurchase(env.STRIPE_PRICE_ID_LIFETIME);
+		await seedSubscription(env.STRIPE_PRICE_ID_MONTHLY);
+		const { fetch, jwt } = await sessionFetch();
+
+		const response = await fetch(
+			request("/api/v1/me", jwt),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(response.json()).resolves.toMatchObject({ plan: "lifetime" });
+	});
+
+	it("reports the plan for API-key principals too", async () => {
+		const secret = await seedApiKey();
+		await seedLifetimePurchase(env.STRIPE_PRICE_ID_LIFETIME, "user_key");
+		const { fetch } = await sessionFetch();
+
+		const response = await fetch(
+			request("/api/v1/me", secret),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(response.json()).resolves.toMatchObject({ plan: "lifetime" });
 	});
 
 	it("creates a key for a Clerk session and shows the secret only in the create response", async () => {

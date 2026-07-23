@@ -18,6 +18,11 @@ import {
 	resolveAuth
 } from "./auth";
 import { isBannedHostname } from "./banned";
+import {
+	configuredLifetimePriceIds,
+	configuredPriceIds,
+	ENTITLING_STATUS_SQL
+} from "./billing-shared";
 import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
 import { reconcileLink } from "./link-reconciliation";
@@ -309,26 +314,51 @@ export async function me(
 		return auth;
 	}
 	const limiter = createLimiter(c, auth, options.createPerDayLimit);
-	const [createUsage, activeApiKeys, billingCustomer] = await Promise.all([
-		limiter.usage(scopeKey(c, auth)),
-		drizzle(c.env.DB)
-			.select({ id: apiKeys.id })
-			.from(apiKeys)
-			.where(and(eq(apiKeys.userId, auth.userId), isNull(apiKeys.revokedAt)))
-			.all(),
-		auth.kind === "session"
-			? c.env.DB.prepare(
-					"SELECT 1 FROM stripe_customers WHERE user_id = ? LIMIT 1"
-				)
-					.bind(auth.userId)
-					.first()
-			: Promise.resolve(null)
-	]);
+	const [monthlyPriceId, yearlyPriceId] = configuredPriceIds(c.env);
+	const [lifetimePriceId, lifetimeLaunchPriceId] = configuredLifetimePriceIds(
+		c.env
+	);
+	const [createUsage, activeApiKeys, billingCustomer, lifetimeRow, subRow] =
+		await Promise.all([
+			limiter.usage(scopeKey(c, auth)),
+			drizzle(c.env.DB)
+				.select({ id: apiKeys.id })
+				.from(apiKeys)
+				.where(and(eq(apiKeys.userId, auth.userId), isNull(apiKeys.revokedAt)))
+				.all(),
+			auth.kind === "session"
+				? c.env.DB.prepare(
+						"SELECT 1 FROM stripe_customers WHERE user_id = ? LIMIT 1"
+					)
+						.bind(auth.userId)
+						.first()
+				: Promise.resolve(null),
+			c.env.DB.prepare(
+				"SELECT price_id FROM stripe_lifetime_purchases WHERE user_id = ? AND status = 'paid' AND price_id IN (?, ?) LIMIT 1"
+			)
+				.bind(auth.userId, lifetimePriceId, lifetimeLaunchPriceId)
+				.first(),
+			c.env.DB.prepare(
+				`SELECT price_id FROM stripe_subscriptions WHERE user_id = ? AND status IN (${ENTITLING_STATUS_SQL}) AND price_id IN (?, ?) LIMIT 1`
+			)
+				.bind(auth.userId, monthlyPriceId, yearlyPriceId)
+				.first<{ price_id: string }>()
+		]);
+
+	const plan =
+		lifetimeRow !== null
+			? ("lifetime" as const)
+			: subRow === null
+				? null
+				: subRow.price_id === yearlyPriceId
+					? ("yearly" as const)
+					: ("monthly" as const);
 
 	return Response.json({
 		user_id: auth.userId,
 		tier: auth.tier,
 		hasBillingHistory: billingCustomer !== null,
+		plan,
 		limits: {
 			...TIERS[auth.tier],
 			createPerDay: effectiveCreatePerDay(auth)
