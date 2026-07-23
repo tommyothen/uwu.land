@@ -9,6 +9,7 @@ import {
 	deletedUsers,
 	links,
 	stripeCustomers,
+	stripeLifetimePurchases,
 	stripeSubscriptions,
 	stripeWebhookEvents,
 	users
@@ -95,6 +96,12 @@ describe("schema", () => {
 			from: string;
 			table: string;
 		}>;
+		const lifetimeForeignKeys = sqlite.pragma(
+			"foreign_key_list('stripe_lifetime_purchases')"
+		) as Array<{
+			from: string;
+			table: string;
+		}>;
 
 		expect(indexes.map(({ name }) => name)).toEqual(
 			expect.arrayContaining([
@@ -102,6 +109,7 @@ describe("schema", () => {
 				"api_keys_key_hash_unique",
 				"stripe_customers_customer_unique",
 				"stripe_subscriptions_user_idx",
+				"stripe_lifetime_purchases_user_idx",
 				"links_owner_idx",
 				"links_owner_created_slug_idx",
 				"links_owner_external_ref_created_slug_idx"
@@ -118,6 +126,14 @@ describe("schema", () => {
 			])
 		);
 		expect(stripeForeignKeys).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					from: "event_id",
+					table: "stripe_webhook_events"
+				})
+			])
+		);
+		expect(lifetimeForeignKeys).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
 					from: "event_id",
@@ -247,6 +263,52 @@ describe("schema", () => {
 		expect(db.select().from(stripeCustomers).all()).toMatchObject([
 			{ userId: "user_123", customerId: "cus_123" }
 		]);
+	});
+
+	it("stores Stripe lifetime purchases keyed by checkout session id", () => {
+		const db = createDb();
+		db.insert(users).values({ id: "user_123" }).run();
+		db.insert(stripeWebhookEvents)
+			.values({ id: "evt_123", eventTimestamp: 1_700_000_000 })
+			.run();
+		db.insert(stripeLifetimePurchases)
+			.values({
+				id: "cs_123",
+				paymentIntentId: "pi_123",
+				customerId: "cus_123",
+				priceId: "price_lifetime",
+				userId: "user_123",
+				status: "paid",
+				eventTimestamp: 1_700_000_000,
+				eventId: "evt_123"
+			})
+			.run();
+
+		expect(db.select().from(stripeLifetimePurchases).all()).toMatchObject([
+			{
+				id: "cs_123",
+				paymentIntentId: "pi_123",
+				customerId: "cus_123",
+				priceId: "price_lifetime",
+				userId: "user_123",
+				status: "paid",
+				eventId: "evt_123"
+			}
+		]);
+		expect(() =>
+			db.insert(stripeLifetimePurchases)
+				.values({
+					id: "cs_orphan",
+					paymentIntentId: "pi_orphan",
+					customerId: "cus_orphan",
+					priceId: "price_lifetime",
+					userId: "user_123",
+					status: "paid",
+					eventTimestamp: 1_700_000_000,
+					eventId: "evt_missing"
+				})
+				.run()
+		).toThrow();
 	});
 
 	it("stores api keys with unique hashes and a user foreign key", () => {

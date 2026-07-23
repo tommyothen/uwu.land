@@ -87,6 +87,27 @@ export const stripeSubscriptions = sqliteTable(
 	(t) => [index("stripe_subscriptions_user_idx").on(t.userId)]
 );
 
+// One-time Lifetime First-Class purchases, written only by the Stripe
+// webhook on checkout.session.completed. A paid row entitles `pro` on its
+// own, independent of any subscription. status flips to `refunded` only via
+// manual support action today (no charge.refunded handler).
+export const stripeLifetimePurchases = sqliteTable(
+	"stripe_lifetime_purchases",
+	{
+		id: text("id").primaryKey(), // Checkout Session id (cs_...)
+		paymentIntentId: text("payment_intent_id").notNull(),
+		customerId: text("customer_id").notNull(),
+		priceId: text("price_id").notNull(),
+		userId: text("user_id").notNull(),
+		status: text("status", { enum: ["paid", "refunded"] }).notNull(),
+		eventTimestamp: integer("event_timestamp").notNull(),
+		eventId: text("event_id")
+			.notNull()
+			.references(() => stripeWebhookEvents.id)
+	},
+	(t) => [index("stripe_lifetime_purchases_user_idx").on(t.userId)]
+);
+
 export const apiKeys = sqliteTable("api_keys", {
 	id: text("id").primaryKey(),
 	userId: text("user_id")
