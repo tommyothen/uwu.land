@@ -9,6 +9,7 @@ import {
 	DELETION_RECORD_COPY,
 	emailIdentityHash,
 	fetchAllStripeInvoices,
+	fetchLifetimePurchases,
 	formatTimestamp,
 	isClerkUserId,
 	isStripeCustomerId,
@@ -142,6 +143,43 @@ test("fetchAllStripeInvoices stops on an empty page even if has_more lies", asyn
 	);
 
 	assert.deepEqual(invoices, []);
+});
+
+test("fetchLifetimePurchases returns only the subject's rows, timestamps formatted", () => {
+	// A two-user store; the fake fetcher honours the WHERE user_id the query
+	// builds, so a wrong clause would surface the wrong owner's purchase.
+	const store = [
+		{
+			id: "li_subject",
+			price_id: "price_lifetime",
+			status: "paid",
+			user_id: "user_subject",
+			event_timestamp: 1784073600
+		},
+		{
+			id: "li_other",
+			price_id: "price_lifetime",
+			status: "paid",
+			user_id: "user_other",
+			event_timestamp: 1700000000
+		}
+	];
+	const fetchRows = (sql) => {
+		const match = sql.match(/WHERE user_id = '([^']+)'/);
+		assert.notEqual(match, null, `no user_id filter in: ${sql}`);
+		return store.filter((row) => row.user_id === match[1]);
+	};
+
+	const purchases = fetchLifetimePurchases("user_subject", fetchRows);
+
+	assert.deepEqual(purchases, [
+		{
+			id: "li_subject",
+			price_id: "price_lifetime",
+			status: "paid",
+			purchased_at: "2026-07-15T00:00:00.000Z"
+		}
+	]);
 });
 
 test("billingIncompleteReasons flags exactly the unfetchable Stripe cases", () => {

@@ -210,6 +210,23 @@ export function billingIncompleteReasons(customerId, stripeKey) {
 	return [];
 }
 
+// Reads the subject's lifetime purchases and serialises them for export.
+// Mirrors the subscriptions fields (id, price_id, status) and adds the
+// purchase time, formatting event_timestamp (Stripe's event `created`, in
+// seconds) the same way every other timestamp in this export is handled.
+// fetchRows is injectable so the node-tests can exercise the WHERE clause.
+export function fetchLifetimePurchases(userId, fetchRows = d1Rows) {
+	const rows = fetchRows(
+		`SELECT id, price_id, status, event_timestamp FROM stripe_lifetime_purchases WHERE user_id = '${userId}'`
+	);
+	return rows.map((row) => ({
+		id: row.id,
+		price_id: row.price_id,
+		status: row.status,
+		purchased_at: formatTimestamp(row.event_timestamp)
+	}));
+}
+
 async function buildBilling(userId) {
 	const customers = d1Rows(
 		`SELECT customer_id, created_at FROM stripe_customers WHERE user_id = '${userId}'`
@@ -217,10 +234,12 @@ async function buildBilling(userId) {
 	const subscriptions = d1Rows(
 		`SELECT id, price_id, status FROM stripe_subscriptions WHERE user_id = '${userId}'`
 	);
+	const lifetimePurchases = fetchLifetimePurchases(userId);
 	const billing = {
 		customer_id: customers[0]?.customer_id ?? null,
 		customer_since: formatTimestamp(customers[0]?.created_at),
-		subscriptions
+		subscriptions,
+		lifetime_purchases: lifetimePurchases
 	};
 
 	const stripeKey = process.env.STRIPE_SECRET_KEY;
