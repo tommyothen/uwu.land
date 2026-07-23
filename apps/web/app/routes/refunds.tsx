@@ -12,7 +12,7 @@ export const meta: Route.MetaFunction = () => [
 
 export default function RefundsPage() {
 	return (
-		<LegalPage title="Refund & Cancellation Policy" lastUpdated="14 July 2026">
+		<LegalPage title="Refund & Cancellation Policy" lastUpdated="23 July 2026">
 			<P>
 				This policy covers First-Class, uwu.land's only paid tier. It forms part
 				of the <A href="/terms">Terms of Service</A>. If you never pay for
@@ -22,17 +22,22 @@ export default function RefundsPage() {
 
 			<H2 id="pricing">Pricing and billing</H2>
 			<P>
-				First-Class costs US$4 per month or US$36 per year, billed through Stripe
-				(cards, and PayPal via Stripe Checkout). Prices are in US dollars. Any
-				sales tax or VAT that applies is shown at checkout and added to that
-				price. Subscriptions renew automatically at the end of each billing
-				period until you cancel. We do not store your card details; see the{" "}
+				First-Class costs US$4 per month, or US$79 as a single lifetime purchase,
+				billed through Stripe (cards, and PayPal via Stripe Checkout). Prices are in
+				US dollars and include any VAT or sales tax that applies — the price you see
+				is the price you pay. Promotional launch pricing, when shown, is applied at
+				checkout; a discounted subscription keeps its discounted price for as long as
+				it stays active. Monthly subscriptions renew automatically until you cancel.
+				The lifetime purchase is a one-time payment and never renews. We do not store
+				your card details; see the{" "}
 				<A href="/privacy">Privacy Policy</A> for how payment data is handled.
 			</P>
 
-			<H2 id="cancelling">Cancelling</H2>
+			<H2 id="cancelling">Cancelling a subscription</H2>
 			<P>
-				Cancel anytime from the account dashboard at app.uwu.land, which opens
+				This applies to monthly subscriptions; a lifetime purchase has nothing to
+				cancel or renew. Cancel anytime from the account dashboard at app.uwu.land,
+				which opens
 				the Stripe Billing Portal. Cancelling there takes effect at the end of
 				the period you have already paid for: you keep First-Class until then,
 				and you are not charged again. Note that closing your whole account is
@@ -52,6 +57,12 @@ export default function RefundsPage() {
 				<A href="mailto:support@uwu.land">support@uwu.land</A> to cancel this way.
 				Nothing here removes your statutory rights, and we will always honour
 				them.
+			</P>
+			<P>
+				The same 14-day right applies to the lifetime purchase. It gives you access
+				straight away, so by buying it you ask us to start the service during that
+				period. If you cancel within the 14 days, we refund what you paid in full,
+				less a proportionate amount for any use where that applies.
 			</P>
 
 			<H2 id="when-we-refund">When we do refund</H2>

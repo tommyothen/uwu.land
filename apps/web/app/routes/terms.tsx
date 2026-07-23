@@ -12,7 +12,7 @@ export const meta: Route.MetaFunction = () => [
 
 export default function TermsPage() {
 	return (
-		<LegalPage title="Terms of Service" lastUpdated="14 July 2026">
+		<LegalPage title="Terms of Service" lastUpdated="23 July 2026">
 			<P>
 				These terms are the agreement between you and Tommy Othen, the individual
 				who operates uwu.land ("we" and "us"). They apply when you create or
@@ -65,8 +65,9 @@ export default function TermsPage() {
 
 			<H2 id="billing">Paid tier and billing</H2>
 			<P>
-				First-Class costs US$4 per month or US$36 per year, billed through Stripe,
-				and renews automatically until cancelled. Billing, cancellation, and
+				First-Class costs US$4 per month, or US$79 as a one-time lifetime
+				purchase, billed through Stripe; the monthly plan renews automatically until
+				cancelled, and the lifetime purchase never renews. Billing, cancellation, and
 				refunds are covered by the{" "}
 				<A href="/refunds">Refund &amp; Cancellation Policy</A>, which is part of
 				these terms. The free and anonymous tiers are free to use, and we intend
