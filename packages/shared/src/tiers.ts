@@ -38,5 +38,9 @@ export function limitsFor(tier: TierKey): (typeof TIERS)[TierKey] {
 // coupon; nothing else changes.
 export const LAUNCH_OFFER = true;
 export const LAUNCH_DISCOUNT_PCT = 25;
+// How many customers the offer is limited to. Advertised in the UI; the
+// monthly coupon can enforce it in Stripe via max_redemptions, the lifetime
+// launch price is retired by flipping LAUNCH_OFFER.
+export const LAUNCH_LIMIT = 1000;
 // Explicit sticker prices, not computed, so they stay exact ($59 is 25.3% off).
 export const LAUNCH_PRICES = { monthly: 3, lifetime: 59 } as const;

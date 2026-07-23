@@ -98,8 +98,13 @@ describe("AccountPanel", () => {
 		});
 		render(<AccountPanel />);
 
-		// Launch badge advertising the discount.
-		expect(await screen.findByText(/25% off/i)).toBeInTheDocument();
+		// Launch badges advertising the discount, on both checkout cards.
+		expect(await screen.findAllByText("Launch offer · 25% off")).toHaveLength(
+			2
+		);
+
+		// The offer's first-1,000 condition is stated.
+		expect(screen.getByText(/first 1,000 customers/i)).toBeInTheDocument();
 
 		// Regular prices survive as struck-through references.
 		const struck = document.querySelectorAll("s");

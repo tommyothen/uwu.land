@@ -3,6 +3,7 @@
 import { useAuth } from "@clerk/react-router";
 import {
 	LAUNCH_DISCOUNT_PCT,
+	LAUNCH_LIMIT,
 	LAUNCH_OFFER,
 	LAUNCH_PRICES,
 	type MeResponse,
@@ -133,6 +134,15 @@ function UsageMeter({
 	);
 }
 
+// The launch-offer pill shown on both checkout cards while the offer runs.
+function LaunchBadge() {
+	return (
+		<span className="rounded-full border border-foreground px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-foreground">
+			Launch offer · {LAUNCH_DISCOUNT_PCT}% off
+		</span>
+	);
+}
+
 // The featured lifetime checkout card. Reused for a free user's upgrade grid
 // and for a subscriber's "make it lifetime" affordance.
 function LifetimeUpgradeCard({
@@ -156,11 +166,7 @@ function LifetimeUpgradeCard({
 			onClick={onClick}
 			className="press rounded-xl border border-foreground bg-card p-4 text-left shadow-[3px_3px_0_var(--shadow-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
 		>
-			{LAUNCH_OFFER ? (
-				<span className="rounded-full border border-foreground px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-foreground">
-					Launch offer · {LAUNCH_DISCOUNT_PCT}% off
-				</span>
-			) : null}
+			{LAUNCH_OFFER ? <LaunchBadge /> : null}
 			<div
 				className={`flex items-baseline justify-between gap-2 ${
 					LAUNCH_OFFER ? "mt-3" : ""
@@ -309,6 +315,9 @@ export function AccountPanelView({
 					) : (
 						<>
 							<p className="mt-1 text-sm text-muted-foreground">
+								{LAUNCH_OFFER
+									? `The launch offer takes ${LAUNCH_DISCOUNT_PCT}% off for the first ${LAUNCH_LIMIT.toLocaleString("en-US")} customers. `
+									: ""}
 								Checkout is handled securely by Stripe and accepts cards, PayPal,
 								Apple Pay, and Google Pay. Your new limits apply when payment clears.
 							</p>
@@ -320,7 +329,12 @@ export function AccountPanelView({
 									onClick={() => onCheckout("monthly")}
 									className="press rounded-xl border border-border bg-card p-4 text-left shadow-[3px_3px_0_var(--shadow-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
 								>
-									<div className="flex items-baseline justify-between gap-2">
+									{LAUNCH_OFFER ? <LaunchBadge /> : null}
+									<div
+										className={`flex items-baseline justify-between gap-2 ${
+											LAUNCH_OFFER ? "mt-3" : ""
+										}`}
+									>
 										<span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
 											Monthly
 										</span>

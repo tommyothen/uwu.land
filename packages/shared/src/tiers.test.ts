@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	LAUNCH_DISCOUNT_PCT,
+	LAUNCH_LIMIT,
 	LAUNCH_OFFER,
 	LAUNCH_PRICES,
 	limitsFor,
@@ -37,6 +38,7 @@ describe("tier limits", () => {
 	it("declares the 25% launch offer with exact sticker prices", () => {
 		expect(LAUNCH_OFFER).toBe(true);
 		expect(LAUNCH_DISCOUNT_PCT).toBe(25);
+		expect(LAUNCH_LIMIT).toBe(1000);
 		expect(LAUNCH_PRICES.monthly).toBe(3);
 		expect(LAUNCH_PRICES.lifetime).toBe(59);
 	});
