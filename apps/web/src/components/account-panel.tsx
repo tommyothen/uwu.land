@@ -332,6 +332,7 @@ export function AccountPanelView({
 										<span className="font-display text-3xl font-semibold leading-none tabular-nums text-foreground">
 											${MONTHLY_STICKER}
 										</span>
+										<span className="text-sm text-muted-foreground">/mo</span>
 										{LAUNCH_OFFER ? (
 											<s className="text-base text-muted-foreground">
 												${TIERS.pro.priceUsdMonthly}
