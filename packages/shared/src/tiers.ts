@@ -24,7 +24,7 @@ export const TIERS = {
 		apiKeys: 10,
 		displayName: "First-Class",
 		priceUsdMonthly: 4,
-		priceUsdLifetime: 79
+		priceUsdLifetime: 40
 	}
 } as const satisfies Record<TierKey, TierLimits>;
 
@@ -42,5 +42,6 @@ export const LAUNCH_DISCOUNT_PCT = 25;
 // monthly coupon can enforce it in Stripe via max_redemptions, the lifetime
 // launch price is retired by flipping LAUNCH_OFFER.
 export const LAUNCH_LIMIT = 1000;
-// Explicit sticker prices, not computed, so they stay exact ($59 is 25.3% off).
-export const LAUNCH_PRICES = { monthly: 3, lifetime: 59 } as const;
+// Explicit sticker prices, not computed, so they stay exact. Both are
+// precisely 25% off, so the advertised discount is literally true.
+export const LAUNCH_PRICES = { monthly: 3, lifetime: 30 } as const;

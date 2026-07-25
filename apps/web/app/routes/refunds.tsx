@@ -22,7 +22,7 @@ export default function RefundsPage() {
 
 			<H2 id="pricing">Pricing and billing</H2>
 			<P>
-				First-Class costs US$4 per month, or US$79 as a single lifetime purchase,
+				First-Class costs US$4 per month, or US$40 as a single lifetime purchase,
 				billed through Stripe (cards, and PayPal via Stripe Checkout). Prices are in
 				US dollars and include any VAT or sales tax that applies: the price you see
 				is the price you pay. When we run a launch or promotional discount, checkout

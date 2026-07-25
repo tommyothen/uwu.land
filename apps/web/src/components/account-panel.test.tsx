@@ -80,7 +80,7 @@ describe("AccountPanel", () => {
 		render(<AccountPanel />);
 
 		expect(await screen.findByText("First-Class")).toBeInTheDocument();
-		expect(screen.getByText("$3/mo · $59 lifetime")).toBeInTheDocument();
+		expect(screen.getByText("$3/mo · $30 lifetime")).toBeInTheDocument();
 		expect(screen.queryByText("coming soon")).not.toBeInTheDocument();
 		expect(
 			screen.getByText(String(TIERS.pro.createPerDay))
@@ -110,11 +110,11 @@ describe("AccountPanel", () => {
 		const struck = document.querySelectorAll("s");
 		const struckText = Array.from(struck).map((el) => el.textContent);
 		expect(struckText).toContain("$4");
-		expect(struckText).toContain("$79");
+		expect(struckText).toContain("$40");
 
 		// Sticker prices are the launch prices.
 		expect(screen.getByText("$3")).toBeInTheDocument();
-		expect(screen.getByText("$59")).toBeInTheDocument();
+		expect(screen.getByText("$30")).toBeInTheDocument();
 
 		// Monthly loyalty copy and the lifetime card are both present.
 		expect(screen.getByText(/lock in/i)).toBeInTheDocument();
@@ -140,7 +140,7 @@ describe("AccountPanel", () => {
 			screen.getByRole("button", { name: "Go First-Class, $3 a month" })
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Go First-Class for life, $59 once" })
+			screen.getByRole("button", { name: "Go First-Class for life, $30 once" })
 		).toBeInTheDocument();
 		// Pro users' self-service surface must not appear for free users.
 		expect(
@@ -186,7 +186,7 @@ describe("AccountPanel", () => {
 
 		await user.click(
 			await screen.findByRole("button", {
-				name: "Go First-Class for life, $59 once"
+				name: "Go First-Class for life, $30 once"
 			})
 		);
 
@@ -213,7 +213,7 @@ describe("AccountPanel", () => {
 		render(<AccountPanel />);
 
 		const lifetime = await screen.findByRole("button", {
-			name: "Go First-Class for life, $59 once"
+			name: "Go First-Class for life, $30 once"
 		});
 		await user.click(lifetime);
 

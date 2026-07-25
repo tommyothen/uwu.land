@@ -65,7 +65,7 @@ export default function TermsPage() {
 
 			<H2 id="billing">Paid tier and billing</H2>
 			<P>
-				First-Class costs US$4 per month, or US$79 as a one-time lifetime
+				First-Class costs US$4 per month, or US$40 as a one-time lifetime
 				purchase, billed through Stripe; the monthly plan renews automatically until
 				cancelled, and the lifetime purchase never renews. Billing, cancellation, and
 				refunds are covered by the{" "}

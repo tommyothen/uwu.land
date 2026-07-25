@@ -111,8 +111,8 @@ Wrangler secrets.
 | --- | --- |
 | `STRIPE_PRICE_ID_MONTHLY` | Recurring monthly Price, $4. |
 | `STRIPE_PRICE_ID_YEARLY` | Retired yearly Price. Kept so grandfathered subscribers still resolve to `pro`; never offered at checkout. |
-| `STRIPE_PRICE_ID_LIFETIME` | One-time Price, $79. |
-| `STRIPE_PRICE_ID_LIFETIME_LAUNCH` | One-time Price, $59. Used instead of the above while `LAUNCH_OFFER` is true. |
+| `STRIPE_PRICE_ID_LIFETIME` | One-time Price, $40. |
+| `STRIPE_PRICE_ID_LIFETIME_LAUNCH` | One-time Price, $30. Used instead of the above while `LAUNCH_OFFER` is true. |
 | `STRIPE_LAUNCH_COUPON_ID` | 25% off, `duration: forever`, applied to monthly checkouts while `LAUNCH_OFFER` is true. Set `max_redemptions` to `LAUNCH_LIMIT` so Stripe enforces the advertised cap. |
 
 The webhook endpoint must subscribe to all of these. The failures are silent:

@@ -25,13 +25,13 @@ describe("tier limits", () => {
 			apiKeys: 10,
 			displayName: "First-Class",
 			priceUsdMonthly: 4,
-			priceUsdLifetime: 79
+			priceUsdLifetime: 40
 		});
 	});
 
-	it("prices First-Class at $4 monthly and $79 lifetime", () => {
+	it("prices First-Class at $4 monthly and $40 lifetime", () => {
 		expect(TIERS.pro.priceUsdMonthly).toBe(4);
-		expect(TIERS.pro.priceUsdLifetime).toBe(79);
+		expect(TIERS.pro.priceUsdLifetime).toBe(40);
 		expect("priceUsdYearly" in TIERS.pro).toBe(false);
 	});
 
@@ -40,6 +40,6 @@ describe("tier limits", () => {
 		expect(LAUNCH_DISCOUNT_PCT).toBe(25);
 		expect(LAUNCH_LIMIT).toBe(1000);
 		expect(LAUNCH_PRICES.monthly).toBe(3);
-		expect(LAUNCH_PRICES.lifetime).toBe(59);
+		expect(LAUNCH_PRICES.lifetime).toBe(30);
 	});
 });
