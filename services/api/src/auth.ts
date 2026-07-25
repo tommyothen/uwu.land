@@ -156,7 +156,8 @@ async function resolveClerkSession(
 	try {
 		payload = await verifyJwt(token, {
 			key,
-			headerType: "JWT"
+			headerType: "JWT",
+			authorizedParties: authorizedParties(env.CLERK_AUTHORIZED_PARTIES)
 		});
 	} catch {
 		throw new AuthError();
@@ -200,6 +201,23 @@ async function resolveClerkSession(
 		tier: user.tier,
 		userId: user.id
 	};
+}
+
+/**
+ * Origins allowed in a session token's `azp` claim, from the comma-separated
+ * CLERK_AUTHORIZED_PARTIES var. An empty or absent value returns undefined,
+ * which makes Clerk skip the claim entirely — deliberate, because the check is
+ * all-or-nothing: once the list is non-empty Clerk rejects any token whose azp
+ * is missing, and Clerk omits azp for tokens not minted from a browser origin.
+ * Failing open on an unset var keeps a deploy that forgot it from locking every
+ * session out. Fill the var in when a second app shares this Clerk instance.
+ */
+function authorizedParties(configured: string | undefined): string[] | undefined {
+	const parties = (configured ?? "")
+		.split(",")
+		.map((party) => party.trim())
+		.filter((party) => party !== "");
+	return parties.length === 0 ? undefined : parties;
 }
 
 function bearerToken(request: Request): string | null {

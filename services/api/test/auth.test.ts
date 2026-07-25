@@ -56,6 +56,13 @@ async function seedApiKey({
 	return { id, userId, secret };
 }
 
+function withAuthorizedParties(value: string): Env {
+	return {
+		...(env as Env),
+		CLERK_AUTHORIZED_PARTIES: value
+	} as unknown as Env;
+}
+
 function bearer(secret: string, url = "https://uwu.land/api/v1/me"): Request {
 	return new Request(url, {
 		headers: { authorization: `Bearer ${secret}` }
@@ -65,7 +72,8 @@ function bearer(secret: string, url = "https://uwu.land/api/v1/me"): Request {
 async function createJwt(
 	userId = "user_jwt",
 	iss = issuer,
-	kid = "test-key-1"
+	kid = "test-key-1",
+	azp?: string
 ): Promise<{
 	jwt: string;
 	jwks: TestJwks;
@@ -92,7 +100,8 @@ async function createJwt(
 		iat: now,
 		iss,
 		nbf: now - 5,
-		sub: userId
+		sub: userId,
+		...(azp === undefined ? {} : { azp })
 	};
 	const signingInput = `${base64UrlJson(header)}.${base64UrlJson(payload)}`;
 	const signature = await crypto.subtle.sign(
@@ -393,6 +402,56 @@ describe("auth middleware", () => {
 			)
 		).rejects.toThrow("Unauthorized");
 		expect(fetchCount).toBe(3);
+	});
+
+	it("accepts a session JWT whose azp is an authorized party", async () => {
+		const { jwt, jwks } = await createJwt(
+			"user_azp_ok",
+			issuer,
+			"test-key-1",
+			"https://app.uwu.land"
+		);
+
+		const auth = await resolveAuth(
+			bearer(jwt),
+			withAuthorizedParties("https://app.uwu.land,http://localhost:3000"),
+			createExecutionContext(),
+			{ clerkIssuer: issuer, jwks }
+		);
+
+		expect(auth).toMatchObject({ kind: "session", userId: "user_azp_ok" });
+	});
+
+	it("rejects a session JWT minted for a different authorized party", async () => {
+		const { jwt, jwks } = await createJwt(
+			"user_azp_other_app",
+			issuer,
+			"test-key-1",
+			"https://other-app.example"
+		);
+
+		await expect(
+			resolveAuth(
+				bearer(jwt),
+				withAuthorizedParties("https://app.uwu.land"),
+				createExecutionContext(),
+				{ clerkIssuer: issuer, jwks }
+			)
+		).rejects.toThrow("Unauthorized");
+		expect(await drizzle(env.DB).select().from(users).all()).toEqual([]);
+	});
+
+	it("skips the azp check when CLERK_AUTHORIZED_PARTIES is empty", async () => {
+		const { jwt, jwks } = await createJwt("user_azp_off");
+
+		const auth = await resolveAuth(
+			bearer(jwt),
+			withAuthorizedParties(""),
+			createExecutionContext(),
+			{ clerkIssuer: issuer, jwks }
+		);
+
+		expect(auth).toMatchObject({ kind: "session", userId: "user_azp_off" });
 	});
 
 	it("rejects invalid Clerk session JWTs with the error envelope", async () => {

@@ -31,6 +31,10 @@
   },
   // Set CLERK_WEBHOOK_SIGNING_SECRET, STRIPE_SECRET_KEY, and STRIPE_WEBHOOK_SECRET
   // with `wrangler secret put`; do not add them to vars.
+  // CORS_DEV_ORIGIN and CLERK_AUTHORIZED_PARTIES are deliberately absent: both
+  // are optional and inert when unset, which is the production default. See the
+  // Env type in src/worker.ts and "Optional environment vars" in
+  // docs/MAINTENANCE.md.
   "vars": {
     "CLERK_ISSUER": "https://clerk.uwu.land",
     // Live Stripe Price and coupon ids. YEARLY is retired from sale and kept

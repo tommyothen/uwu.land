@@ -32,10 +32,28 @@ import { stripeWebhook } from "./stripe-webhook";
 
 export { Enforcement } from "./enforcement";
 
+const DASHBOARD_ORIGINS: readonly string[] = ["https://app.uwu.land"];
+
+function corsOrigins(devOrigin: string | undefined): readonly string[] {
+	const extra = devOrigin?.trim() ?? "";
+	return extra === "" ? DASHBOARD_ORIGINS : [...DASHBOARD_ORIGINS, extra];
+}
+
 export type Env = Cloudflare.Env & {
 	CLERK_WEBHOOK_SIGNING_SECRET?: string;
 	STRIPE_WEBHOOK_SECRET?: string;
 	STRIPE_SECRET_KEY?: string;
+	/**
+	 * Extra browser origin allowed through CORS on /api/v1. Set to
+	 * `http://localhost:3000` in services/api/.dev.vars; absent in production,
+	 * which is what keeps the dev origin out of the deployed allowlist.
+	 */
+	CORS_DEV_ORIGIN?: string;
+	/**
+	 * Comma-separated allowlist for the `azp` claim on Clerk session tokens.
+	 * Unset (the default) skips the check. See authorizedParties in auth.ts.
+	 */
+	CLERK_AUTHORIZED_PARTIES?: string;
 };
 
 export interface WorkerOptions {
@@ -50,10 +68,17 @@ export interface WorkerOptions {
 export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> {
 	const app = new Hono<{ Bindings: Env }>();
 
+	// The dashboard origin is the only one hardcoded. The dev origin comes from
+	// CORS_DEV_ORIGIN, which lives in .dev.vars and is absent from
+	// wrangler.jsonc, so http://localhost:3000 never reaches production.
+	// Resolved per request because createApp() runs before env exists.
 	app.use(
 		"/api/v1/*",
 		cors({
-			origin: ["https://app.uwu.land", "http://localhost:3000"],
+			origin: (origin, c) =>
+				corsOrigins((c.env as Env).CORS_DEV_ORIGIN).includes(origin)
+					? origin
+					: null,
 			allowMethods: ["GET", "POST", "OPTIONS", "DELETE"]
 		})
 	);
