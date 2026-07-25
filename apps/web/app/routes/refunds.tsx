@@ -12,7 +12,7 @@ export const meta: Route.MetaFunction = () => [
 
 export default function RefundsPage() {
 	return (
-		<LegalPage title="Refund & Cancellation Policy" lastUpdated="23 July 2026">
+		<LegalPage title="Refund & Cancellation Policy" lastUpdated="25 July 2026">
 			<P>
 				This policy covers First-Class, uwu.land's only paid tier. It forms part
 				of the <A href="/terms">Terms of Service</A>. If you never pay for

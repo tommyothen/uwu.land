@@ -12,7 +12,7 @@ export const meta: Route.MetaFunction = () => [
 
 export default function TermsPage() {
 	return (
-		<LegalPage title="Terms of Service" lastUpdated="23 July 2026">
+		<LegalPage title="Terms of Service" lastUpdated="25 July 2026">
 			<P>
 				These terms are the agreement between you and Tommy Othen, the individual
 				who operates uwu.land ("we" and "us"). They apply when you create or
@@ -114,7 +114,9 @@ export default function TermsPage() {
 				reasons. Where a change is significant we will give reasonable notice if
 				we can. If we ever discontinue a paid feature you have already paid for,
 				we will let you keep it until the end of your paid period or give you a
-				proportionate refund.
+				proportionate refund. A lifetime purchase has no paid period, so if we
+				discontinue First-Class we will refund a fair part of what you paid,
+				taking into account how long you had it.
 			</P>
 
 			<H2 id="liability">Limitation of liability</H2>
@@ -128,8 +130,9 @@ export default function TermsPage() {
 				Subject to that, we are not liable for loss that was not reasonably
 				foreseeable or that did not arise from our breach, including indirect or
 				consequential loss, loss of profits, loss of data, or loss of business.
-				For paying subscribers, our total liability is capped at the amount you
-				paid in the 12 months before the claim arose. Where you use the service
+				For paying customers, our total liability is capped at the greater of what
+				you paid in the 12 months before the claim arose and what you paid for a
+				lifetime purchase. Where you use the service
 				as a business rather than a consumer, these limits apply so far as the law
 				allows.
 			</P>
