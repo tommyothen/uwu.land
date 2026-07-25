@@ -87,10 +87,11 @@ export async function syncBannedDomains(
 		return { added: 0, scanned: 0, refused: false };
 	}
 
-	const parsed = source
+	const candidateLines = source
 		.split("\n")
 		.map((line) => line.trim().toLowerCase())
-		.filter((line) => line !== "" && !line.startsWith("#"))
+		.filter((line) => line !== "" && !line.startsWith("#"));
+	const parsed = candidateLines
 		// The feed annotates entries (`domain - (Domain expires: YYYY-MM-DD)`);
 		// the domain itself is the first whitespace-separated token. Anything
 		// after it is metadata, not part of the hostname.
@@ -98,6 +99,19 @@ export async function syncBannedDomains(
 		.filter((domain) => DOMAIN_RE.test(domain))
 		.slice(0, MAX_DOMAINS);
 	if (parsed.length === 0) {
+		// Content in and nothing out means the feed's shape moved out from under
+		// the parser above, which is exactly how this sync sat dead for months
+		// while every run reported success. An empty or all-comment feed is a
+		// different thing and stays quiet, so this line only fires when there
+		// was something to read and we could not read it.
+		if (candidateLines.length > 0) {
+			console.error("Blocklist source published no parseable domains.", {
+				candidateLines: candidateLines.length,
+				// Enough to recognise the new shape, truncated because the sample
+				// is untrusted third-party text on its way into our logs.
+				sample: candidateLines.slice(0, 3).map((line) => line.slice(0, 120))
+			});
+		}
 		return { added: 0, scanned: 0, refused: false };
 	}
 

@@ -146,6 +146,47 @@ describe("banned-domain sync", () => {
 		expect(await env.UWU.get("banned:stopify.co")).toBe("auto");
 	});
 
+	it("alarms when a feed full of content parses to nothing", async () => {
+		// The root cause of the months-long dead sync: upstream changed format,
+		// every line stopped parsing, and the run returned success with zero
+		// adds. Content in, nothing out, is never routine.
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU },
+			sourceOf([
+				"2025-04-12 | location.cyou | expired",
+				"2025-04-12 | mymap.icu | expired"
+			])
+		);
+
+		expect(result).toEqual({ added: 0, scanned: 0, refused: false });
+		expect(consoleError).toHaveBeenCalledWith(
+			"Blocklist source published no parseable domains.",
+			expect.objectContaining({ candidateLines: 2 })
+		);
+		consoleError.mockRestore();
+	});
+
+	it("stays quiet when the feed legitimately carries no entries", async () => {
+		// An empty or all-comment feed is not a format break, and alarming on it
+		// would train whoever reads these logs to ignore the one that matters.
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU },
+			sourceOf(["# nothing to publish today", "", "   "])
+		);
+
+		expect(result).toEqual({ added: 0, scanned: 0, refused: false });
+		expect(consoleError).not.toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
 	it("takes only the first token, so an annotation cannot smuggle a ban", async () => {
 		// The security-relevant half of the annotation parsing: everything after
 		// the first whitespace-separated token is upstream prose, and a domain
