@@ -118,6 +118,55 @@ describe("Stripe subscription webhook", () => {
 		expect(response.status).toBe(400);
 	});
 
+	it("refuses an oversized declared body before reading or verifying it", async () => {
+		const request = await signedRequest(
+			payload("customer.subscription.created", "active", {
+				eventId: "evt_oversized",
+				userId: "user_oversized",
+				subscriptionId: "sub_oversized"
+			})
+		);
+		request.headers.set("content-length", String(4 * 1024 * 1024));
+
+		const response = await app.fetch(request, testEnv, createExecutionContext());
+
+		expect(response.status).toBe(413);
+		expect(await findWebhookEvent("evt_oversized")).toBeUndefined();
+		expect(await findTier("user_oversized")).toBeUndefined();
+	});
+
+	it("accepts a delivery that declares no content length", async () => {
+		// Fail open: a proxy that drops or mangles the header must not cost us a
+		// real Stripe event.
+		const request = await signedRequest(
+			payload("customer.subscription.created", "active", {
+				userId: "user_no_length",
+				subscriptionId: "sub_no_length"
+			})
+		);
+		request.headers.delete("content-length");
+
+		const response = await app.fetch(request, testEnv, createExecutionContext());
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_no_length")).toBe("pro");
+	});
+
+	it("accepts a delivery whose content length is unparseable", async () => {
+		const request = await signedRequest(
+			payload("customer.subscription.created", "active", {
+				userId: "user_bad_length",
+				subscriptionId: "sub_bad_length"
+			})
+		);
+		request.headers.set("content-length", "not-a-number");
+
+		const response = await app.fetch(request, testEnv, createExecutionContext());
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_bad_length")).toBe("pro");
+	});
+
 	it("rejects a stale signature timestamp", async () => {
 		const response = await sendWebhook(
 			payload("customer.subscription.created", "active"),
@@ -309,12 +358,119 @@ describe("Stripe subscription webhook", () => {
 	it("acknowledges a metadata-less unknown subscription without mutation", async () => {
 		const event = payload("customer.subscription.created", "active");
 		delete event.data.object.metadata.userId;
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
 
 		const response = await sendWebhook(event);
 
 		expect(response.status).toBe(200);
 		expect(await drizzle(env.DB).select().from(stripeWebhookEvents).all()).toEqual([]);
 		expect(await drizzle(env.DB).select().from(stripeSubscriptions).all()).toEqual([]);
+		// A paid subscription we cannot attribute to anyone is money taken for
+		// nothing; a silent 200 is exactly what hid the customer-fallback gap.
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
+	it("stays quiet for an unattributable cancellation", async () => {
+		const event = payload("customer.subscription.deleted", "canceled");
+		delete event.data.object.metadata.userId;
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		const response = await sendWebhook(event);
+
+		expect(response.status).toBe(200);
+		// Nothing was ever entitled, so nothing is owed. Only live subscription
+		// events are worth waking someone up for.
+		expect(consoleError).not.toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
+	it("entitles a known customer whose subscription carries no metadata", async () => {
+		// The Billing Portal, the Stripe dashboard and the API all create
+		// subscriptions without our `subscription_data[metadata][userId]`, and a
+		// re-subscribe after a cancellation has no surviving subscription row
+		// either. The customer mapping is the only link back to the buyer.
+		await drizzle(env.DB).insert(users).values({ id: "user_portal" }).run();
+		await drizzle(env.DB)
+			.insert(stripeCustomers)
+			.values({ userId: "user_portal", customerId: "cus_portal" })
+			.run();
+		const event = payload("customer.subscription.created", "active", {
+			subscriptionId: "sub_portal",
+			customerId: "cus_portal"
+		});
+		delete event.data.object.metadata.userId;
+
+		const response = await sendWebhook(event);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_portal")).toBe("pro");
+		expect((await findSubscription("sub_portal"))?.userId).toBe("user_portal");
+	});
+
+	it("prefers the tracked subscription owner over the customer mapping", async () => {
+		// Ownership moved (metadata said so on an earlier event) but the
+		// customer mapping still points at the original buyer. The row for THIS
+		// subscription is the more specific record, so it wins.
+		await drizzle(env.DB).insert(users).values({ id: "user_first" }).run();
+		await drizzle(env.DB).insert(users).values({ id: "user_second" }).run();
+		await drizzle(env.DB)
+			.insert(stripeCustomers)
+			.values({ userId: "user_first", customerId: "cus_shared" })
+			.run();
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_second",
+				subscriptionId: "sub_shared",
+				customerId: "cus_shared",
+				eventTimestamp: 100
+			})
+		);
+		const event = payload("customer.subscription.updated", "past_due", {
+			subscriptionId: "sub_shared",
+			customerId: "cus_shared",
+			eventTimestamp: 200
+		});
+		delete event.data.object.metadata.userId;
+
+		const response = await sendWebhook(event);
+
+		expect(response.status).toBe(200);
+		expect((await findSubscription("sub_shared"))?.userId).toBe("user_second");
+	});
+
+	it("cancels a deleted user's metadata-less subscription via the customer mapping", async () => {
+		// Only reachable through the race: deletion erases stripe_customers, so
+		// the mapping had to be read before the deletion committed. Before the
+		// customer fallback existed this 200'd silently and left a live
+		// subscription billing an account that no longer exists.
+		await drizzle(env.DB)
+			.insert(stripeCustomers)
+			.values({ userId: "user_erased", customerId: "cus_erased" })
+			.run();
+		await drizzle(env.DB)
+			.insert(deletedUsers)
+			.values({ userId: "user_erased", deletedAt: new Date() })
+			.run();
+		const stripeFetch = vi.fn<typeof fetch>(async () => Response.json({}));
+		const event = payload("customer.subscription.created", "active", {
+			eventId: "evt_erased_customer",
+			subscriptionId: "sub_erased_customer",
+			customerId: "cus_erased"
+		});
+		delete event.data.object.metadata.userId;
+
+		const response = await sendInjectedWebhook(event, { stripeFetch });
+
+		expect(response.status).toBe(200);
+		expect(String(stripeFetch.mock.calls[0]?.[0])).toContain(
+			"/v1/subscriptions/sub_erased_customer"
+		);
+		expect(await findSubscription("sub_erased_customer")).toBeUndefined();
 	});
 
 	it("recomputes both users when subscription ownership changes", async () => {
@@ -1239,6 +1395,43 @@ describe("Stripe refund webhook", () => {
 			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
 		).toMatchObject([
 			{ id: "cs_refund", status: "refunded", eventId: "evt_refunded" }
+		]);
+	});
+
+	it("keeps a double-charged buyer pro when one of the two payments is refunded", async () => {
+		// Two checkout sessions created in parallel can both be paid: the
+		// already-lifetime check in billing-routes.ts runs at session creation,
+		// not at completion. The agreed resolution is a manual refund of the
+		// duplicate, which is only acceptable if revoking one row leaves the
+		// survivor entitling. Characterisation test — it passes today and is
+		// here so a change to tierRecomputeStatement cannot quietly turn a
+		// duplicate-charge refund into an entitlement loss.
+		await sendWebhook(
+			sessionPayload({
+				eventId: "evt_refund_duplicate",
+				metadataUserId: "user_refund",
+				sessionId: "cs_refund_duplicate",
+				paymentIntent: "pi_refund_duplicate"
+			})
+		);
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toHaveLength(2);
+
+		const response = await sendWebhook(
+			chargePayload({
+				eventId: "evt_duplicate_refunded",
+				paymentIntent: "pi_refund_duplicate"
+			})
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_refund")).toBe("pro");
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toMatchObject([
+			{ id: "cs_refund", status: "paid" },
+			{ id: "cs_refund_duplicate", status: "refunded" }
 		]);
 	});
 

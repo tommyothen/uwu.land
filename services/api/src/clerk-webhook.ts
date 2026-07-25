@@ -15,6 +15,11 @@ const RELEVANT_EVENT_TYPES = new Set([
 
 export const ACCOUNT_TOMBSTONE_WINDOW_SECONDS = 30 * 86_400;
 const SEVEN_DAYS_SECONDS = 7 * 86_400;
+// Real Clerk events run to a few kilobytes, so a megabyte is orders of
+// magnitude of headroom. Verification has to buffer the body — twice, since
+// the raw JSON is re-read alongside it — which is unavoidable; this only stops
+// us doing that on the word of an unauthenticated caller.
+const MAX_WEBHOOK_BODY_BYTES = 1_048_576;
 
 export interface UserUpsertEvent {
 	type: "user.created" | "user.updated";
@@ -38,6 +43,9 @@ export async function clerkWebhook(
 	c: Context<{ Bindings: Env }>,
 	options: ClerkWebhookOptions = {}
 ): Promise<Response> {
+	if (declaredBodyTooLarge(c.req.header("content-length"))) {
+		return c.text("Webhook payload too large.", 413);
+	}
 	const rawRequest = c.req.raw.clone();
 	let verified: { type: string; data: unknown };
 	let rawEvent: unknown;
@@ -99,6 +107,19 @@ export async function clerkWebhook(
 		emailHash
 	);
 	return new Response(null, { status: 200 });
+}
+
+// Fails OPEN on a missing or unparseable header: an intermediary that strips
+// or mangles Content-Length must never cost us a real event, and Cloudflare
+// already caps request size, so this is a cheap pre-filter rather than a
+// load-bearing control. Deliberately duplicated in stripe-webhook.ts — the two
+// webhooks share no module and neither should depend on the other for this.
+function declaredBodyTooLarge(header: string | undefined): boolean {
+	if (header === undefined) {
+		return false;
+	}
+	const declared = Number(header);
+	return Number.isFinite(declared) && declared > MAX_WEBHOOK_BODY_BYTES;
 }
 
 export async function purgeExpiredAccountTombstones(

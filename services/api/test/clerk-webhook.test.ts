@@ -56,6 +56,40 @@ beforeEach(async () => {
 });
 
 describe("Clerk user webhook", () => {
+	it("refuses an oversized declared body before cloning or verifying it", async () => {
+		const request = await signedRequest(
+			userUpsertPayload("user.created", "user_oversized", [], "")
+		);
+		request.headers.set("content-length", String(4 * 1024 * 1024));
+
+		const response = await createApp().fetch(
+			request,
+			testEnv,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(413);
+		expect(await findUser("user_oversized")).toBeUndefined();
+	});
+
+	it("accepts a delivery that declares no content length", async () => {
+		// Fail open: a proxy that drops or mangles the header must not cost us a
+		// real Clerk event.
+		const request = await signedRequest(
+			userUpsertPayload("user.created", "user_no_length", [], "")
+		);
+		request.headers.delete("content-length");
+
+		const response = await createApp().fetch(
+			request,
+			testEnv,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findUser("user_no_length")).toBeDefined();
+	});
+
 	it("stores the normalized primary email identity on user creation", async () => {
 		await sendWebhook(userUpsertPayload("user.created", "user_identity", [
 			{ id: "email_secondary", email_address: "other@example.com" },

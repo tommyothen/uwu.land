@@ -60,6 +60,24 @@ export async function createBillingCheckout(
 	const [lifetimePriceId, lifetimeLaunchPriceId] =
 		configuredLifetimePriceIds(c.env);
 
+	// Both checks below run at session CREATION, so they cannot close the
+	// double-charge race: two checkouts started in parallel each see no
+	// purchase and each get a session, and a session left open can be completed
+	// long after a later one succeeded. Two paid lifetime rows is the outcome
+	// that costs money.
+	//
+	// Deliberately not fixed here. Listing and expiring the user's open
+	// sessions would put an extra Stripe round trip — and a new failure mode —
+	// on the hot path of every upgrade, to close a race that needs two
+	// concurrent checkouts by the same person. Duplicates are resolved by
+	// refunding the extra payment from the Stripe dashboard: charge.refunded
+	// flips only the matching row, and the tier recompute still finds the
+	// survivor, so the buyer keeps First-Class. See the duplicate-lifetime
+	// section of the refunds runbook for the detection query.
+	//
+	// The subscription case is covered separately by Stripe's "limit customers
+	// to one subscription" setting, which has to stay enabled.
+
 	// A paid lifetime purchase is terminal: nothing further to buy.
 	const lifetime = await c.env.DB.prepare(
 		"SELECT 1 FROM stripe_lifetime_purchases WHERE user_id = ? AND status = 'paid' AND price_id IN (?, ?) LIMIT 1"

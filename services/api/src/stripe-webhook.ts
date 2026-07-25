@@ -27,6 +27,11 @@ const RELEVANT_EVENT_TYPES = new Set([
 ]);
 const SIGNATURE_TOLERANCE_SECONDS = 300;
 const HEX_SIGNATURE = /^[0-9a-f]{64}$/i;
+// Real Stripe events run to a few kilobytes, so a megabyte is orders of
+// magnitude of headroom. The body has to be buffered before the signature can
+// be checked, which is unavoidable — this only stops us buffering something
+// absurd on the word of an unauthenticated caller.
+const MAX_WEBHOOK_BODY_BYTES = 1_048_576;
 
 type SubscriptionStatus =
 	| "active"
@@ -67,6 +72,9 @@ export async function stripeWebhook(
 	c: Context<{ Bindings: Env }>,
 	options: StripeWebhookOptions = {}
 ): Promise<Response> {
+	if (declaredBodyTooLarge(c.req.header("content-length"))) {
+		return c.text("Webhook payload too large.", 413);
+	}
 	const rawBody = await c.req.text();
 	const signature = c.req.header("Stripe-Signature");
 	const secret = c.env.STRIPE_WEBHOOK_SECRET;
@@ -143,11 +151,33 @@ export async function stripeWebhook(
 		? object.metadata
 		: null;
 	const metadataUserId = metadata?.userId;
+	// Attribution, most specific first, mirroring the lifetime handler: our own
+	// checkout metadata, then the row for THIS subscription, then the customer
+	// mapping. The last one is what entitles a subscription created outside our
+	// Checkout flow — a Billing Portal re-subscribe, the Stripe dashboard, the
+	// API — none of which carry subscription_data[metadata][userId], and a
+	// re-subscribe after cancellation has no surviving subscription row either.
+	// Without it the buyer pays and gets nothing. stripe_customers.customer_id
+	// is uniquely indexed, so the mapping resolves to at most one account.
 	const userId =
 		typeof metadataUserId === "string" && metadataUserId.length > 0
 			? metadataUserId
-			: existing?.user_id;
+			: (existing?.user_id ?? existingCustomer?.user_id);
 	if (userId === undefined) {
+		// Nothing links this subscription to an account. For anything other than
+		// a cancellation that means money is moving with no entitlement behind
+		// it, so say so loudly — a silent 200 here is what hid the missing
+		// customer fallback. The event row is deliberately not recorded: the 200
+		// already stops Stripe retrying, so this is one log line, not a stream.
+		if (rawEvent.type !== "customer.subscription.deleted") {
+			console.error("Unattributable Stripe subscription event.", {
+				eventId: parsed.eventId,
+				type: rawEvent.type,
+				subscriptionId: parsed.subscriptionId,
+				customerId: parsed.customerId,
+				status: parsed.status
+			});
+		}
 		return new Response(null, { status: 200 });
 	}
 
@@ -199,6 +229,19 @@ export async function stripeWebhook(
 		existingCustomer?.user_id ?? userId
 	);
 	return new Response(null, { status: 200 });
+}
+
+// Fails OPEN on a missing or unparseable header: an intermediary that strips
+// or mangles Content-Length must never cost us a real event, and Cloudflare
+// already caps request size, so this is a cheap pre-filter rather than a
+// load-bearing control. Deliberately duplicated in clerk-webhook.ts — the two
+// webhooks share no module and neither should depend on the other for this.
+function declaredBodyTooLarge(header: string | undefined): boolean {
+	if (header === undefined) {
+		return false;
+	}
+	const declared = Number(header);
+	return Number.isFinite(declared) && declared > MAX_WEBHOOK_BODY_BYTES;
 }
 
 async function verifyStripeSignature(
