@@ -73,6 +73,15 @@ export default function TermsPage() {
 				these terms. The free and anonymous tiers are free to use, and we intend
 				to keep them that way.
 			</P>
+			<P>
+				A lifetime purchase covers First-Class as it exists when you buy it, and
+				it lasts as long as uwu.land does. Improvements to First-Class are
+				included at no extra cost. If we later build something genuinely
+				separate, such as a new product or a tier above First-Class, it may cost
+				extra; we will not move features you have already paid for behind a new
+				price, and we will not cut the limits you bought. There is no renewal, so
+				there is nothing to cancel.
+			</P>
 
 			<H2 id="ip">Intellectual property</H2>
 			<P>
