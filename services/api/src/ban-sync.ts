@@ -90,10 +90,12 @@ export async function syncBannedDomains(
 	const parsed = source
 		.split("\n")
 		.map((line) => line.trim().toLowerCase())
-		.filter(
-			(domain) =>
-				domain !== "" && !domain.startsWith("#") && DOMAIN_RE.test(domain)
-		)
+		.filter((line) => line !== "" && !line.startsWith("#"))
+		// The feed annotates entries (`domain - (Domain expires: YYYY-MM-DD)`);
+		// the domain itself is the first whitespace-separated token. Anything
+		// after it is metadata, not part of the hostname.
+		.map((line) => line.split(/\s+/, 1)[0] ?? "")
+		.filter((domain) => DOMAIN_RE.test(domain))
 		.slice(0, MAX_DOMAINS);
 	if (parsed.length === 0) {
 		return { added: 0, scanned: 0, refused: false };

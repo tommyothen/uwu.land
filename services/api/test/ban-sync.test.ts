@@ -129,11 +129,10 @@ describe("banned-domain sync", () => {
 		expect(await env.UWU.get("banned:new0.example")).toBe("auto");
 	});
 
-	it("adds nothing while upstream publishes annotated lines", async () => {
+	it("parses the domain out of annotated upstream lines", async () => {
 		// As of 2026-07-25 mayzelf/grabify-domains publishes
-		// `domain - (Domain expires: YYYY-MM-DD)`, which no line of matches
-		// DOMAIN_RE, so the daily sync is a silent no-op. Pinned here so the
-		// dead feed stays a documented fact rather than an accident.
+		// `domain - (Domain expires: YYYY-MM-DD)`. The parser takes the first
+		// whitespace-separated token, so the annotation must not sink the entry.
 		const result = await syncBannedDomains(
 			{ UWU: env.UWU },
 			sourceOf([
@@ -142,7 +141,27 @@ describe("banned-domain sync", () => {
 			])
 		);
 
-		expect(result).toEqual({ added: 0, scanned: 0, refused: false });
-		expect(await env.UWU.get("banned:location.cyou")).toBeNull();
+		expect(result).toEqual({ added: 2, scanned: 2, refused: false });
+		expect(await env.UWU.get("banned:location.cyou")).toBe("auto");
+		expect(await env.UWU.get("banned:stopify.co")).toBe("auto");
+	});
+
+	it("takes only the first token, so an annotation cannot smuggle a ban", async () => {
+		// The security-relevant half of the annotation parsing: everything after
+		// the first whitespace-separated token is upstream prose, and a domain
+		// mentioned in it must not become a ban of its own. Guards against a
+		// future refactor that scans every token on the line, which would keep
+		// the test above green while turning upstream's annotation into a way to
+		// add unreviewed bans. The trailing domain is deliberately bare — inside
+		// brackets the closing paren fails DOMAIN_RE on its own and the test
+		// would pass no matter how the parser were written.
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU },
+			sourceOf(["evil.example - see also innocent.example"])
+		);
+
+		expect(result).toEqual({ added: 1, scanned: 1, refused: false });
+		expect(await env.UWU.get("banned:evil.example")).toBe("auto");
+		expect(await env.UWU.get("banned:innocent.example")).toBeNull();
 	});
 });
