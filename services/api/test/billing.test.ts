@@ -162,7 +162,11 @@ describe("Stripe billing routes", () => {
 
 	it("rejects checkout for an entitling configured-price subscription", async () => {
 		const db = drizzle(env.DB);
-		await db.insert(users).values({ id: "user_billing", tier: "pro" }).run();
+		await db
+		.insert(users)
+		.values({ id: "user_billing", tier: "pro" })
+		.onConflictDoNothing()
+		.run();
 		await db.insert(stripeWebhookEvents)
 			.values({ id: "evt_active", eventTimestamp: 100 })
 			.run();
@@ -366,6 +370,25 @@ describe("Stripe billing routes", () => {
 		}
 	});
 
+	// The upgrade leaves the subscription active until its period ends, so a
+	// paid lifetime purchase and an entitling subscription coexist for up to a
+	// month. Nothing in that window may open a second checkout.
+	it("blocks all checkout during the lifetime-upgrade overlap window", async () => {
+		await seedLifetimePurchase("paid", env.STRIPE_PRICE_ID_LIFETIME);
+		await seedSubscription(env.STRIPE_PRICE_ID_MONTHLY);
+
+		for (const cadence of ["monthly", "lifetime"] as const) {
+			const stripeFetch = vi.fn<typeof fetch>();
+			const response = await workerFetch(
+				billingRequest("/checkout", jwt, { cadence }),
+				stripeFetch
+			);
+
+			expect(response.status).toBe(409);
+			expect(stripeFetch).not.toHaveBeenCalled();
+		}
+	});
+
 	it("ignores a refunded lifetime purchase when checking out", async () => {
 		await seedLifetimePurchase("refunded", env.STRIPE_PRICE_ID_LIFETIME);
 
@@ -506,7 +529,11 @@ async function seedLifetimePurchase(
 	priceId: string
 ): Promise<void> {
 	const db = drizzle(env.DB);
-	await db.insert(users).values({ id: "user_billing", tier: "pro" }).run();
+	await db
+		.insert(users)
+		.values({ id: "user_billing", tier: "pro" })
+		.onConflictDoNothing()
+		.run();
 	await db.insert(stripeWebhookEvents)
 		.values({ id: `evt_lifetime_${status}`, eventTimestamp: 100 })
 		.run();
@@ -526,7 +553,11 @@ async function seedLifetimePurchase(
 
 async function seedSubscription(priceId: string): Promise<void> {
 	const db = drizzle(env.DB);
-	await db.insert(users).values({ id: "user_billing", tier: "pro" }).run();
+	await db
+		.insert(users)
+		.values({ id: "user_billing", tier: "pro" })
+		.onConflictDoNothing()
+		.run();
 	await db.insert(stripeWebhookEvents)
 		.values({ id: "evt_sub", eventTimestamp: 100 })
 		.run();

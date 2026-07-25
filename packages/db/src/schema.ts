@@ -88,9 +88,12 @@ export const stripeSubscriptions = sqliteTable(
 );
 
 // One-time Lifetime First-Class purchases, written only by the Stripe
-// webhook on checkout.session.completed. A paid row entitles `pro` on its
-// own, independent of any subscription. status flips to `refunded` only via
-// manual support action today (no charge.refunded handler).
+// webhook on checkout.session.completed (or its async_payment_succeeded twin).
+// A paid row entitles `pro` on its own, independent of any subscription.
+// status flips to `refunded` when charge.refunded reports the payment intent
+// FULLY refunded, so issuing a full refund in Stripe is what revokes
+// First-Class. A partial refund deliberately leaves the purchase entitled;
+// see the refunds policy note in the root README.
 export const stripeLifetimePurchases = sqliteTable(
 	"stripe_lifetime_purchases",
 	{

@@ -9,10 +9,15 @@ import { bufferToHex } from "./crypto-utils";
 import { isDeletedUser } from "./deletion";
 import { isRecord, readJson } from "./request-utils";
 import { cancelStripeSubscription } from "./stripe-cancel";
-import { refundStripePaymentIntent } from "./stripe-refund";
+import {
+	paymentIntentRefundState,
+	refundStripePaymentIntent
+} from "./stripe-refund";
 import type { Env } from "./worker";
 
 const RELEVANT_EVENT_TYPES = new Set([
+	"charge.refunded",
+	"checkout.session.async_payment_succeeded",
 	"checkout.session.completed",
 	"customer.subscription.created",
 	"customer.subscription.updated",
@@ -101,8 +106,20 @@ export async function stripeWebhook(
 			? rawEvent.data.object
 			: null;
 
-	if (rawEvent.type === "checkout.session.completed") {
+	// async_payment_succeeded is the delayed-notification twin of
+	// session.completed: a bank debit or transfer completes the session while
+	// still `unpaid`, and this is the event that says the money arrived. Same
+	// session shape, same handler — without it, enabling such a payment method
+	// in the Stripe dashboard would take money that could never entitle anyone.
+	if (
+		rawEvent.type === "checkout.session.completed" ||
+		rawEvent.type === "checkout.session.async_payment_succeeded"
+	) {
 		return handleCheckoutSessionCompleted(c, rawEvent, object, options);
+	}
+
+	if (rawEvent.type === "charge.refunded") {
+		return handleChargeRefunded(c, rawEvent, object);
 	}
 
 	const parsed = parseSubscriptionEvent(rawEvent, object);
@@ -491,8 +508,44 @@ async function handleCheckoutSessionCompleted(
 		return new Response(null, { status: 200 });
 	}
 
+	// Was this payment already refunded before we managed to record it? Only
+	// reachable when the session event was retried for a while (a fail-closed
+	// 500 below, or a webhook backlog) and the buyer got their money back in the
+	// meantime: `charge.refunded` found no row to revoke and was acknowledged,
+	// so nothing else would ever undo the entitlement. Checked BEFORE the
+	// cancellation step — a refunded purchase must not end their subscription
+	// either. Existing rows skip the lookup: a replayed event is the common case
+	// and the row already tells us the outcome.
+	const existingPurchase = await c.env.DB.prepare(
+		"SELECT status FROM stripe_lifetime_purchases WHERE id = ?"
+	)
+		.bind(sessionId)
+		.first<{ status: string }>();
+	const purchaseSecret = c.env.STRIPE_SECRET_KEY;
+	let purchaseStatus: "paid" | "refunded" = "paid";
+	if (existingPurchase !== null) {
+		purchaseStatus = existingPurchase.status === "refunded" ? "refunded" : "paid";
+	} else if (purchaseSecret !== undefined && purchaseSecret.length > 0) {
+		if (
+			(await paymentIntentRefundState(
+				options.stripeFetch ?? fetch,
+				purchaseSecret,
+				paymentIntent
+			)) === "refunded"
+		) {
+			// Record it as refunded rather than dropping it: the money did move,
+			// so the purchase belongs in the audit trail and in DSAR exports. Only
+			// `paid` rows entitle, so this stays inert.
+			console.error("Recording an already-refunded lifetime purchase.", {
+				sessionId,
+				paymentIntentId: paymentIntent
+			});
+			purchaseStatus = "refunded";
+		}
+	}
+
 	// Upgrade path: a lifetime purchase supersedes any live subscription, so
-	// cancel every non-terminal one BEFORE recording anything. Recording the
+	// stop every non-terminal one renewing BEFORE recording anything. Recording the
 	// event first would neuter this fail-closed 500 — Stripe's retry would hit
 	// the replay check and 200 without re-attempting the cancel. Cancellation
 	// is idempotent, so the retry safely re-runs it.
@@ -501,7 +554,7 @@ async function handleCheckoutSessionCompleted(
 	)
 		.bind(userId)
 		.all<{ id: string }>();
-	if (liveSubscriptions.results.length > 0) {
+	if (purchaseStatus === "paid" && liveSubscriptions.results.length > 0) {
 		const stripeSecret = c.env.STRIPE_SECRET_KEY;
 		if (stripeSecret === undefined || stripeSecret.length === 0) {
 			// Don't block entitlement on our own config gap; log so we can
@@ -516,7 +569,12 @@ async function handleCheckoutSessionCompleted(
 					(await cancelStripeSubscription(
 						options.stripeFetch ?? fetch,
 						stripeSecret,
-						id
+						id,
+						// at_period_end, not immediate: the buyer already paid for
+						// the rest of this month, and the lifetime row entitles
+						// `pro` regardless, so letting the subscription lapse on
+						// its own costs them nothing and charges them once.
+						"at_period_end"
 					)) === "failed"
 				) {
 					return c.text("Unable to cancel Stripe subscription.", 500);
@@ -541,18 +599,94 @@ async function handleCheckoutSessionCompleted(
 			"INSERT INTO stripe_customers (user_id, customer_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (user_id) DO NOTHING"
 		).bind(userId, customer, nowSeconds, userId),
 		c.env.DB.prepare(
-			"INSERT INTO stripe_lifetime_purchases (id, payment_intent_id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, 'paid', ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"
+			"INSERT INTO stripe_lifetime_purchases (id, payment_intent_id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"
 		).bind(
 			sessionId,
 			paymentIntent,
 			customer,
 			priceId,
 			userId,
+			purchaseStatus,
 			eventTimestamp,
 			eventId,
 			userId
 		),
 		tierRecomputeStatement(c.env.DB, c.env, userId)
+	]);
+	return new Response(null, { status: 200 });
+}
+
+// Revokes a lifetime purchase we refunded. The refunds policy grants a 14-day
+// right on the lifetime purchase, and a refund issued from the Stripe
+// dashboard is the only way that gets exercised — so the entitlement has to
+// follow the money without anyone remembering to touch D1. Subscription
+// invoice refunds land here too and are acknowledged: subscription
+// entitlement already follows its own status.
+async function handleChargeRefunded(
+	c: Context<{ Bindings: Env }>,
+	rawEvent: Record<string, unknown>,
+	object: Record<string, unknown> | null
+): Promise<Response> {
+	// rawEvent.id and rawEvent.type were validated by the caller.
+	const eventId = rawEvent.id as string;
+	if (
+		object === null ||
+		typeof rawEvent.created !== "number" ||
+		!Number.isSafeInteger(rawEvent.created) ||
+		typeof object.id !== "string" ||
+		object.id.length === 0
+	) {
+		return c.text("Invalid webhook payload.", 400);
+	}
+	const eventTimestamp = rawEvent.created;
+	const paymentIntent =
+		typeof object.payment_intent === "string" &&
+		object.payment_intent.length > 0
+			? object.payment_intent
+			: undefined;
+	// Only a full refund revokes First-Class. A partial refund (a tax
+	// correction, a goodwill gesture) leaves the purchase standing: they still
+	// bought it. `refunded` is Stripe's own flag; the amount comparison is a
+	// belt-and-braces fallback for a payload that omits it.
+	const amount = typeof object.amount === "number" ? object.amount : undefined;
+	const amountRefunded =
+		typeof object.amount_refunded === "number"
+			? object.amount_refunded
+			: undefined;
+	const fullyRefunded =
+		object.refunded === true ||
+		(amount !== undefined &&
+			amountRefunded !== undefined &&
+			amount > 0 &&
+			amountRefunded >= amount);
+	if (paymentIntent === undefined || !fullyRefunded) {
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	const purchase = await c.env.DB.prepare(
+		"SELECT user_id FROM stripe_lifetime_purchases WHERE payment_intent_id = ? AND status = 'paid' LIMIT 1"
+	)
+		.bind(paymentIntent)
+		.first<{ user_id: string }>();
+	if (purchase === null) {
+		// A subscription invoice refund, the deleted-user backstop's own refund,
+		// or a purchase already marked refunded. Nothing to revoke.
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	// The status = 'paid' guard makes the write idempotent on redelivery, and
+	// the event row is inserted first in the same batch so the row's event_id
+	// FK resolves.
+	await c.env.DB.batch([
+		c.env.DB.prepare(
+			"INSERT INTO stripe_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
+		).bind(eventId, eventTimestamp, Date.now()),
+		c.env.DB.prepare(
+			"UPDATE stripe_lifetime_purchases SET status = 'refunded', event_timestamp = ?, event_id = ? WHERE payment_intent_id = ? AND status = 'paid'"
+		).bind(eventTimestamp, eventId, paymentIntent),
+		tierRecomputeStatement(c.env.DB, c.env, purchase.user_id)
 	]);
 	return new Response(null, { status: 200 });
 }

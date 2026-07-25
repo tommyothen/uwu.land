@@ -56,6 +56,23 @@ interface SessionPayload {
 	};
 }
 
+interface ChargePayload {
+	id: string;
+	type: string;
+	created: number;
+	data: {
+		object: {
+			id: string;
+			payment_intent?: string;
+			amount: number;
+			amount_refunded: number;
+			refunded?: boolean;
+		};
+	};
+}
+
+type WebhookPayload = StripePayload | SessionPayload | ChargePayload;
+
 beforeEach(async () => {
 	await resetD1(env.DB);
 });
@@ -728,14 +745,14 @@ describe("Stripe lifetime checkout webhook", () => {
 		).toEqual([]);
 	});
 
-	it("cancels a live subscription when a lifetime upgrade completes", async () => {
+	it("ends a live subscription at period end when a lifetime upgrade completes", async () => {
 		await sendWebhook(
 			payload("customer.subscription.created", "active", {
 				userId: "user_upgrade",
 				subscriptionId: "sub_upgrade"
 			})
 		);
-		const stripeFetch = vi.fn<typeof fetch>(async () =>
+		const stripeFetch = stripeFetchWithNoRefunds(() =>
 			Response.json({ status: "canceled" })
 		);
 		const upgradeApp = createApp({ stripeFetch });
@@ -753,10 +770,12 @@ describe("Stripe lifetime checkout webhook", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(stripeFetch).toHaveBeenCalledTimes(1);
-		const [url, init] = stripeFetch.mock.calls[0] ?? [];
+		const [url, init] = subscriptionCall(stripeFetch);
 		expect(url).toBe("https://api.stripe.com/v1/subscriptions/sub_upgrade");
-		expect(init?.method).toBe("DELETE");
+		// Not a DELETE: the buyer keeps the days they already paid for, and the
+		// lifetime row entitles pro either way.
+		expect(init?.method).toBe("POST");
+		expect(String(init?.body)).toBe("cancel_at_period_end=true");
 		expect(await findTier("user_upgrade")).toBe("pro");
 		expect(
 			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
@@ -797,7 +816,7 @@ describe("Stripe lifetime checkout webhook", () => {
 			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
 		).toEqual([]);
 
-		const succeedingFetch = vi.fn<typeof fetch>(async () =>
+		const succeedingFetch = stripeFetchWithNoRefunds(() =>
 			Response.json({ status: "canceled" })
 		);
 		const retried = await createApp({ stripeFetch: succeedingFetch }).fetch(
@@ -807,11 +826,174 @@ describe("Stripe lifetime checkout webhook", () => {
 		);
 
 		expect(retried.status).toBe(200);
-		expect(succeedingFetch).toHaveBeenCalledTimes(1);
+		expect(subscriptionCall(succeedingFetch)[0]).toBe(
+			"https://api.stripe.com/v1/subscriptions/sub_upgrade_fail"
+		);
 		expect(await findWebhookEvent("evt_upgrade_fail")).toBeDefined();
 		expect(
 			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
 		).toHaveLength(1);
+		consoleError.mockRestore();
+	});
+
+	// A delayed-notification payment method (bank debit or transfer) completes
+	// the session while still unpaid; this is the event that says the money
+	// arrived. Without it, such a payment could never entitle anyone.
+	it("entitles a lifetime purchase that clears asynchronously", async () => {
+		const unpaid = sessionPayload({
+			eventId: "evt_async_pending",
+			metadataUserId: "user_async",
+			sessionId: "cs_async",
+			paymentStatus: "unpaid"
+		});
+		await sendWebhook(unpaid);
+		// The unpaid session writes nothing at all — no user, no purchase.
+		expect(await findTier("user_async")).toBeUndefined();
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toEqual([]);
+
+		const cleared = sessionPayload({
+			eventId: "evt_async_cleared",
+			metadataUserId: "user_async",
+			sessionId: "cs_async"
+		});
+		cleared.type = "checkout.session.async_payment_succeeded";
+		const response = await sendWebhook(cleared);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_async")).toBe("pro");
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toMatchObject([{ id: "cs_async", status: "paid" }]);
+	});
+
+	// Money back before we managed to record the purchase: charge.refunded
+	// found no row to revoke, so nothing else would ever undo the entitlement.
+	it("never entitles a purchase Stripe already refunded", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_raced",
+				subscriptionId: "sub_raced"
+			})
+		);
+		const stripeFetch = vi.fn<typeof fetch>(async (input) => {
+			if (String(input).startsWith("https://api.stripe.com/v1/refunds?")) {
+				return Response.json({
+					object: "list",
+					data: [{ id: "re_raced", status: "succeeded" }]
+				});
+			}
+			return Response.json({ status: "canceled" });
+		});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		const response = await createApp({ stripeFetch }).fetch(
+			await signedRequest(
+				sessionPayload({
+					eventId: "evt_raced",
+					metadataUserId: "user_raced",
+					sessionId: "cs_raced",
+					paymentIntent: "pi_raced"
+				})
+			),
+			LIFETIME_ENV,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(200);
+		// Recorded for the audit trail, but refunded rows do not entitle.
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toMatchObject([{ id: "cs_raced", status: "refunded" }]);
+		// Still pro: their subscription is untouched, which is the point — a
+		// refunded purchase must not cancel the plan they still have.
+		expect(await findTier("user_raced")).toBe("pro");
+		expect(subscriptionCall(stripeFetch)[0]).toBe("undefined");
+		expect((await findSubscription("sub_raced"))?.status).toBe("active");
+		consoleError.mockRestore();
+	});
+
+	it("entitles when the refund lookup itself fails", async () => {
+		const stripeFetch = vi.fn<typeof fetch>(async (input) => {
+			if (String(input).startsWith("https://api.stripe.com/v1/refunds?")) {
+				return new Response("nope", { status: 503 });
+			}
+			return Response.json({ status: "canceled" });
+		});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		const response = await createApp({ stripeFetch }).fetch(
+			await signedRequest(
+				sessionPayload({
+					eventId: "evt_lookup_fail",
+					metadataUserId: "user_lookup_fail",
+					sessionId: "cs_lookup_fail"
+				})
+			),
+			LIFETIME_ENV,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_lookup_fail")).toBe("pro");
+		consoleError.mockRestore();
+	});
+
+	// Stripe refuses cancel_at_period_end on an already-terminal subscription
+	// and gives no stable error code, so the code stops trying to be clever and
+	// cancels immediately instead of 500-looping while the buyer waits.
+	it("falls back to an immediate cancel when scheduling one is rejected", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_fallback",
+				subscriptionId: "sub_fallback"
+			})
+		);
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const stripeFetch = vi.fn<typeof fetch>(async (input, init) => {
+			if (String(input).startsWith("https://api.stripe.com/v1/refunds?")) {
+				return Response.json({ object: "list", data: [] });
+			}
+			if ((init as RequestInit | undefined)?.method === "POST") {
+				return Response.json(
+					{
+						error: {
+							type: "invalid_request_error",
+							message:
+								"You cannot update a subscription that is `canceled` or `incomplete_expired`."
+						}
+					},
+					{ status: 400 }
+				);
+			}
+			return Response.json({ status: "canceled" });
+		});
+
+		const response = await createApp({ stripeFetch }).fetch(
+			await signedRequest(
+				sessionPayload({
+					eventId: "evt_fallback",
+					metadataUserId: "user_fallback",
+					sessionId: "cs_fallback"
+				})
+			),
+			LIFETIME_ENV,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(200);
+		const methods = stripeFetch.mock.calls
+			.filter((c) => String(c[0]).includes("/v1/subscriptions/"))
+			.map((c) => (c[1] as RequestInit | undefined)?.method);
+		expect(methods).toEqual(["POST", "DELETE"]);
+		expect(await findTier("user_fallback")).toBe("pro");
 		consoleError.mockRestore();
 	});
 
@@ -1001,6 +1183,108 @@ describe("Stripe lifetime checkout webhook", () => {
 	});
 });
 
+describe("Stripe refund webhook", () => {
+	// Every case starts from a real entitling purchase so the revocation is
+	// observable as a tier change, not just a column edit.
+	beforeEach(async () => {
+		await sendWebhook(
+			sessionPayload({
+				eventId: "evt_refund_setup",
+				metadataUserId: "user_refund",
+				sessionId: "cs_refund",
+				paymentIntent: "pi_refund"
+			})
+		);
+	});
+
+	it("revokes a fully refunded lifetime purchase", async () => {
+		expect(await findTier("user_refund")).toBe("pro");
+
+		const response = await sendWebhook(
+			chargePayload({ eventId: "evt_refunded", paymentIntent: "pi_refund" })
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_refund")).toBe("free");
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toMatchObject([
+			{ id: "cs_refund", status: "refunded", eventId: "evt_refunded" }
+		]);
+	});
+
+	it("keeps the purchase entitled on a partial refund", async () => {
+		const response = await sendWebhook(
+			chargePayload({
+				eventId: "evt_partial",
+				paymentIntent: "pi_refund",
+				refunded: false,
+				amountRefunded: 900
+			})
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_refund")).toBe("pro");
+		expect(
+			(await drizzle(env.DB).select().from(stripeLifetimePurchases).all())[0]
+				?.status
+		).toBe("paid");
+		expect(await findWebhookEvent("evt_partial")).toBeDefined();
+	});
+
+	it("treats a full refund reported only by amount as full", async () => {
+		const response = await sendWebhook(
+			chargePayload({
+				eventId: "evt_amount_only",
+				paymentIntent: "pi_refund",
+				refunded: null,
+				amountRefunded: 5900
+			})
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_refund")).toBe("free");
+	});
+
+	it("acknowledges a refund for a charge we hold no purchase for", async () => {
+		const response = await sendWebhook(
+			chargePayload({ eventId: "evt_other_refund", paymentIntent: "pi_other" })
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_refund")).toBe("pro");
+		expect(await findWebhookEvent("evt_other_refund")).toBeDefined();
+	});
+
+	it("stays revoked when the same refund is redelivered", async () => {
+		const event = chargePayload({
+			eventId: "evt_refund_replay",
+			paymentIntent: "pi_refund"
+		});
+		await sendWebhook(event);
+
+		const replay = await sendWebhook(event);
+
+		expect(replay.status).toBe(200);
+		expect(await findTier("user_refund")).toBe("free");
+		expect(
+			(await drizzle(env.DB).select().from(stripeLifetimePurchases).all())[0]
+				?.status
+		).toBe("refunded");
+	});
+
+	it("rejects a refund payload without a charge id", async () => {
+		const event = chargePayload({ eventId: "evt_bad_charge" });
+		event.data.object.id = "";
+
+		const response = await sendWebhook(event);
+
+		expect(response.status).toBe(400);
+		expect(await findWebhookEvent("evt_bad_charge")).toBeUndefined();
+		expect(await findTier("user_refund")).toBe("pro");
+	});
+});
+
 function payload(
 	type: string,
 	status: string,
@@ -1083,8 +1367,68 @@ function sessionPayload(
 	};
 }
 
+// Builds a charge.refunded envelope. The lifetime launch price is 5900 cents,
+// so amount defaults to that and a full refund is amount_refunded === amount.
+// `null` on `refunded` omits Stripe's own flag, leaving only the amounts.
+function chargePayload(
+	options: {
+		eventId?: string;
+		eventTimestamp?: number;
+		chargeId?: string;
+		paymentIntent?: string | null;
+		amount?: number;
+		amountRefunded?: number;
+		refunded?: boolean | null;
+	} = {}
+): ChargePayload {
+	const amount = options.amount ?? 5900;
+	const object: ChargePayload["data"]["object"] = {
+		id: options.chargeId ?? "ch_test",
+		amount,
+		amount_refunded: options.amountRefunded ?? amount
+	};
+	if (options.paymentIntent !== null) {
+		object.payment_intent = options.paymentIntent ?? "pi_test";
+	}
+	if (options.refunded !== null) {
+		object.refunded = options.refunded ?? true;
+	}
+	return {
+		id: options.eventId ?? `evt_${crypto.randomUUID()}`,
+		type: "charge.refunded",
+		created: options.eventTimestamp ?? 300,
+		data: { object }
+	};
+}
+
+// The lifetime handler asks Stripe whether the payment intent was already
+// refunded before it records anything, so an injected fetch has to answer that
+// lookup as well as the call the test is really about. An empty refund list
+// means "this payment stands".
+function stripeFetchWithNoRefunds(
+	rest: (url: string, init?: RequestInit) => Response
+): ReturnType<typeof vi.fn<typeof fetch>> {
+	return vi.fn<typeof fetch>(async (input, init) => {
+		const url = String(input);
+		if (url.startsWith("https://api.stripe.com/v1/refunds?")) {
+			return Response.json({ object: "list", data: [] });
+		}
+		return rest(url, init as RequestInit | undefined);
+	});
+}
+
+// Picks the subscription call out of a mock that now sees more than one URL.
+function subscriptionCall(
+	mock: ReturnType<typeof vi.fn<typeof fetch>>
+): [string, RequestInit | undefined] {
+	const call = mock.mock.calls.find((c) =>
+		String(c[0]).includes("/v1/subscriptions/")
+	);
+	return [String(call?.[0]), call?.[1] as RequestInit | undefined];
+}
+
 async function sendWebhook(
-	payloadValue: StripePayload | SessionPayload,
+	payloadValue: WebhookPayload,
 	options: { signatureTimestamp?: number; extraV1?: string } = {}
 ): Promise<Response> {
 	return app.fetch(
@@ -1120,7 +1464,7 @@ async function sendInjectedWebhook(
 }
 
 async function signedRequest(
-	payloadValue: StripePayload | SessionPayload,
+	payloadValue: WebhookPayload,
 	options: { signatureTimestamp?: number; extraV1?: string } = {}
 ): Promise<Request> {
 	const body = JSON.stringify(payloadValue);
