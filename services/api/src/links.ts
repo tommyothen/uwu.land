@@ -26,7 +26,7 @@ import {
 import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
 import { reconcileLink } from "./link-reconciliation";
-import { normalizeUrl } from "./normalize";
+import { canonicalHostname, normalizeUrl } from "./normalize";
 import { DurableObjectFixedWindow } from "./rate-limit";
 import {
 	generateSlug,
@@ -44,6 +44,7 @@ const createLinkSchema = z.object({
 
 const CREATE_WINDOW_SECONDS = 86_400;
 const LIST_PAGE_SIZE = 25;
+const ANON_CREATE_ATTEMPTS = 3;
 
 type AuthenticatedPrincipal = Extract<
 	AuthPrincipal,
@@ -104,7 +105,17 @@ export async function createLink(
 		return errorResponse(400, "invalid_body", "URL credentials are not allowed.");
 	}
 
-	if (isOwnHostname(destination.hostname)) {
+	// Canonicalise the host before either hostname gate reads it. A trailing-dot
+	// FQDN (`evil.com.`, `uwu.land.`) resolves to the same host but matches
+	// neither the own-host check nor the banned-suffix walk, so it has to lose
+	// the dot here rather than deeper in the create.
+	const hostname = canonicalHostname(destination.hostname);
+	if (hostname === "") {
+		return errorResponse(400, "invalid_body", "URL host is invalid.");
+	}
+	destination.hostname = hostname;
+
+	if (isOwnHostname(destination.hostname, c.req.url)) {
 		return errorResponse(400, "invalid_body", "uwu.land URLs are not allowed.");
 	}
 
@@ -130,39 +141,7 @@ export async function createLink(
 	}
 
 	if (auth.kind === "anon") {
-		const urlHash = await hashKey(normalizeUrl(destination.toString()));
-		const urlMapKey = `urlmap:${urlHash}`;
-		const [reserved] = await drizzle(c.env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
-		if (reserved !== undefined && reserved.lifecycleState !== "pending_delete") {
-			if (reserved.lifecycleState === "pending_publish" || (await c.env.UWU.get(reserved.slug)) === null) {
-				const pending = { ...reserved, lifecycleState: "pending_publish" as const };
-				if (reserved.lifecycleState === "active") await drizzle(c.env.DB).update(linksTable).set({ lifecycleState: "pending_publish" }).where(eq(linksTable.slug, reserved.slug)).run();
-				try { await reconcileLink(c.env, pending); } catch { return publicationPending(); }
-			}
-			return createdLinkResponse(reserved.slug, destination.toString());
-		}
-		const mappedSlug = await c.env.UWU.get(urlMapKey);
-		if (mappedSlug !== null && (await c.env.UWU.get(mappedSlug)) !== null) {
-			return createdLinkResponse(mappedSlug, destination.toString());
-		}
-
-		const slug = await generateSlug(c.env.UWU, options.generateId);
-		await drizzle(c.env.DB)
-			.insert(linksTable)
-			.values({
-				slug,
-				url: destination.toString(),
-				ownerId: null,
-				externalRef: null,
-				source: "web-anon",
-				lifecycleState: "pending_publish",
-				urlHash
-			})
-			.run();
-		const row = await findLink(c.env.DB, slug);
-		if (row === null) throw new Error("Created link disappeared");
-		try { await reconcileLink(c.env, row); } catch { return publicationPending(); }
-		return createdLinkResponse(slug, destination.toString());
+		return anonymousLink(c.env, destination, options.generateId);
 	}
 
 	const db = drizzle(c.env.DB);
@@ -461,6 +440,114 @@ function scopeKey(c: Context<{ Bindings: Env }>, auth: AuthPrincipal): string {
 	return `user:${auth.userId}`;
 }
 
+/**
+ * Anonymous creates share one link per destination, and links_url_hash_unique
+ * is what actually enforces that — the dedupe read cannot, because a concurrent
+ * create can insert between the read and this one. That loser, and a create
+ * that draws a slug already reserved by a row KV has not published yet, both
+ * arrive as unique violations. Both are recoverable, so re-read the dedupe
+ * answer and hand back the winning slug instead of a 500.
+ */
+async function anonymousLink(
+	env: Env,
+	destination: URL,
+	generateId?: IdGenerator
+): Promise<Response> {
+	const urlHash = await hashKey(normalizeUrl(destination.toString()));
+
+	for (let attempt = 0; attempt < ANON_CREATE_ATTEMPTS; attempt++) {
+		const deduped = await dedupeAnonymousLink(env, urlHash, destination);
+		if (deduped !== null) {
+			return deduped;
+		}
+
+		const slug = await generateSlug(env.UWU, generateId);
+		try {
+			await drizzle(env.DB)
+				.insert(linksTable)
+				.values({
+					slug,
+					url: destination.toString(),
+					ownerId: null,
+					externalRef: null,
+					source: "web-anon",
+					lifecycleState: "pending_publish",
+					urlHash
+				})
+				.run();
+		} catch (error) {
+			if (!isUniqueViolation(error)) {
+				throw error;
+			}
+			const winner = await dedupeAnonymousLink(env, urlHash, destination);
+			if (winner !== null) {
+				return winner;
+			}
+			// The hash belongs to a link awaiting deletion, so no retry can claim
+			// it; scheduled reconciliation frees it shortly.
+			if (await urlHashReserved(env.DB, urlHash)) {
+				return publicationPending();
+			}
+			continue;
+		}
+
+		const row = await findLink(env.DB, slug);
+		if (row === null) throw new Error("Created link disappeared");
+		try { await reconcileLink(env, row); } catch { return publicationPending(); }
+		return createdLinkResponse(slug, destination.toString());
+	}
+
+	throw new Error("Unable to create an anonymous link");
+}
+
+async function dedupeAnonymousLink(
+	env: Env,
+	urlHash: string,
+	destination: URL
+): Promise<Response | null> {
+	const [reserved] = await drizzle(env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
+	if (reserved !== undefined && reserved.lifecycleState !== "pending_delete") {
+		if (reserved.lifecycleState === "pending_publish" || (await env.UWU.get(reserved.slug)) === null) {
+			const pending = { ...reserved, lifecycleState: "pending_publish" as const };
+			if (reserved.lifecycleState === "active") await drizzle(env.DB).update(linksTable).set({ lifecycleState: "pending_publish" }).where(eq(linksTable.slug, reserved.slug)).run();
+			try { await reconcileLink(env, pending); } catch { return publicationPending(); }
+		}
+		return createdLinkResponse(reserved.slug, destination.toString());
+	}
+	const mappedSlug = await env.UWU.get(`urlmap:${urlHash}`);
+	if (mappedSlug !== null && (await env.UWU.get(mappedSlug)) !== null) {
+		return createdLinkResponse(mappedSlug, destination.toString());
+	}
+	return null;
+}
+
+async function urlHashReserved(
+	dbBinding: D1Database,
+	urlHash: string
+): Promise<boolean> {
+	const [row] = await drizzle(dbBinding)
+		.select({ slug: linksTable.slug })
+		.from(linksTable)
+		.where(eq(linksTable.urlHash, urlHash))
+		.limit(1)
+		.all();
+	return row !== undefined;
+}
+
+/** D1 nests the constraint failure under Drizzle's own query error. */
+function isUniqueViolation(error: unknown): boolean {
+	for (
+		let current: unknown = error;
+		current instanceof Error;
+		current = current.cause
+	) {
+		if (current.message.includes("UNIQUE constraint failed")) {
+			return true;
+		}
+	}
+	return false;
+}
+
 async function validateCustomSlug(
 	env: Env,
 	db: ReturnType<typeof drizzle>,
@@ -612,7 +699,17 @@ async function readJson(request: Request): Promise<unknown> {
 	}
 }
 
-function isOwnHostname(hostname: string): boolean {
+/**
+ * Own hostnames are the ones this worker answers on: the production domain, and
+ * whichever host the request arrived at. The second half covers the *.workers.dev
+ * preview deployments without blocking unrelated Workers apps, and Cloudflare
+ * only routes hosts we own to this worker, so a forged Host can cost a caller a
+ * rejection but can never buy one a bypass.
+ */
+function isOwnHostname(hostname: string, requestUrl: string): boolean {
 	const lower = hostname.toLowerCase();
-	return lower === "uwu.land" || lower.endsWith(".uwu.land");
+	if (lower === "uwu.land" || lower.endsWith(".uwu.land")) {
+		return true;
+	}
+	return lower === canonicalHostname(new URL(requestUrl).hostname);
 }

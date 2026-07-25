@@ -14,5 +14,6 @@ describe("slug validation", () => {
 		expect(SLUG_RE.test("sp ace")).toBe(false);
 		expect(isValidCustomSlug("api")).toBe(false);
 		expect(isValidCustomSlug("API")).toBe(false);
+		expect(isValidCustomSlug("webhooks")).toBe(false);
 	});
 });

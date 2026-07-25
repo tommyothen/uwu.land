@@ -340,6 +340,189 @@ describe("anonymous link creation", () => {
 		expect(body.code).toBe("invalid_body");
 	});
 
+	it("rejects uwu.land URLs spelled as a trailing-dot FQDN", async () => {
+		const response = await workerFetch(
+			createRequest({ url: "https://uwu.land./abc" }),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(400);
+		expect(body.code).toBe("invalid_body");
+	});
+
+	it("rejects URLs pointing back at the hostname the request arrived on", async () => {
+		const host = "uwu-land-api.example-account.workers.dev";
+		const request = new Request(`https://${host}/api/v1/links`, {
+			method: "POST",
+			headers: {
+				"CF-Connecting-IP": "203.0.113.87",
+				"content-type": "application/json"
+			},
+			body: JSON.stringify({ url: `https://${host}/abc` })
+		});
+
+		const response = await workerFetch(
+			request,
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(400);
+		expect(body.code).toBe("invalid_body");
+	});
+
+	it("bans a trailing-dot FQDN of a banned host and counts the attempt as abuse", async () => {
+		const ip = "203.0.113.80";
+		await env.UWU.put("banned:example.com", "1");
+		for (let index = 0; index < 4; index++) {
+			await recordBannedAttempt(env.ENFORCEMENT, ip);
+		}
+
+		const response = await workerFetch(
+			createRequest({ url: "https://sub.example.com./path" }, ip),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(400);
+		expect(body.code).toBe("url_banned");
+		expect(await env.ENFORCEMENT.getByName(`abuse:${ip}`).isBlocked()).toBe(
+			true
+		);
+	});
+
+	it("stores the destination with the trailing dot stripped", async () => {
+		const ctx = createExecutionContext();
+		const response = await workerFetch(
+			createRequest({ url: "https://example.com./canonical?q=1" }, "203.0.113.81"),
+			env as Env,
+			ctx
+		);
+		const body = await response.json<{ slug: string; url: string }>();
+		await waitOnExecutionContext(ctx);
+		const [row] = await drizzle(env.DB)
+			.select()
+			.from(links)
+			.where(eq(links.slug, body.slug))
+			.all();
+
+		expect(response.status).toBe(201);
+		expect(body.url).toBe("https://example.com/canonical?q=1");
+		expect(row?.url).toBe("https://example.com/canonical?q=1");
+		expect(await env.UWU.get(body.slug)).toBe(
+			"https://example.com/canonical?q=1"
+		);
+	});
+
+	it("rejects a destination whose hostname is nothing but dots", async () => {
+		const response = await workerFetch(
+			createRequest({ url: "https://./x" }, "203.0.113.82"),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(400);
+		expect(body.code).toBe("invalid_body");
+	});
+
+	it("deduplicates dotted and undotted spellings of one anonymous URL", async () => {
+		const first = await workerFetch(
+			createRequest({ url: "https://example.com/fqdn" }, "203.0.113.83"),
+			env as Env,
+			createExecutionContext()
+		);
+		const second = await workerFetch(
+			createRequest({ url: "https://example.com../fqdn" }, "203.0.113.84"),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect((await first.json<{ slug: string }>()).slug).toBe(
+			(await second.json<{ slug: string }>()).slug
+		);
+	});
+
+	it("returns a retryable pending response when a deleted row still holds the url hash", async () => {
+		const url = "https://example.com/pending-delete";
+		await drizzle(env.DB)
+			.insert(links)
+			.values({
+				slug: "stale",
+				url,
+				ownerId: null,
+				externalRef: null,
+				source: "web-anon",
+				lifecycleState: "pending_delete",
+				urlHash: await hashKey(url)
+			})
+			.run();
+
+		const response = await workerFetch(
+			createRequest({ url }, "203.0.113.85"),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(503);
+		expect(body.code).toBe("publication_pending");
+	});
+
+	it("recovers when a generated slug is reserved in D1 but missing from KV", async () => {
+		await drizzle(env.DB)
+			.insert(links)
+			.values({
+				slug: "dup",
+				url: "https://example.com/reserved",
+				ownerId: null,
+				externalRef: null,
+				source: "web-anon",
+				lifecycleState: "pending_publish",
+				urlHash: await hashKey("https://example.com/reserved")
+			})
+			.run();
+		const ids = ["dup", "fresh"];
+		const collisionFetch = createWorker({
+			generateId: () => ids.shift() ?? "spare"
+		}).fetch as TestFetch;
+
+		const response = await collisionFetch(
+			createRequest({ url: "https://example.com/after-collision" }, "203.0.113.86"),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ slug: string }>();
+
+		expect(response.status).toBe(201);
+		expect(body.slug).toBe("fresh");
+	});
+
+	it("returns one shared slug for simultaneous creates of the same URL", async () => {
+		const responses = await Promise.all([
+			workerFetch(
+				createRequest({ url: "https://example.com/simultaneous" }, "203.0.113.88"),
+				env as Env,
+				createExecutionContext()
+			),
+			workerFetch(
+				createRequest({ url: "https://example.com/simultaneous" }, "203.0.113.89"),
+				env as Env,
+				createExecutionContext()
+			)
+		]);
+		const bodies = await Promise.all(
+			responses.map((response) => response.json<{ slug: string }>())
+		);
+
+		expect(responses.map(({ status }) => status)).toEqual([201, 201]);
+		expect(bodies[0]?.slug).toBe(bodies[1]?.slug);
+	});
+
 	it("rejects URLs longer than 2048 characters", async () => {
 		const response = await workerFetch(
 			createRequest({ url: `https://example.com/${"a".repeat(2029)}` }),

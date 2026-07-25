@@ -27,6 +27,15 @@ describe("normalizeUrl", () => {
 		);
 	});
 
+	it("strips trailing dots from a fully qualified hostname", () => {
+		expect(normalizeUrl("https://example.com./path")).toBe(
+			"https://example.com/path"
+		);
+		expect(normalizeUrl("https://SUB.example.com../")).toBe(
+			"https://sub.example.com"
+		);
+	});
+
 	it("only strips a trailing slash when the path is exactly the root", () => {
 		expect(normalizeUrl("https://example.com/")).toBe("https://example.com");
 		expect(normalizeUrl("https://example.com/path/")).toBe(

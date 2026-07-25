@@ -1,7 +1,8 @@
 import { nanoid } from "nanoid";
 
 export const SLUG_RE = /^[\w-]{3,16}$/;
-export const RESERVED = new Set(["api"]);
+/** The first path segment of every non-redirect route this worker serves. */
+export const RESERVED = new Set(["api", "webhooks"]);
 
 export type IdGenerator = () => string;
 

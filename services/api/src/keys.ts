@@ -27,12 +27,21 @@ export async function hashKey(secret: string): Promise<string> {
 	return bufferToHex(digest);
 }
 
+// 256 is not a multiple of 62, so the top 8 byte values would over-weight the
+// first 8 alphabet characters. Rejecting them keeps every character equally
+// likely.
+const BASE62_BYTE_LIMIT = 256 - (256 % BASE62.length);
+
 function randomBase62(length: number): string {
-	const bytes = new Uint8Array(length);
-	crypto.getRandomValues(bytes);
 	let value = "";
-	for (const byte of bytes) {
-		value += BASE62[byte % BASE62.length];
+	while (value.length < length) {
+		const bytes = new Uint8Array(length);
+		crypto.getRandomValues(bytes);
+		for (const byte of bytes) {
+			if (byte < BASE62_BYTE_LIMIT && value.length < length) {
+				value += BASE62[byte % BASE62.length];
+			}
+		}
 	}
 	return value;
 }
