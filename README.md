@@ -101,6 +101,88 @@ Stable `ErrorCode` values:
 | `already_subscribed` | Account is already First-Class and cannot start another checkout. |
 | `billing_unavailable` | Stripe could not create the requested billing session. |
 
+## Stripe configuration
+
+The Worker reads these from `services/api/wrangler.jsonc` vars (Price and coupon
+IDs are not secrets); `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are
+Wrangler secrets.
+
+| Var | What it points at |
+| --- | --- |
+| `STRIPE_PRICE_ID_MONTHLY` | Recurring monthly Price, $4. |
+| `STRIPE_PRICE_ID_YEARLY` | Retired yearly Price. Kept so grandfathered subscribers still resolve to `pro`; never offered at checkout. |
+| `STRIPE_PRICE_ID_LIFETIME` | One-time Price, $79. |
+| `STRIPE_PRICE_ID_LIFETIME_LAUNCH` | One-time Price, $59. Used instead of the above while `LAUNCH_OFFER` is true. |
+| `STRIPE_LAUNCH_COUPON_ID` | 25% off, `duration: forever`, applied to monthly checkouts while `LAUNCH_OFFER` is true. Set `max_redemptions` to `LAUNCH_LIMIT` so Stripe enforces the advertised cap. |
+
+The webhook endpoint must subscribe to all of these. The failures are silent:
+a missing `checkout.session.completed` takes payment without entitling anyone,
+and a missing `charge.refunded` leaves refunded buyers entitled forever.
+
+- `checkout.session.completed` — records lifetime purchases.
+- `checkout.session.async_payment_succeeded` — the same, for a delayed-notification method (bank debit or transfer) that completes the session unpaid and clears later.
+- `charge.refunded` — revokes a fully refunded lifetime purchase.
+- `customer.subscription.created`, `.updated`, `.paused`, `.resumed`, `.deleted` — subscription entitlement.
+
+The list is `RELEVANT_EVENT_TYPES` in `services/api/src/stripe-webhook.ts`;
+anything else is acknowledged with a 200 and not recorded.
+
+### Refunding a lifetime purchase
+
+**Refund in full, always.** `charge.refunded` revokes the purchase only when the
+payment intent is fully refunded; a partial refund leaves the buyer entitled on
+purpose (a tax correction or goodwill gesture should not cost someone the
+product they bought). `/refunds` therefore promises the whole payment back
+within 14 days with no deduction for use.
+
+Two cases still need a human:
+
+- **A refund after a monthly→lifetime upgrade** does not un-schedule the
+  cancellation that upgrade set on their subscription. Re-enable renewal in the
+  Stripe portal, or the customer silently loses the monthly plan at period end
+  (and, during the launch, its forever coupon).
+- **A lost chargeback** pulls the money without firing `charge.refunded`, so the
+  row stays `paid` and the buyer keeps First-Class. Refund the charge in Stripe
+  to revoke it, or update the row by hand.
+
+### Ending the launch offer
+
+Flip `LAUNCH_OFFER` to `false` in `packages/shared/src/tiers.ts` and push. Both
+workers read the constant, so the badge and the checkout discount cannot drift.
+Existing launch subscribers keep their forever coupon; nothing else changes.
+
+Nothing enforces the advertised `LAUNCH_LIMIT` across both plans: the coupon's
+`max_redemptions` caps the monthly lane only, because lifetime buyers get the
+launch Price and never touch the coupon. Add the two numbers up by hand:
+
+```sh
+stripe get /v1/coupons/LAUNCH25 --live   # times_redeemed → monthly takers
+```
+
+```sql
+-- launch lifetime buyers (via wrangler d1 execute uwu-land --remote)
+SELECT COUNT(*) FROM stripe_lifetime_purchases
+WHERE price_id = '<STRIPE_PRICE_ID_LIFETIME_LAUNCH>' AND status = 'paid';
+```
+
+### Tax
+
+Checkout sends `automatic_tax[enabled]=true` on both branches, so **Stripe Tax
+must be active** or every session errors. Prices must resolve to tax-inclusive,
+because `/refunds` promises the advertised price is the price paid.
+
+Inclusivity comes from the account default, set at Settings → Tax → Business
+information → "Include tax in prices" → **Yes**. Do not leave it on
+"Automatic": that resolves to *exclusive* for USD and would add tax on top.
+Prices themselves can stay `tax_behavior: unspecified` and inherit the default —
+that is the current setup. A Price with an explicit `inclusive`/`exclusive` value
+cannot be changed afterwards, so an `exclusive` one has to be recreated.
+
+Tax registrations are separate and deliberately absent: with none, Stripe
+calculates zero tax and charges no Tax fees, while
+[monitoring](https://dashboard.stripe.com/tax/transactions) tracks where
+obligations are accruing.
+
 ## Maintenance
 
 Run these from `services/api`; they operate on remote production infrastructure.
