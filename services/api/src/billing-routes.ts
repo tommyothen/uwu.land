@@ -115,6 +115,12 @@ export async function createBillingCheckout(
 			client_reference_id: auth.userId,
 			"subscription_data[metadata][userId]": auth.userId,
 			"automatic_tax[enabled]": "true",
+			// Required alongside automatic_tax whenever a saved Customer is
+			// passed: Stripe rejects the session with
+			// customer_tax_location_invalid unless the Customer already has an
+			// address or Checkout is allowed to save the one it collects. Our
+			// Customers are created bare, so this is not optional.
+			"customer_update[address]": "auto",
 			success_url: `${ACCOUNT_URL}?upgraded=1`,
 			cancel_url: ACCOUNT_URL
 		});
@@ -137,6 +143,12 @@ export async function createBillingCheckout(
 			"metadata[priceId]": priceId,
 			"payment_intent_data[metadata][userId]": auth.userId,
 			"automatic_tax[enabled]": "true",
+			// Required alongside automatic_tax whenever a saved Customer is
+			// passed: Stripe rejects the session with
+			// customer_tax_location_invalid unless the Customer already has an
+			// address or Checkout is allowed to save the one it collects. Our
+			// Customers are created bare, so this is not optional.
+			"customer_update[address]": "auto",
 			success_url: `${ACCOUNT_URL}?upgraded=1`,
 			cancel_url: ACCOUNT_URL
 		});

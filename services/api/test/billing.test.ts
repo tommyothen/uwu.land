@@ -316,6 +316,9 @@ describe("Stripe billing routes", () => {
 			"user_billing"
 		);
 		expect(body.get("automatic_tax[enabled]")).toBe("true");
+		// Without this Stripe rejects the session outright with
+		// customer_tax_location_invalid, because our Customers have no address.
+		expect(body.get("customer_update[address]")).toBe("auto");
 		expect(body.get("discounts[0][coupon]")).toBe(null);
 	});
 
@@ -335,6 +338,9 @@ describe("Stripe billing routes", () => {
 			env.STRIPE_LAUNCH_COUPON_ID
 		);
 		expect(body.get("automatic_tax[enabled]")).toBe("true");
+		// Without this Stripe rejects the session outright with
+		// customer_tax_location_invalid, because our Customers have no address.
+		expect(body.get("customer_update[address]")).toBe("auto");
 	});
 
 	it("rejects the retired yearly cadence", async () => {
