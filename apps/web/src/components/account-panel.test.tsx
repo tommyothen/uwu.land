@@ -281,10 +281,42 @@ describe("AccountPanel", () => {
 		expect(createBillingPortalMock).toHaveBeenCalledWith("tok");
 		await waitFor(() => expect(window.location.hash).toBe("#portal"));
 
+		// The upgrade is not a forfeit, and the card has to say so.
+		expect(screen.getByText(/stops renewing/i)).toBeInTheDocument();
+		expect(
+			screen.getByText(/keep the days you\S*ve already paid for/i)
+		).toBeInTheDocument();
+
 		const makeLifetime = screen.getByText(/make it lifetime/i);
 		await user.click(makeLifetime);
 		expect(createBillingCheckoutMock).toHaveBeenCalledWith("tok", "lifetime");
 		await waitFor(() => expect(window.location.hash).toBe("#lifetime"));
+	});
+
+	// Mid-upgrade the old subscription is still active, so this user needs a way
+	// into the portal to see it winding down.
+	it("keeps the portal reachable for a fresh lifetime buyer", async () => {
+		getMeMock.mockResolvedValueOnce({
+			user_id: "user_1",
+			tier: "pro",
+			hasBillingHistory: true,
+			plan: "lifetime",
+			limits: TIERS.pro,
+			usage: { createdToday: 2, apiKeys: 1, resetAt: null }
+		});
+		createBillingPortalMock.mockResolvedValueOnce({ url: "#overlap-portal" });
+		const user = userEvent.setup();
+		render(<AccountPanel />);
+
+		expect(
+			await screen.findByText(/first-class for life/i)
+		).toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: /receipts/i }));
+
+		expect(createBillingPortalMock).toHaveBeenCalledWith("tok");
+		await waitFor(() =>
+			expect(window.location.hash).toBe("#overlap-portal")
+		);
 	});
 
 	it("thanks lifetime owners and hides subscription management", async () => {

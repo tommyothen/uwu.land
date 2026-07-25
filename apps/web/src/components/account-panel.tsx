@@ -444,6 +444,10 @@ export function AccountPanelView({
 							disabled={billingPending !== null}
 							onClick={() => onCheckout("lifetime")}
 						/>
+						<p className="mt-2 text-xs text-muted-foreground">
+							Your monthly plan stops renewing. You keep the days you&rsquo;ve
+							already paid for, and you&rsquo;re never charged twice over.
+						</p>
 					</div>
 				</section>
 			)}

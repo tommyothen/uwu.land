@@ -59,9 +59,10 @@ export default function RefundsPage() {
 				them.
 			</P>
 			<P>
-				The lifetime purchase carries the same 14-day right, on the same terms:
-				access starts straight away, and if you cancel within the 14 days we refund
-				the payment in full, less a proportionate amount for any use.
+				The lifetime purchase carries the same 14-day right, and we go further
+				than the regulations require: cancel within the 14 days and we refund the
+				whole payment, with no deduction for the days you used it. Your
+				First-Class access ends when the refund goes through.
 			</P>
 
 			<H2 id="when-we-refund">When we do refund</H2>

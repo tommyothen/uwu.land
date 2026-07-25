@@ -12,7 +12,11 @@ export default [
 	route("terms", "routes/terms.tsx"),
 	route("acceptable-use", "routes/acceptable-use.tsx"),
 	route("refunds", "routes/refunds.tsx"),
-	route("dev/account-preview", "routes/dev-account-preview.tsx"),
+	// Preview-only surfaces, kept out of the production route table entirely so
+	// the paths 404 through the catch-all rather than answering 200.
+	...(process.env.NODE_ENV === "production"
+		? []
+		: [route("dev/account-preview", "routes/dev-account-preview.tsx")]),
 	route("sign-in/*", "routes/sign-in/route.tsx"),
 	route("sign-up/*", "routes/sign-up/route.tsx"),
 	route("dashboard", "routes/dashboard/layout.tsx", [
