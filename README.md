@@ -49,6 +49,12 @@ The worker verifies dashboard JWTs against `CLERK_ISSUER`: for local dev put
 Frontend API URL) in `services/api/.dev.vars` — wrangler DOES read `.dev.vars`;
 the Vite app is the odd one out.
 
+The same file needs `CORS_DEV_ORIGIN=http://localhost:3000`. Production allows
+`https://app.uwu.land` and nothing else, and the dev origin is deliberately
+absent from `wrangler.jsonc` so it can never ship; without it the dashboard's
+API calls fail CORS locally while production is fine. That is also why
+`apps/web/vite.config.ts` pins port 3000 with `strictPort`.
+
 Build and deploy (Cloudflare Workers via React Router and the Cloudflare Vite plugin):
 
 ```sh
@@ -164,6 +170,29 @@ Two cases still need a human:
 - **A lost chargeback** pulls the money without firing `charge.refunded`, so the
   row stays `paid` and the buyer keeps First-Class. Refund the charge in Stripe
   to revoke it, or update the row by hand.
+
+#### Duplicate lifetime charges
+
+The already-First-Class check in `createBillingCheckout` runs at session
+creation, so two checkouts started in parallel — or a stale session completed
+after a later one succeeded — can both be paid. The result is two `paid` rows
+in `stripe_lifetime_purchases` for one buyer. Find them (via
+`wrangler d1 execute uwu-land --remote`):
+
+```sql
+SELECT user_id, COUNT(*) AS paid_rows
+FROM stripe_lifetime_purchases
+WHERE status = 'paid'
+GROUP BY user_id
+HAVING COUNT(*) > 1;
+```
+
+Resolution is a full refund of the duplicate in Stripe: match the charge to
+its row by `payment_intent_id` (refund the later payment), and
+`charge.refunded` flips only that row to `refunded`. The tier recompute still
+finds the surviving `paid` row, so the buyer keeps First-Class throughout —
+there is a characterisation test pinning this in
+`services/api/test/stripe-webhook.test.ts`.
 
 ### Ending the launch offer
 
