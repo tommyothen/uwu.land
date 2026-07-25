@@ -38,7 +38,7 @@
     "STRIPE_PRICE_ID_MONTHLY": "price_1Tskr37kD2hzdcxngrmTlz91",
     "STRIPE_PRICE_ID_YEARLY": "price_1TskrM7kD2hzdcxnG7VOskcx",
     "STRIPE_PRICE_ID_LIFETIME": "price_1Tx4Fn7kD2hzdcxnuVyGUTgo",
-    "STRIPE_PRICE_ID_LIFETIME_LAUNCH": "price_1Tx4GE7kD2hzdcxnr8j7yGoc",
+    "STRIPE_PRICE_ID_LIFETIME_LAUNCH": "price_1Tx6WA7kD2hzdcxn2llwVW1Q",
     "STRIPE_LAUNCH_COUPON_ID": "LAUNCH25"
   },
   "d1_databases": [
