@@ -331,8 +331,7 @@ describe("Stripe billing routes", () => {
 		);
 
 		expect(response.status).toBe(200);
-		const [, init] = stripeFetch.mock.calls[1] ?? [];
-		const body = new URLSearchParams(String(init?.body));
+		const body = checkoutBody(stripeFetch);
 		expect(body.get("mode")).toBe("subscription");
 		expect(body.get("discounts[0][coupon]")).toBe(
 			env.STRIPE_LAUNCH_COUPON_ID
@@ -461,8 +460,7 @@ describe("Stripe billing routes", () => {
 			false
 		);
 		expect(lifetimeResponse.status).toBe(200);
-		const [, lifetimeInit] = lifetimeFetch.mock.calls[1] ?? [];
-		const lifetimeBody = new URLSearchParams(String(lifetimeInit?.body));
+		const lifetimeBody = checkoutBody(lifetimeFetch);
 		expect(lifetimeBody.get("line_items[0][price]")).toBe(
 			env.STRIPE_PRICE_ID_LIFETIME
 		);
@@ -474,9 +472,45 @@ describe("Stripe billing routes", () => {
 			false
 		);
 		expect(monthlyResponse.status).toBe(200);
-		const [, monthlyInit] = monthlyFetch.mock.calls[1] ?? [];
-		const monthlyBody = new URLSearchParams(String(monthlyInit?.body));
+		const monthlyBody = checkoutBody(monthlyFetch);
 		expect(monthlyBody.get("discounts[0][coupon]")).toBe(null);
+		// With no coupon to attach, monthly can take a customer-entered code.
+		expect(monthlyBody.get("allow_promotion_codes")).toBe("true");
+	});
+
+	// Checkout permits one discount per session, so the launch coupon and a
+	// customer-entered code cannot both be on the monthly branch.
+	it("prefers the launch coupon over promotion codes on monthly", async () => {
+		const stripeFetch = checkoutStripeFetch();
+		const response = await workerFetch(
+			billingRequest("/checkout", jwt, { cadence: "monthly" }),
+			stripeFetch
+		);
+
+		expect(response.status).toBe(200);
+		const body = checkoutBody(stripeFetch);
+		expect(body.get("discounts[0][coupon]")).toBe(
+			env.STRIPE_LAUNCH_COUPON_ID
+		);
+		expect(body.get("allow_promotion_codes")).toBe(null);
+	});
+
+	// The lifetime branch attaches no discount of its own, so promos can always
+	// be run as codes against it.
+	it("accepts promotion codes on lifetime with the offer on or off", async () => {
+		for (const launchOffer of [true, false]) {
+			const stripeFetch = checkoutStripeFetch();
+			const response = await workerFetch(
+				billingRequest("/checkout", jwt, { cadence: "lifetime" }),
+				stripeFetch,
+				launchOffer
+			);
+
+			expect(response.status).toBe(200);
+			const body = checkoutBody(stripeFetch);
+			expect(body.get("allow_promotion_codes")).toBe("true");
+			expect(body.get("discounts[0][coupon]")).toBe(null);
+		}
 	});
 
 	it("maps Stripe failures to a 502 without leaking the upstream body", async () => {
@@ -518,8 +552,25 @@ async function workerFetch(
 	return (worker.fetch as TestFetch)(request, testEnv, createExecutionContext());
 }
 
+// Reads the Checkout Session request body out of a stripeFetch double. Selects
+// by URL rather than call index: the customer is created only once per user, so
+// a second checkout in the same test makes the session the FIRST call. Indexing
+// blindly yields an empty body, which silently passes any assertion that
+// something is absent.
+function checkoutBody(
+	mock: ReturnType<typeof vi.fn<typeof fetch>>
+): URLSearchParams {
+	const call = mock.mock.calls.find((c) =>
+		String(c[0]).endsWith("/checkout/sessions")
+	);
+	expect(call, "no Checkout Session request was made").toBeDefined();
+	return new URLSearchParams(
+		String((call?.[1] as RequestInit | undefined)?.body)
+	);
+}
+
 // A stripeFetch double that answers customer creation then session creation,
-// so mock.calls[1] is always the Checkout Session request.
+// use checkoutBody() to read the session request back.
 function checkoutStripeFetch(): ReturnType<typeof vi.fn<typeof fetch>> {
 	return vi.fn<typeof fetch>(async (input) =>
 		String(input).endsWith("/customers")

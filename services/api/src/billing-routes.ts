@@ -126,8 +126,13 @@ export async function createBillingCheckout(
 		});
 		if (launchOffer) {
 			// duration:forever coupon — launch subscribers renew at the
-			// discounted price for as long as they stay subscribed.
+			// discounted price for as long as they stay subscribed. Checkout
+			// allows one discount per session, so a server-attached coupon and a
+			// customer-entered code are mutually exclusive: the launch offer wins
+			// while it runs.
 			params.set("discounts[0][coupon]", c.env.STRIPE_LAUNCH_COUPON_ID);
+		} else {
+			params.set("allow_promotion_codes", "true");
 		}
 	} else {
 		const priceId = launchOffer ? lifetimeLaunchPriceId : lifetimePriceId;
@@ -149,6 +154,12 @@ export async function createBillingCheckout(
 			// address or Checkout is allowed to save the one it collects. Our
 			// Customers are created bare, so this is not optional.
 			"customer_update[address]": "auto",
+			// The lifetime branch never attaches a discount of its own — the
+			// launch offer is a separate Price — so it is free to accept
+			// promotion codes for one-off promos and giveaways. Restrict each
+			// code in Stripe (max_redemptions, expires_at, a single customer)
+			// rather than here.
+			allow_promotion_codes: "true",
 			success_url: `${ACCOUNT_URL}?upgraded=1`,
 			cancel_url: ACCOUNT_URL
 		});

@@ -997,6 +997,35 @@ describe("Stripe lifetime checkout webhook", () => {
 		consoleError.mockRestore();
 	});
 
+	// Reachable once promotion codes are exposed on lifetime: a 100%-off code
+	// leaves nothing to charge, so Stripe creates no payment intent and the
+	// purchase cannot be recorded. Retrying will not change that, so the event
+	// is acknowledged with a loud log rather than looped on forever.
+	it("acknowledges a fully discounted lifetime session without entitling", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const event = sessionPayload({
+			eventId: "evt_free",
+			metadataUserId: "user_free",
+			sessionId: "cs_free",
+			paymentIntent: null
+		});
+		(event.data.object as { amount_total?: number }).amount_total = 0;
+
+		const response = await sendWebhook(event);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_free")).toBeUndefined();
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toEqual([]);
+		// Recorded, so Stripe stops redelivering something we cannot honour.
+		expect(await findWebhookEvent("evt_free")).toBeDefined();
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
 	it("refunds and records but never entitles a deleted user's purchase", async () => {
 		await drizzle(env.DB)
 			.insert(deletedUsers)

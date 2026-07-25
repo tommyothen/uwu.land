@@ -127,6 +127,26 @@ and a missing `charge.refunded` leaves refunded buyers entitled forever.
 The list is `RELEVANT_EVENT_TYPES` in `services/api/src/stripe-webhook.ts`;
 anything else is acknowledged with a 200 and not recorded.
 
+### Running a lifetime promotion
+
+The lifetime checkout accepts **promotion codes** (`allow_promotion_codes`), so a
+promo needs no deploy: create a coupon plus a promotion code in Stripe and share
+the code. Constrain it there rather than in code — `max_redemptions`,
+`expires_at`, a single `customer`, `restrictions.first_time_transaction`,
+`restrictions.minimum_amount`. A code restricted to one customer with
+`max_redemptions: 1` is also the way to test a real purchase cheaply.
+
+Monthly is different: Checkout permits one discount per session, and while
+`LAUNCH_OFFER` is true the launch coupon is attached server-side, so monthly
+cannot also take codes. It accepts them automatically once the launch offer ends.
+
+**Do not issue a 100%-off lifetime code.** A free session takes no payment, so
+Stripe creates no payment intent, and `stripe_lifetime_purchases` requires one —
+the webhook acknowledges the event and logs "Lifetime session was fully
+discounted", leaving the buyer unentitled until someone fixes it by hand. Leave
+at least a nominal charge. Supporting genuinely free grants means making
+`payment_intent_id` nullable in a new migration.
+
 ### Refunding a lifetime purchase
 
 **Refund in full, always.** `charge.refunded` revokes the purchase only when the

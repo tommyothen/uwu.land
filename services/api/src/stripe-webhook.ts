@@ -431,6 +431,8 @@ async function handleCheckoutSessionCompleted(
 		object.payment_intent.length > 0
 			? object.payment_intent
 			: undefined;
+	const amountTotal =
+		typeof object.amount_total === "number" ? object.amount_total : undefined;
 	const metadata = isRecord(object.metadata) ? object.metadata : null;
 	const metadataUserId =
 		typeof metadata?.userId === "string" && metadata.userId.length > 0
@@ -474,8 +476,23 @@ async function handleCheckoutSessionCompleted(
 		return new Response(null, { status: 200 });
 	}
 
-	// A lifetime payment always carries a payment intent and customer; their
-	// absence means a malformed payload, not a business case.
+	// A fully discounted session takes no payment, so Stripe creates no payment
+	// intent and there is nothing to record against. Reachable only by a
+	// 100%-off promotion code on the lifetime price, which we cannot honour:
+	// the purchase row requires a payment intent. Acknowledge it — retrying
+	// cannot change the outcome — and log loudly enough to entitle the buyer by
+	// hand. See the promotional-codes note in the root README.
+	if (paymentIntent === undefined && amountTotal === 0) {
+		console.error(
+			"Lifetime session was fully discounted, so it cannot be recorded. Entitle this user manually.",
+			{ sessionId, userId }
+		);
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	// Any other missing payment intent or customer is a malformed payload, not
+	// a business case.
 	if (paymentIntent === undefined || customer === undefined) {
 		return c.text("Invalid webhook payload.", 400);
 	}
