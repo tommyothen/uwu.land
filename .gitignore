@@ -8,8 +8,9 @@ dist
 coverage
 *.tsbuildinfo
 
-# local-only deploy runbook (not for publication)
+# local-only operator runbooks (not for publication)
 docs/DEPLOY.md
+docs/MAINTENANCE.md
 
 # Local Claude Code config/skills — not tracked
 .claude/

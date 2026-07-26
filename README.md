@@ -101,10 +101,9 @@ validates against are in `packages/shared`.
 
 ## Docs
 
-- [docs/MAINTENANCE.md](docs/MAINTENANCE.md) is the day-2 runbook, covering abuse
-  handling, billing operations, and the risks knowingly left open.
-- [docs/decisions.md](docs/decisions.md) records the architecture and product
-  decisions along with the alternatives that lost.
+[docs/decisions.md](docs/decisions.md) records the architecture and product
+decisions along with the alternatives that lost. The deployment and day-2
+operations runbooks are kept local rather than published.
 
 ## Self-hosting and contributions
 
