@@ -3,7 +3,14 @@ export interface CloudPath {
 	token: "--cloud-1" | "--cloud-2" | "--cloud-3";
 }
 
-export const CLOUD_VIEWBOX = "0 340 1440 220";
+/**
+ * Trimmed to the strip the band actually shows: the ink spans y 402.65 (the
+ * highest cloud-1 crest) to 560, and 370 leaves the ~33 units of sky above it
+ * that the design has always rendered at 1440 wide. Because the plates paint
+ * with `preserveAspectRatio="none"`, this box maps 1:1 onto the band at every
+ * width — no crest can be sliced off the top (see `cloud-field.tsx`).
+ */
+export const CLOUD_VIEWBOX = "0 370 1440 190";
 
 export const CLOUD_PATHS: [CloudPath, CloudPath, CloudPath] = [
 	{

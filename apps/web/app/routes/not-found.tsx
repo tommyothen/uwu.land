@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { Link } from "react-router";
 import { AirmailStripe } from "@/components/postal/airmail-stripe";
 import { CloudField } from "@/components/postal/cloud-field";
@@ -9,13 +8,15 @@ import { RubberStamp } from "@/components/postal/rubber-stamp";
  * The dead letter office (spec §8): same envelope frame, a red RETURN TO SENDER
  * stamp pressed over the 404 numerals, one plain CTA back to the post office.
  * The AIR MAIL stamp does not repeat here; the red stamp is this page's stamp.
+ *
+ * No `--field-h` override: the band's height sets the cloud plates' proportions
+ * (see cloud-field.tsx), so pinning a shorter band here stretched these clouds
+ * flat next to the landing page's. `.landing-root` carries the shared height,
+ * including its short-viewport shrink.
  */
 export default function ShortLinkNotFound() {
 	return (
-		<div
-			className="landing-root relative flex min-h-[100dvh] flex-col overflow-hidden"
-			style={{ "--field-h": "120px" } as CSSProperties}
-		>
+		<div className="landing-root relative flex min-h-[100dvh] flex-col overflow-hidden">
 			<AirmailStripe />
 
 			<div className="absolute top-4 left-5 z-[4] sm:top-7 sm:left-[34px]">
