@@ -504,6 +504,16 @@ body {
 	z-index: 5;
 }
 
+/* Narrow cards have no clear top-right corner — the delivery line runs the full
+   width and the postmark lands on top of it. Frank the bottom-right instead,
+   which the stamp/actions layout leaves empty. */
+@media (max-width: 420px) {
+	.postmark {
+		top: auto;
+		bottom: 12px;
+	}
+}
+
 /* Claim ticket: a stub hanging off the result card on a dashed perforation. */
 .claim-ticket-wrap {
 	display: flex;
@@ -536,6 +546,93 @@ body {
 .claim-ticket--torn,
 .claim-ticket--torn:hover {
 	transform: translateX(10px) rotate(1.5deg);
+}
+
+/* The delivered card's grid: QR stamp down the left, address block across the
+   top, the two actions sharing the row beneath it. Putting `save PNG` on the
+   action row rather than under the stamp is what keeps the card's height where
+   it was before the QR existed — it overflows the envelope shell downward, and
+   the promise band below only leaves so much clearance. */
+.result-columns {
+	display: grid;
+	grid-template-columns: auto auto 1fr;
+	column-gap: 16px;
+	row-gap: 14px;
+	align-items: start;
+}
+
+.result-address {
+	grid-area: 1 / 2 / 2 / 4;
+}
+
+.result-send {
+	grid-area: 2 / 2 / 3 / 3;
+}
+
+/* The stamp's frame and its save action are placed individually by the grid
+   above, so the wrapper gets out of the way. */
+.qr-stamp {
+	display: contents;
+}
+
+.qr-stamp-frame {
+	grid-area: 1 / 1 / 3 / 2;
+	width: 104px;
+	padding: 6px;
+	border: 2px solid var(--foreground);
+	border-radius: 12px;
+	background: #ffffff;
+	box-shadow: 3px 3px 0 var(--shadow-ink);
+	transform: rotate(-1.5deg);
+}
+
+.qr-stamp-svg {
+	display: block;
+	width: 100%;
+	height: auto;
+	shape-rendering: geometricPrecision;
+}
+
+.qr-stamp-save {
+	grid-area: 2 / 3 / 3 / 4;
+	justify-self: start;
+	align-self: center;
+	color: var(--muted-foreground);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.qr-stamp-save:hover {
+	color: var(--foreground);
+}
+
+.qr-stamp-save:disabled {
+	opacity: 0.6;
+}
+
+/* Narrow viewports keep the same columns — the stamp is fixed-width and the
+   address column wraps — so the card never reflows into a tall stack that would
+   push past the promise band. Only `save PNG` moves, down under the stamp,
+   where the action row no longer has room for it. */
+@media (max-width: 420px) {
+	.result-columns {
+		column-gap: 12px;
+		row-gap: 10px;
+	}
+
+	.qr-stamp-frame {
+		width: 88px;
+	}
+
+	.qr-stamp-save {
+		grid-area: 3 / 1 / 4 / 2;
+		justify-self: center;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
