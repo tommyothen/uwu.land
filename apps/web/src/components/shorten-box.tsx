@@ -445,6 +445,7 @@ export function ShortenBox() {
 				<div className="result-stack">
 					<div className="result-card text-left">
 						<div className="result-columns">
+							<QrStamp url={link.short_url} slug={link.slug} onAnnounce={setAnnounce} />
 							<div className="result-receipt">
 								<div className="result-address min-w-0">
 									<p className="text-base leading-[1.35] text-muted-foreground">
@@ -484,7 +485,6 @@ export function ShortenBox() {
 									Send another
 								</button>
 							</div>
-							<QrStamp url={link.short_url} slug={link.slug} onAnnounce={setAnnounce} />
 						</div>
 					</div>
 				</div>
