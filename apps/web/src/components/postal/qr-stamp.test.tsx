@@ -98,7 +98,12 @@ describe("QrStamp", () => {
 
 	it("offers a PNG download", () => {
 		render(<QrStamp url={URL} slug="aB3xK9" />);
-		expect(screen.getByRole("button", { name: /save png/i })).toBeVisible();
+		expect(screen.getByRole("button", { name: /save qr code as png/i })).toBeVisible();
+	});
+
+	it("offers an accessible enlarged view", () => {
+		render(<QrStamp url={URL} slug="aB3xK9" />);
+		expect(screen.getByRole("button", { name: /enlarge qr code/i })).toBeVisible();
 	});
 
 	it("scopes gradient ids to the slug so two symbols don't collide", () => {

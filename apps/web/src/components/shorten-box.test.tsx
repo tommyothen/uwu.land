@@ -190,7 +190,7 @@ describe("ShortenBox submit choreography", () => {
 		);
 	});
 
-	it("copies via the claim ticket and flips the postmark to COPIED", async () => {
+	it("copies via the address label and announces success", async () => {
 		writeText.mockResolvedValue(undefined);
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
@@ -198,15 +198,36 @@ describe("ShortenBox submit choreography", () => {
 		await advance(750);
 		await advance(250);
 
-		const ticket = screen.getByRole("button", { name: "Copy short link" });
+		const copyButton = screen.getByRole("button", { name: "Copy short link" });
 		await act(async () => {
-			fireEvent.click(ticket);
+			fireEvent.click(copyButton);
 			await Promise.resolve();
 		});
 
 		expect(writeText).toHaveBeenCalledWith("https://uwu.land/abc12");
-		expect(screen.getByText("copied!")).toBeInTheDocument();
-		expect(screen.getByText("COPIED")).toBeInTheDocument();
+		expect(copyButton).toHaveTextContent("Copied");
+		expect(screen.getByText("Short link copied")).toBeInTheDocument();
+	});
+
+	it("keeps copy retryable and explains recovery when clipboard access fails", async () => {
+		writeText.mockRejectedValueOnce(new Error("clipboard denied"));
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		submit();
+		await advance(750);
+		await advance(250);
+
+		const copyButton = screen.getByRole("button", { name: "Copy short link" });
+		await act(async () => {
+			fireEvent.click(copyButton);
+			await Promise.resolve();
+		});
+
+		expect(copyButton).toHaveTextContent("Copy");
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"Couldn’t copy automatically. Select the link and copy it instead."
+		);
+		expect(screen.getByText("uwu.land/abc12")).toHaveAttribute("tabindex", "0");
 	});
 
 	it("stacks the result inside the fixed-size envelope shell (zero-CLS contract)", async () => {
@@ -276,9 +297,9 @@ describe("ShortenBox submit choreography", () => {
 			{ url: "https://example.com/page" },
 			null
 		);
-		expect(
-			screen.getByText("Delivered. Your link now fits anywhere.")
-		).toBeInTheDocument();
+		expect(screen.getByText("Your link now fits anywhere.").parentElement).toHaveTextContent(
+			"Delivered. Your link now fits anywhere."
+		);
 	});
 
 	it("passes the Clerk token and acknowledges the account when signed in", async () => {
@@ -313,9 +334,9 @@ describe("ShortenBox submit choreography", () => {
 			{ url: "https://example.com/page" },
 			null
 		);
-		expect(
-			screen.getByText("Delivered. Your link now fits anywhere.")
-		).toBeInTheDocument();
+		expect(screen.getByText("Your link now fits anywhere.").parentElement).toHaveTextContent(
+			"Delivered. Your link now fits anywhere."
+		);
 	});
 
 	it("crossfades straight to the result under reduced motion (no plane, no in-transit)", async () => {

@@ -1,4 +1,12 @@
+import { Download, Expand } from "lucide-react";
 import { useMemo, useState } from "react";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogTitle,
+	DialogTrigger
+} from "@/components/ui/dialog";
 import {
 	badgeSquare,
 	buildQrStamp,
@@ -240,8 +248,17 @@ async function renderPng(stamp: Stamp): Promise<Blob | null> {
 	return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
-export function QrStamp({ url, slug }: { url: string; slug: string }) {
+export function QrStamp({
+	url,
+	slug,
+	onAnnounce
+}: {
+	url: string;
+	slug: string;
+	onAnnounce?: (message: string) => void;
+}) {
 	const [saving, setSaving] = useState(false);
+	const [saveError, setSaveError] = useState<string | null>(null);
 	const stamp = useMemo(() => buildQrStamp(url), [url]);
 	// Ids have to be unique per symbol: two gradients sharing an id would let
 	// the first one win for both.
@@ -250,15 +267,22 @@ export function QrStamp({ url, slug }: { url: string; slug: string }) {
 	async function download() {
 		if (saving) return;
 		setSaving(true);
+		setSaveError(null);
+		onAnnounce?.("Preparing QR image");
 		try {
 			const blob = await renderPng(stamp);
-			if (!blob) return;
+			if (!blob) throw new Error("Canvas export returned no image");
 			const href = URL.createObjectURL(blob);
 			const anchor = document.createElement("a");
 			anchor.href = href;
 			anchor.download = `uwu-land-${slug}.png`;
 			anchor.click();
 			URL.revokeObjectURL(href);
+			onAnnounce?.("QR image downloaded");
+		} catch {
+			const message = "Couldn’t prepare the QR image. Try again.";
+			setSaveError(message);
+			onAnnounce?.(message);
 		} finally {
 			setSaving(false);
 		}
@@ -269,9 +293,43 @@ export function QrStamp({ url, slug }: { url: string; slug: string }) {
 			<div className="qr-stamp-frame">
 				<QrSvg stamp={stamp} id={id} />
 			</div>
-			<button type="button" onClick={download} disabled={saving} className="qr-stamp-save">
-				{saving ? "printing…" : "save PNG"}
-			</button>
+			<fieldset className="qr-stamp-actions" aria-label="QR code actions">
+				<button
+					type="button"
+					onClick={download}
+					disabled={saving}
+					className="qr-stamp-action"
+					aria-label={saving ? "Saving QR code PNG" : "Save QR code as PNG"}
+					title={saving ? "Saving…" : "Save PNG"}
+				>
+					<Download size={16} strokeWidth={2.25} aria-hidden="true" />
+					<span>{saving ? "Saving…" : saveError ? "Retry" : "Save"}</span>
+				</button>
+				<Dialog>
+					<DialogTrigger asChild>
+						<button
+							type="button"
+							className="qr-stamp-action"
+							aria-label="Enlarge QR code"
+							title="Enlarge QR code"
+						>
+							<Expand size={16} strokeWidth={2.25} aria-hidden="true" />
+							<span>Enlarge</span>
+						</button>
+					</DialogTrigger>
+					<DialogContent className="qr-stamp-dialog sm:max-w-[440px]">
+						<DialogTitle className="qr-stamp-dialog-title">Scan to open</DialogTitle>
+						<DialogDescription className="qr-stamp-dialog-description">
+							Scan this enlarged QR code to open the short link.
+						</DialogDescription>
+						<div className="qr-stamp-dialog-code">
+							<QrSvg stamp={stamp} id={`${id}-large`} />
+						</div>
+						<p className="qr-stamp-dialog-url">{url.replace(/^https?:\/\//, "")}</p>
+					</DialogContent>
+				</Dialog>
+				{saveError && <p className="qr-stamp-error">{saveError}</p>}
+			</fieldset>
 		</div>
 	);
 }

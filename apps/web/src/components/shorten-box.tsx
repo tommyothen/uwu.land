@@ -4,7 +4,7 @@ import { useAuth } from "@clerk/react-router";
 import type { CreateLinkResponse } from "@uwu/shared";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ClaimTicket } from "@/components/postal/claim-ticket";
+import { AddressLabel } from "@/components/postal/address-label";
 import { QrStamp } from "@/components/postal/qr-stamp";
 import { RubberStamp } from "@/components/postal/rubber-stamp";
 import { createLink, UwuApiError } from "@/lib/api";
@@ -89,6 +89,7 @@ export function ShortenBox() {
 	const [link, setLink] = useState<CreateLinkResponse | null>(null);
 	const [error, setError] = useState<PostalError | null>(null);
 	const [torn, setTorn] = useState(false);
+	const [copyError, setCopyError] = useState<string | null>(null);
 	const [countdown, setCountdown] = useState<number | null>(null);
 	const [announce, setAnnounce] = useState("");
 	const [savedToAccount, setSavedToAccount] = useState(false);
@@ -311,14 +312,18 @@ export function ShortenBox() {
 	}
 
 	async function tear() {
-		if (!link || torn) return;
+		if (!link) return;
+		setCopyError(null);
 		try {
 			await navigator.clipboard.writeText(link.short_url);
 		} catch {
-			// Clipboard can reject on insecure origins; the label still flips.
+			const message = "Couldn’t copy automatically. Select the link and copy it instead.";
+			setCopyError(message);
+			setAnnounce(message);
+			return;
 		}
 		setTorn(true);
-		setAnnounce("Copied");
+		setAnnounce("Short link copied");
 	}
 
 	function reset() {
@@ -327,6 +332,7 @@ export function ShortenBox() {
 		setLink(null);
 		setError(null);
 		setTorn(false);
+		setCopyError(null);
 		setCountdown(null);
 		setAnnounce("");
 		setSavedToAccount(false);
@@ -356,7 +362,10 @@ export function ShortenBox() {
 	})();
 
 	return (
-		<div ref={scope} className="envelope-shell">
+		<div
+			ref={scope}
+			className={`envelope-shell ${showResult ? "envelope-shell--result" : ""}`.trim()}
+		>
 			<span aria-live="polite" className="sr-only">
 				{announce}
 			</span>
@@ -434,54 +443,50 @@ export function ShortenBox() {
 
 			{showResult && link && (
 				<div className="result-stack">
-					<div className="result-card relative rounded-[14px] border-2 border-foreground bg-card p-5 text-left shadow-[5px_5px_0_var(--shadow-ink)]">
-						<RubberStamp
-							lines={[torn ? "COPIED" : "DELIVERED"]}
-							tone="ink"
-							shape="circle"
-							rotate={-8}
-							pressFrom={torn ? 1.2 : 1.6}
-							animate={phase !== "success" || torn}
-							className="postmark"
-						/>
-						{/* Parcel-label layout: the QR stamp franked on the left, the
-						    address block to its right, the two actions sharing the row
-						    below it. The QR stays clear of the postmark, which sits over
-						    the card's top-right corner. The stamp's own two pieces are
-						    placed by the grid — see `.qr-stamp` in app.css. */}
+					<div className="result-card text-left">
 						<div className="result-columns">
-							<QrStamp url={link.short_url} slug={link.slug} />
-							<div className="result-address min-w-0">
-								<p className="text-[13px] text-muted-foreground">
-									{savedToAccount ? (
-										<>
-											Delivered. Filed under your{" "}
-											<Link
-												to="/dashboard"
-												className="underline underline-offset-2 hover:text-foreground"
-											>
-												account
-											</Link>
-											.
-										</>
-									) : (
-										"Delivered. Your link now fits anywhere."
+							<div className="result-receipt">
+								<div className="result-address min-w-0">
+									<p className="text-base leading-[1.35] text-muted-foreground">
+										<span className="font-semibold text-foreground">Delivered.</span>{" "}
+										{savedToAccount ? (
+											<>
+												Filed under your{" "}
+												<Link
+													to="/dashboard"
+													className="underline underline-offset-2 hover:text-foreground"
+												>
+													account
+												</Link>
+												.
+											</>
+										) : (
+											"Your link now fits anywhere."
+										)}
+									</p>
+									<AddressLabel
+										url={link.short_url}
+										copied={torn}
+										onCopy={tear}
+										focusable={copyError !== null}
+									/>
+									{copyError && (
+										<p role="alert" className="result-copy-error">
+											{copyError}
+										</p>
 									)}
-								</p>
-								<p className="mt-1.5 font-mono text-xl font-bold break-all text-card-foreground">
-									{link.short_url.replace(/^https?:\/\//, "")}
-								</p>
+								</div>
+								<button
+									type="button"
+									onClick={reset}
+									className="result-send rounded-[10px] border-2 border-foreground px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-secondary"
+								>
+									Send another
+								</button>
 							</div>
-							<button
-								type="button"
-								onClick={reset}
-								className="result-send rounded-[10px] border-2 border-foreground px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-secondary"
-							>
-								Send another
-							</button>
+							<QrStamp url={link.short_url} slug={link.slug} onAnnounce={setAnnounce} />
 						</div>
 					</div>
-					<ClaimTicket torn={torn} onTear={tear} />
 				</div>
 			)}
 		</div>

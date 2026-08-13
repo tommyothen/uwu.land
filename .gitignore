@@ -15,5 +15,9 @@ docs/MAINTENANCE.md
 # Local Claude Code config/skills — not tracked
 .claude/
 
+# Local design and browser tooling
+.impeccable/
+.playwright-mcp/
+
 # DSAR exports hold personal data and must never be committed
 dsar-*.json
