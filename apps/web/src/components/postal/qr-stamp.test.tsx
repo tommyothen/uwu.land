@@ -1,49 +1,50 @@
 import { render, screen } from "@testing-library/react";
+import { QrCodeDataType } from "uqr";
 import { describe, expect, it } from "vitest";
 import {
 	BADGE_INSET,
 	badgeSquare,
 	buildQrStamp,
-	isUnderLabel,
-	LABEL_MAX_RATIO,
-	labelBox
+	CORNER_CLEAR,
+	cornerBox,
+	isUnderLabel
 } from "@/lib/qr";
 import { QrStamp } from "./qr-stamp";
 
 const URL = "https://uwu.land/aB3xK9";
 
 describe("qr geometry", () => {
-	it("keeps the badge module-aligned, centred and under the ratio cap", () => {
-		for (const size of [21, 25, 37, 45, 57]) {
-			const box = labelBox(size);
-			expect(box.span / size).toBeLessThanOrEqual(LABEL_MAX_RATIO);
-			// Symmetric around the middle: equal margin either side.
-			expect(box.start * 2 + box.span).toBe(size);
+	it("anchors the cleared box to the bottom-right corner, module-aligned", () => {
+		for (const size of [21, 25, 29, 37, 45, 57]) {
+			const box = cornerBox(size);
+			expect(box.span).toBe(CORNER_CLEAR);
+			expect(box.start + box.span).toBe(size);
 			expect(Number.isInteger(box.start)).toBe(true);
 		}
 	});
 
-	it("keeps the paper square strictly inside the cleared modules", () => {
+	it("keeps the badge's in-symbol half strictly inside the cleared modules", () => {
 		// The badge edge must never cut a module in half: every module it touches
-		// has to be one the renderers already dropped.
+		// has to be one the renderers already dropped. The other half hangs over
+		// the quiet zone, where there are no modules to cut.
 		expect(BADGE_INSET).toBeGreaterThan(0);
-		for (const size of [21, 25, 37, 45, 57]) {
-			const box = labelBox(size);
-			const square = badgeSquare(box);
+		for (const size of [21, 25, 29, 37, 45, 57]) {
+			const box = cornerBox(size);
+			const square = badgeSquare(size);
 			expect(square.offset).toBeGreaterThan(box.start);
-			expect(square.offset + square.size).toBeLessThan(box.start + box.span);
-			// Concentric with the cleared box.
-			expect(square.offset + square.size / 2).toBeCloseTo(size / 2, 10);
+			// Centred on the corner point, symmetric into symbol and quiet zone.
+			expect(square.offset + square.size / 2).toBeCloseTo(size, 10);
+			// Stays within the 4-module quiet zone on the outside.
+			expect(square.offset + square.size).toBeLessThan(size + 4);
 		}
 	});
 
-	it("clears 11 modules of a version 5 symbol, inside level H's budget", () => {
+	it("clears a corner well inside level M's budget", () => {
 		const stamp = buildQrStamp(URL);
-		expect(stamp.size).toBe(37);
-		expect(stamp.label.span).toBe(11);
+		expect(stamp.size).toBe(25);
 		const covered = stamp.label.span ** 2 / stamp.size ** 2;
-		// Level H recovers ~30%; 11x11 of 37x37 is ~8.8%.
-		expect(covered).toBeLessThan(0.1);
+		// Level M recovers ~15%; 4x4 of 25x25 is ~2.6%.
+		expect(covered).toBeLessThan(0.05);
 	});
 
 	it("never lets the badge sit on a finder pattern", () => {
@@ -57,10 +58,24 @@ describe("qr geometry", () => {
 		}
 	});
 
-	it("pins a minimum version so short slugs don't get a tiny symbol", () => {
-		// Every uwu.land URL should land on the same version, badge included.
-		expect(buildQrStamp("https://uwu.land/a").code.version).toBeGreaterThanOrEqual(5);
-		expect(buildQrStamp(URL).code.version).toBeGreaterThanOrEqual(5);
+	it("never lets the badge sit on an alignment pattern", () => {
+		// The bottom-right alignment pattern ends at size-5 on every version;
+		// the cleared corner starts at size-4. Losing it would cost the scanner
+		// its geometry correction, which ECC can't buy back.
+		for (const slug of ["a", "aB3xK9", "a-much-longer-custom-slug"]) {
+			const stamp = buildQrStamp(`https://uwu.land/${slug}`);
+			for (let y = 0; y < stamp.size; y += 1) {
+				for (let x = 0; x < stamp.size; x += 1) {
+					if (stamp.code.types[y]?.[x] !== QrCodeDataType.Alignment) continue;
+					expect(isUnderLabel(stamp.label, x, y)).toBe(false);
+				}
+			}
+		}
+	});
+
+	it("pins a minimum version so every standard slug gets the same symbol", () => {
+		expect(buildQrStamp("https://uwu.land/a").code.version).toBe(2);
+		expect(buildQrStamp(URL).code.version).toBe(2);
 	});
 
 	it("omits every module hidden by the badge", () => {
@@ -69,6 +84,12 @@ describe("qr geometry", () => {
 		for (const dot of stamp.dots) {
 			expect(isUnderLabel(stamp.label, dot.x, dot.y)).toBe(false);
 		}
+	});
+
+	it("bakes every dot into the single path, one circle each", () => {
+		const stamp = buildQrStamp(URL);
+		const circles = stamp.path.match(/M[\d. -]+a\.5 \.5/g) ?? [];
+		expect(circles.length).toBe(stamp.dots.length);
 	});
 });
 
@@ -80,13 +101,11 @@ describe("QrStamp", () => {
 		expect(svg.textContent).toContain("Land");
 	});
 
-	it("draws modules as full-size touching circles", () => {
+	it("draws all data modules as one path element", () => {
 		const { container } = render(<QrStamp url={URL} slug="aB3xK9" />);
-		const dot = container.querySelector("svg > g > rect");
-		expect(dot?.getAttribute("width")).toBe("1");
-		expect(dot?.getAttribute("height")).toBe("1");
-		// rx of half a module turns the square into a circle.
-		expect(dot?.getAttribute("rx")).toBe("0.5");
+		const paths = container.querySelectorAll(".qr-stamp-svg path");
+		expect(paths.length).toBe(1);
+		expect(paths[0]?.getAttribute("fill")).toBe("url(#qr-aB3xK9-modules)");
 	});
 
 	it("gives the badge a bare paper square — background, no outline", () => {

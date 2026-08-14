@@ -27,24 +27,19 @@ import {
 /** Downloaded PNG edge, in device pixels. */
 const EXPORT_PX = 1024;
 
-/**
- * Corner rounding of a data module, as a share of the module. Half a module
- * makes each one a full-size circle that just touches its neighbours.
- */
-const DOT_RADIUS = 0.5;
-
-const BADGE_RADIUS = 1.9;
-
 const DISPLAY_FONT = '"Bricolage Grotesque Variable", sans-serif';
 
 /**
- * Baselines and sizes for "UwU" / "Land", in module units. The pair is centred
- * as one block: the baselines are offsets from the middle of the badge.
+ * Badge metrics as fractions of the badge's edge, so the corner tag can be
+ * resized in one place. Baselines are offsets from the badge's centre — the
+ * symbol's bottom-right corner point — for the "UwU" / "Land" pair, centred
+ * as one block.
  */
-const UWU_SIZE = 3.8;
-const LAND_SIZE = 3.13;
-const UWU_BASELINE = -0.25;
-const LAND_BASELINE = 2.79;
+const BADGE_RADIUS_RATIO = 0.19;
+const UWU_SIZE_RATIO = 0.39;
+const LAND_SIZE_RATIO = 0.32;
+const UWU_BASELINE_RATIO = -0.026;
+const LAND_BASELINE_RATIO = 0.285;
 
 /** The rounded ring + pupil of one finder pattern, in module units. */
 function finderShapes(x: number, y: number) {
@@ -56,8 +51,9 @@ function finderShapes(x: number, y: number) {
 
 function QrSvg({ stamp, id }: { stamp: Stamp; id: string }) {
 	const extent = stamp.size + QR_BORDER * 2;
-	const centre = QR_BORDER + stamp.label.start + stamp.label.span / 2;
-	const square = badgeSquare(stamp.label);
+	// The badge is centred on the symbol's bottom-right corner point.
+	const centre = QR_BORDER + stamp.size;
+	const square = badgeSquare(stamp.size);
 	const badge = { x: QR_BORDER + square.offset, size: square.size };
 
 	return (
@@ -81,18 +77,8 @@ function QrSvg({ stamp, id }: { stamp: Stamp; id: string }) {
 
 			<rect width={extent} height={extent} fill={QR_PALETTE.paper} rx="2" />
 
-			<g fill={`url(#${id}-modules)`}>
-				{stamp.dots.map((dot) => (
-					<rect
-						key={`${dot.x}-${dot.y}`}
-						x={QR_BORDER + dot.x}
-						y={QR_BORDER + dot.y}
-						width={1}
-						height={1}
-						rx={DOT_RADIUS}
-					/>
-				))}
-			</g>
+			{/* Every data module in one node: ~600 circles as a single path. */}
+			<path d={stamp.path} fill={`url(#${id}-modules)`} />
 
 			<g fill="none" stroke={QR_PALETTE.ink}>
 				{stamp.finders.map((finder) => {
@@ -130,7 +116,7 @@ function QrSvg({ stamp, id }: { stamp: Stamp; id: string }) {
 				y={badge.x}
 				width={badge.size}
 				height={badge.size}
-				rx={BADGE_RADIUS}
+				rx={badge.size * BADGE_RADIUS_RATIO}
 				fill={QR_PALETTE.paper}
 			/>
 			<text
@@ -140,8 +126,8 @@ function QrSvg({ stamp, id }: { stamp: Stamp; id: string }) {
 			>
 				<tspan
 					x={centre}
-					y={centre + UWU_BASELINE}
-					fontSize={UWU_SIZE}
+					y={centre + badge.size * UWU_BASELINE_RATIO}
+					fontSize={badge.size * UWU_SIZE_RATIO}
 					fontWeight={800}
 					fill={`url(#${id}-badge)`}
 				>
@@ -149,8 +135,8 @@ function QrSvg({ stamp, id }: { stamp: Stamp; id: string }) {
 				</tspan>
 				<tspan
 					x={centre}
-					y={centre + LAND_BASELINE}
-					fontSize={LAND_SIZE}
+					y={centre + badge.size * LAND_BASELINE_RATIO}
+					fontSize={badge.size * LAND_SIZE_RATIO}
 					fontWeight={500}
 					fill={QR_PALETTE.ink}
 				>
@@ -179,21 +165,17 @@ async function renderPng(stamp: Stamp): Promise<Blob | null> {
 	ctx.fillStyle = QR_PALETTE.paper;
 	ctx.fillRect(0, 0, EXPORT_PX, EXPORT_PX);
 
-	const modules = ctx.createLinearGradient(0, 0, EXPORT_PX, EXPORT_PX);
+	// One fill for all data modules; the path is in module units, so scale the
+	// context instead of rebuilding it in pixels. Gradient coords follow the
+	// scaled space.
+	const modules = ctx.createLinearGradient(0, 0, extent, extent);
 	modules.addColorStop(0, QR_PALETTE.gradientFrom);
 	modules.addColorStop(1, QR_PALETTE.gradientTo);
+	ctx.save();
+	ctx.scale(unit, unit);
 	ctx.fillStyle = modules;
-	for (const dot of stamp.dots) {
-		ctx.beginPath();
-		ctx.roundRect(
-			px(QR_BORDER + dot.x),
-			px(QR_BORDER + dot.y),
-			unit,
-			unit,
-			px(DOT_RADIUS)
-		);
-		ctx.fill();
-	}
+	ctx.fill(new Path2D(stamp.path));
+	ctx.restore();
 
 	ctx.strokeStyle = QR_PALETTE.ink;
 	ctx.lineWidth = unit;
@@ -217,15 +199,15 @@ async function renderPng(stamp: Stamp): Promise<Blob | null> {
 		ctx.fill();
 	}
 
-	const square = badgeSquare(stamp.label);
+	const square = badgeSquare(stamp.size);
 	const badgeX = px(QR_BORDER + square.offset);
 	const badgeSize = px(square.size);
 	ctx.fillStyle = QR_PALETTE.paper;
 	ctx.beginPath();
-	ctx.roundRect(badgeX, badgeX, badgeSize, badgeSize, px(BADGE_RADIUS));
+	ctx.roundRect(badgeX, badgeX, badgeSize, badgeSize, badgeSize * BADGE_RADIUS_RATIO);
 	ctx.fill();
 
-	const centre = px(QR_BORDER + stamp.label.start + stamp.label.span / 2);
+	const centre = px(QR_BORDER + stamp.size);
 	ctx.textAlign = "center";
 	ctx.textBaseline = "alphabetic";
 
@@ -238,12 +220,12 @@ async function renderPng(stamp: Stamp): Promise<Blob | null> {
 	badgeText.addColorStop(0, QR_PALETTE.gradientFrom);
 	badgeText.addColorStop(1, QR_PALETTE.blush);
 	ctx.fillStyle = badgeText;
-	ctx.font = `800 ${px(UWU_SIZE)}px ${DISPLAY_FONT}`;
-	ctx.fillText("UwU", centre, centre + px(UWU_BASELINE));
+	ctx.font = `800 ${badgeSize * UWU_SIZE_RATIO}px ${DISPLAY_FONT}`;
+	ctx.fillText("UwU", centre, centre + badgeSize * UWU_BASELINE_RATIO);
 
 	ctx.fillStyle = QR_PALETTE.ink;
-	ctx.font = `500 ${px(LAND_SIZE)}px ${DISPLAY_FONT}`;
-	ctx.fillText("Land", centre, centre + px(LAND_BASELINE));
+	ctx.font = `500 ${badgeSize * LAND_SIZE_RATIO}px ${DISPLAY_FONT}`;
+	ctx.fillText("Land", centre, centre + badgeSize * LAND_BASELINE_RATIO);
 
 	return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
