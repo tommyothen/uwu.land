@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuth } from "@clerk/react-router";
 import type { CreateLinkResponse } from "@uwu/shared";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -9,6 +8,7 @@ import { QrStamp } from "@/components/postal/qr-stamp";
 import { RubberStamp } from "@/components/postal/rubber-stamp";
 import { createLink, UwuApiError } from "@/lib/api";
 import { getGsap, loadGsap, prefersReducedMotion } from "@/lib/motion";
+import { useClerkAuth } from "@/lib/session";
 
 type Gsap = (typeof import("gsap"))["gsap"];
 type GsapContext = ReturnType<Gsap["context"]>;
@@ -87,7 +87,10 @@ export function ShortenBox() {
 	const [announce, setAnnounce] = useState("");
 	const [savedToAccount, setSavedToAccount] = useState(false);
 
-	const { isLoaded, isSignedIn, getToken } = useAuth();
+	// Null on the anonymous landing page, where no Clerk provider is mounted. The
+	// root only omits the provider when the server saw no session, so a signed-in
+	// sender always has this and always gets the token path below.
+	const auth = useClerkAuth();
 
 	const scope = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -286,8 +289,8 @@ export function ShortenBox() {
 		// Signed-in senders file the link under their account; a missing token
 		// (unexpected) quietly falls back to an anonymous create.
 		const tokenPromise: Promise<string | null> =
-			isLoaded && isSignedIn
-				? getToken().catch(() => null)
+			auth?.isLoaded && auth.isSignedIn
+				? auth.getToken().catch(() => null)
 				: Promise.resolve(null);
 
 		tokenPromise

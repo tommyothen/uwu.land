@@ -1,8 +1,10 @@
-import { Show } from "@clerk/react-router";
 import { Link } from "react-router";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useHasSession } from "@/lib/session";
 
 export function SiteHeader() {
+	const hasSession = useHasSession();
+
 	return (
 		<>
 			<header className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-6">
@@ -19,28 +21,29 @@ export function SiteHeader() {
 					>
 						API docs
 					</Link>
-					<Show when="signed-out">
-						<Link
-							to="/sign-in"
-							className="text-muted-foreground transition hover:text-foreground"
-						>
-							Sign in
-						</Link>
-						<Link
-							to="/sign-up"
-							className="rounded-[10px] bg-primary px-3.5 py-1.5 font-medium text-primary-foreground transition hover:opacity-90"
-						>
-							Sign up
-						</Link>
-					</Show>
-					<Show when="signed-in">
+					{hasSession ? (
 						<Link
 							to="/dashboard"
 							className="rounded-[10px] bg-primary px-3.5 py-1.5 font-medium text-primary-foreground transition hover:opacity-90"
 						>
 							Dashboard
 						</Link>
-					</Show>
+					) : (
+						<>
+							<Link
+								to="/sign-in"
+								className="text-muted-foreground transition hover:text-foreground"
+							>
+								Sign in
+							</Link>
+							<Link
+								to="/sign-up"
+								className="rounded-[10px] bg-primary px-3.5 py-1.5 font-medium text-primary-foreground transition hover:opacity-90"
+							>
+								Sign up
+							</Link>
+						</>
+					)}
 					<ThemeToggle />
 				</nav>
 			</header>

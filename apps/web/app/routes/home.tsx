@@ -1,4 +1,3 @@
-import { Show } from "@clerk/react-router";
 import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { AirmailStripe } from "@/components/postal/airmail-stripe";
@@ -10,6 +9,7 @@ import { ShortenBox } from "@/components/shorten-box";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Wordmark } from "@/components/wordmark";
 import { getGsap, prefersReducedMotion } from "@/lib/motion";
+import { useHasSession } from "@/lib/session";
 
 const navLink =
 	"text-foreground/75 transition hover:text-foreground hover:underline";
@@ -35,6 +35,7 @@ function franks() {
 }
 
 export default function Home() {
+	const hasSession = useHasSession();
 	const flight = useRef<GsapTimeline | null>(null);
 
 	useEffect(() => {
@@ -118,16 +119,15 @@ export default function Home() {
 				<span aria-hidden="true" className="text-foreground/40">
 					·
 				</span>
-				<Show when="signed-out">
-					<Link to="/sign-in" className={navLink}>
-						Sign in
-					</Link>
-				</Show>
-				<Show when="signed-in">
+				{hasSession ? (
 					<Link to="/dashboard" className={navLink}>
 						Dashboard
 					</Link>
-				</Show>
+				) : (
+					<Link to="/sign-in" className={navLink}>
+						Sign in
+					</Link>
+				)}
 				<span aria-hidden="true" className="text-foreground/40">
 					·
 				</span>

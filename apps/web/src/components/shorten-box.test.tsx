@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLink, UwuApiError } from "@/lib/api";
 import { getGsap, loadGsap, prefersReducedMotion } from "@/lib/motion";
+import { ClerkAuthProvider } from "@/lib/session";
 import { ShortenBox } from "./shorten-box";
 
 type Gsap = (typeof import("gsap"))["gsap"];
@@ -17,9 +18,21 @@ const { authState } = vi.hoisted(() => ({
 	}
 }));
 
-vi.mock("@clerk/react-router", () => ({
-	useAuth: () => authState
-}));
+// ShortenBox reads auth off a context the Clerk shell publishes, so it must not
+// reach for the SDK itself: on the anonymous landing page no provider is mounted
+// and the chunk is never downloaded. This factory throws if the import returns.
+vi.mock("@clerk/react-router", () => {
+	throw new Error("ShortenBox must not import Clerk's client SDK");
+});
+
+/** A visitor the root loader saw a session for: the Clerk shell is mounted. */
+function renderWithClerk() {
+	return render(
+		<ClerkAuthProvider value={authState}>
+			<ShortenBox />
+		</ClerkAuthProvider>
+	);
+}
 
 // The signed-in result card links to /dashboard; stub Link so it renders without
 // a Router context.
@@ -321,9 +334,23 @@ describe("ShortenBox submit choreography", () => {
 		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
 	});
 
-	it("creates anonymously with a null token when signed out", async () => {
+	it("creates anonymously with no provider mounted and asks for no token", async () => {
+		authState.getToken = vi.fn(async () => "tok_should_not_be_used");
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
+		await submit();
+		await advance(750);
+
+		expect(createLinkMock).toHaveBeenCalledWith(
+			{ url: "https://example.com/page" },
+			null
+		);
+		expect(authState.getToken).not.toHaveBeenCalled();
+	});
+
+	it("creates anonymously with a null token when signed out", async () => {
+		createLinkMock.mockResolvedValueOnce(link);
+		renderWithClerk();
 		await submit();
 		await advance(750);
 
@@ -340,7 +367,7 @@ describe("ShortenBox submit choreography", () => {
 		authState.isSignedIn = true;
 		authState.getToken = vi.fn(async () => "tok_123");
 		createLinkMock.mockResolvedValueOnce(link);
-		render(<ShortenBox />);
+		renderWithClerk();
 		await submit();
 		await advance(750);
 		await advance(250);
@@ -360,7 +387,7 @@ describe("ShortenBox submit choreography", () => {
 		authState.isSignedIn = true;
 		authState.getToken = vi.fn(async () => null);
 		createLinkMock.mockResolvedValueOnce(link);
-		render(<ShortenBox />);
+		renderWithClerk();
 		await submit();
 		await advance(750);
 

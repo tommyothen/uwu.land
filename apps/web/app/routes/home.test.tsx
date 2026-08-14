@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { loadGsap } from "@/lib/motion";
+import { HasSessionProvider } from "@/lib/session";
 import Home from "./home";
 
 vi.mock("@/lib/motion", async (importOriginal) => {
@@ -10,19 +10,19 @@ vi.mock("@/lib/motion", async (importOriginal) => {
 	return { ...actual, loadGsap: vi.fn(async () => null) };
 });
 
-vi.mock("@clerk/react-router", () => ({
-	Show: ({ children }: { children: ReactNode }) => children,
-	useAuth: () => ({
-		isLoaded: true,
-		isSignedIn: false,
-		getToken: vi.fn(async () => null)
-	})
-}));
+// The landing page must download no Clerk client code. This factory only runs if
+// something in the render graph actually imports the SDK, so every test below
+// that renders without throwing is an assertion that it does not.
+vi.mock("@clerk/react-router", () => {
+	throw new Error("the landing page must not import Clerk's client SDK");
+});
 
-function renderHome() {
+function renderHome(hasSession = false) {
 	return render(
 		<MemoryRouter>
-			<Home />
+			<HasSessionProvider value={hasSession}>
+				<Home />
+			</HasSessionProvider>
 		</MemoryRouter>
 	);
 }
@@ -67,5 +67,17 @@ describe("landing page", () => {
 		renderHome();
 		const stampLine = screen.getByText("AIR MAIL");
 		expect(stampLine.closest('[aria-hidden="true"]')).not.toBeNull();
+	});
+
+	it("offers sign-in to anonymous visitors and never mounts Clerk", () => {
+		renderHome();
+		expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
+		expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
+	});
+
+	it("swaps the nav for the dashboard when the root loader saw a session", () => {
+		renderHome(true);
+		expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
+		expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
 	});
 });
