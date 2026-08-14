@@ -9,6 +9,7 @@ import { Stamp } from "@/components/postal/stamp";
 import { ShortenBox } from "@/components/shorten-box";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Wordmark } from "@/components/wordmark";
+import { getGsap, prefersReducedMotion } from "@/lib/motion";
 
 const navLink =
 	"text-foreground/75 transition hover:text-foreground hover:underline";
@@ -33,14 +34,6 @@ function franks() {
 	);
 }
 
-function prefersReducedMotion(): boolean {
-	return (
-		typeof window !== "undefined" &&
-		typeof window.matchMedia === "function" &&
-		window.matchMedia("(prefers-reduced-motion: reduce)").matches
-	);
-}
-
 export default function Home() {
 	const flight = useRef<GsapTimeline | null>(null);
 
@@ -52,16 +45,13 @@ export default function Home() {
 	// edge, then fades back in from the left and settles into the stamp. Wired via
 	// a window event the ShortenBox fires when it launches (motion only). The
 	// landing root is overflow-hidden, so the off-screen travel adds no scrollbars.
+	// gsap is never fetched here: the ShortenBox warms the shared loader when the
+	// input is first touched, and this handler only reads what is already there.
 	useEffect(() => {
 		if (import.meta.env.SSR) return;
-		let cancelled = false;
-		let gsap: (typeof import("gsap"))["gsap"] | null = null;
-		void import("gsap").then((module) => {
-			if (!cancelled) gsap = module.gsap;
-		});
 
 		function onSend() {
-			const gsapInstance = gsap;
+			const gsapInstance = getGsap();
 			if (prefersReducedMotion() || !gsapInstance) return;
 			const glyph = document.querySelector<HTMLElement>(
 				".landing-stamp .stamp-glyph"
@@ -101,7 +91,6 @@ export default function Home() {
 
 		window.addEventListener("uwu:send", onSend);
 		return () => {
-			cancelled = true;
 			window.removeEventListener("uwu:send", onSend);
 			flight.current?.kill();
 		};

@@ -2,7 +2,10 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLink, UwuApiError } from "@/lib/api";
+import { getGsap, loadGsap, prefersReducedMotion } from "@/lib/motion";
 import { ShortenBox } from "./shorten-box";
+
+type Gsap = (typeof import("gsap"))["gsap"];
 
 // Mutable auth stub so individual tests can flip signed-in/out (house pattern:
 // see account-panel.test.tsx) without re-mocking the module.
@@ -39,8 +42,27 @@ vi.mock("@/lib/api", async (importOriginal) => {
 	return { ...actual, createLink: vi.fn() };
 });
 
+// The real loader would pull the gsap bundle in; stub the fetch so the choreography
+// is deterministic and so tests can watch when (and whether) it is requested.
+vi.mock("@/lib/motion", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/motion")>();
+	return { ...actual, loadGsap: vi.fn(), getGsap: vi.fn() };
+});
+
 const createLinkMock = vi.mocked(createLink);
+const loadGsapMock = vi.mocked(loadGsap);
+const getGsapMock = vi.mocked(getGsap);
 const writeText = vi.fn();
+
+function gsapStub(): Gsap {
+	const timeline = { to: vi.fn(() => timeline), kill: vi.fn() };
+	return {
+		context: () => ({ add: (fn: () => void) => fn(), revert: vi.fn() }),
+		timeline: () => timeline,
+		fromTo: vi.fn(),
+		set: vi.fn()
+	} as unknown as Gsap;
+}
 
 function setReducedMotion(reduced: boolean) {
 	window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -79,8 +101,14 @@ async function advance(ms: number) {
 	});
 }
 
-function submit(url = "https://example.com/page") {
+// The animation bundle is fetched on the first touch of the input, so a realistic
+// send focuses first and lets the loader settle before submitting.
+async function submit(url = "https://example.com/page") {
 	const input = screen.getByLabelText(/url/i);
+	await act(async () => {
+		fireEvent.focus(input);
+		await Promise.resolve();
+	});
 	fireEvent.change(input, { target: { value: url } });
 	fireEvent.submit(input.closest("form") as HTMLFormElement);
 }
@@ -88,6 +116,10 @@ function submit(url = "https://example.com/page") {
 beforeEach(() => {
 	vi.useFakeTimers();
 	setReducedMotion(false);
+	getGsapMock.mockReturnValue(null);
+	loadGsapMock.mockImplementation(async () =>
+		prefersReducedMotion() ? null : gsapStub()
+	);
 	authState.isLoaded = true;
 	authState.isSignedIn = false;
 	authState.getToken = vi.fn(async () => null);
@@ -101,6 +133,8 @@ afterEach(() => {
 	vi.runOnlyPendingTimers();
 	vi.useRealTimers();
 	createLinkMock.mockReset();
+	loadGsapMock.mockReset();
+	getGsapMock.mockReset();
 	writeText.mockReset();
 });
 
@@ -108,7 +142,7 @@ describe("ShortenBox submit choreography", () => {
 	it("holds the result until the plane exits on a fast success", async () => {
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await flush();
 
 		// API is already back, but the plane has not exited yet.
@@ -124,7 +158,7 @@ describe("ShortenBox submit choreography", () => {
 			() => new Promise((r) => (resolve = r))
 		);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 
 		expect(screen.getByText("in transit…")).toBeInTheDocument();
@@ -143,7 +177,7 @@ describe("ShortenBox submit choreography", () => {
 			new UwuApiError({ status: 500, code: "internal", message: "boom" })
 		);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 		await advance(1);
 
@@ -166,7 +200,7 @@ describe("ShortenBox submit choreography", () => {
 			})
 		);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 
 		const stamp = screen.getByText("MAILBOX FULL");
@@ -180,7 +214,7 @@ describe("ShortenBox submit choreography", () => {
 
 	it("never launches the plane for a client-side invalid URL", async () => {
 		render(<ShortenBox />);
-		submit("not a url");
+		await submit("not a url");
 		await flush();
 
 		expect(createLinkMock).not.toHaveBeenCalled();
@@ -194,7 +228,7 @@ describe("ShortenBox submit choreography", () => {
 		writeText.mockResolvedValue(undefined);
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 		await advance(250);
 
@@ -213,7 +247,7 @@ describe("ShortenBox submit choreography", () => {
 		writeText.mockRejectedValueOnce(new Error("clipboard denied"));
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 		await advance(250);
 
@@ -236,7 +270,7 @@ describe("ShortenBox submit choreography", () => {
 		// Idle: the shell holds the form; the reserve keeps its footprint from first paint.
 		expect(container.querySelector(".envelope-shell > form")).not.toBeNull();
 
-		submit();
+		await submit();
 		await advance(750);
 		await advance(250);
 
@@ -253,7 +287,7 @@ describe("ShortenBox submit choreography", () => {
 	it("announces the ready link on an aria-live region", async () => {
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 
 		expect(
@@ -264,7 +298,7 @@ describe("ShortenBox submit choreography", () => {
 	it("survives an unmount mid-flight", async () => {
 		createLinkMock.mockImplementationOnce(() => new Promise(() => {}));
 		const { unmount } = render(<ShortenBox />);
-		submit();
+		await submit();
 		await flush();
 		expect(() => unmount()).not.toThrow();
 		await advance(1000);
@@ -277,12 +311,12 @@ describe("ShortenBox submit choreography", () => {
 			)
 			.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 		await advance(1);
 		expect(screen.getByText("RETURN TO SENDER")).toBeInTheDocument();
 
-		submit();
+		await submit();
 		await advance(750);
 		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
 	});
@@ -290,7 +324,7 @@ describe("ShortenBox submit choreography", () => {
 	it("creates anonymously with a null token when signed out", async () => {
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 
 		expect(createLinkMock).toHaveBeenCalledWith(
@@ -307,7 +341,7 @@ describe("ShortenBox submit choreography", () => {
 		authState.getToken = vi.fn(async () => "tok_123");
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 		await advance(250);
 
@@ -327,7 +361,7 @@ describe("ShortenBox submit choreography", () => {
 		authState.getToken = vi.fn(async () => null);
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await advance(750);
 
 		expect(createLinkMock).toHaveBeenCalledWith(
@@ -343,11 +377,75 @@ describe("ShortenBox submit choreography", () => {
 		setReducedMotion(true);
 		createLinkMock.mockResolvedValueOnce(link);
 		render(<ShortenBox />);
-		submit();
+		await submit();
 		await flush();
 		await advance(1);
 
 		expect(screen.queryByText("in transit…")).toBeNull();
+		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
+	});
+});
+
+describe("ShortenBox motion loading", () => {
+	it("requests no animation bundle until the input is touched", async () => {
+		render(<ShortenBox />);
+		expect(loadGsapMock).not.toHaveBeenCalled();
+
+		const input = screen.getByLabelText(/url/i);
+		await act(async () => {
+			fireEvent.focus(input);
+			await Promise.resolve();
+		});
+		expect(loadGsapMock).toHaveBeenCalledTimes(1);
+
+		// Later keystrokes reuse the first fetch.
+		fireEvent.change(input, { target: { value: "https://example.com" } });
+		fireEvent.focus(input);
+		expect(loadGsapMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks the loader for nothing extra under reduced motion", async () => {
+		setReducedMotion(true);
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		await submit();
+		await flush();
+		await advance(1);
+
+		// The loader is consulted once and answers null, so no gsap bytes are fetched.
+		expect(loadGsapMock).toHaveBeenCalledTimes(1);
+		await expect(loadGsapMock.mock.results[0]?.value).resolves.toBeNull();
+	});
+
+	it("delivers the link when the send beats the animation fetch", async () => {
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+
+		// Focus, type and submit in one synchronous burst: loadGsap has not resolved,
+		// so the send takes the immediate no-animation path rather than stalling.
+		const input = screen.getByLabelText(/url/i);
+		fireEvent.focus(input);
+		fireEvent.change(input, { target: { value: "https://example.com/page" } });
+		fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+		await flush();
+		await advance(1);
+
+		expect(screen.queryByText("in transit…")).toBeNull();
+		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
+	});
+
+	it("uses an already-warm gsap instance without refetching", async () => {
+		getGsapMock.mockReturnValue(gsapStub());
+		createLinkMock.mockResolvedValueOnce(link);
+		render(<ShortenBox />);
+		await submit();
+		await flush();
+
+		expect(loadGsapMock).not.toHaveBeenCalled();
+		// Full choreography: the result waits for the plane to clear.
+		expect(screen.queryByText("uwu.land/abc12")).toBeNull();
+		await advance(750);
 		expect(screen.getByText("uwu.land/abc12")).toBeInTheDocument();
 	});
 });

@@ -8,6 +8,7 @@ import { AddressLabel } from "@/components/postal/address-label";
 import { QrStamp } from "@/components/postal/qr-stamp";
 import { RubberStamp } from "@/components/postal/rubber-stamp";
 import { createLink, UwuApiError } from "@/lib/api";
+import { getGsap, loadGsap, prefersReducedMotion } from "@/lib/motion";
 
 type Gsap = (typeof import("gsap"))["gsap"];
 type GsapContext = ReturnType<Gsap["context"]>;
@@ -75,14 +76,6 @@ function toPostalError(error: unknown): PostalError {
 	return { stamp: "RETURN TO SENDER", tone: "red", message: COPY.server, retryAfter: null };
 }
 
-function prefersReducedMotion(): boolean {
-	return (
-		typeof window !== "undefined" &&
-		typeof window.matchMedia === "function" &&
-		window.matchMedia("(prefers-reduced-motion: reduce)").matches
-	);
-}
-
 export function ShortenBox() {
 	const [phase, setPhase] = useState<Phase>("idle");
 	const [url, setUrl] = useState("");
@@ -109,6 +102,7 @@ export function ShortenBox() {
 	const gsapRef = useRef<Gsap | null>(null);
 	const ctxRef = useRef<GsapContext | null>(null);
 	const mounted = useRef(true);
+	const warmed = useRef(false);
 
 	useEffect(() => {
 		mounted.current = true;
@@ -117,25 +111,32 @@ export function ShortenBox() {
 			if (planeTimer.current) clearTimeout(planeTimer.current);
 			if (landTimer.current) clearTimeout(landTimer.current);
 			timeline.current?.kill();
-		};
-	}, []);
-
-	useEffect(() => {
-		if (import.meta.env.SSR) return;
-		let cancelled = false;
-		void import("gsap").then((module) => {
-			if (cancelled) return;
-			gsapRef.current = module.gsap;
-			ctxRef.current = module.gsap.context(() => {}, scope);
-		});
-		return () => {
-			cancelled = true;
 			ctxRef.current?.revert();
 			ctxRef.current = null;
 			gsapRef.current = null;
-			timeline.current?.kill();
 		};
 	}, []);
+
+	function attachGsap(gsap: Gsap) {
+		gsapRef.current = gsap;
+		ctxRef.current = gsap.context(() => {}, scope);
+	}
+
+	// gsap is fetched on the first touch of the input, never on mount: a visitor
+	// who only reads the page (or who asked for reduced motion) downloads none of
+	// it. Anyone who submits before it lands takes the no-animation path below.
+	function warmMotion() {
+		if (warmed.current) return;
+		warmed.current = true;
+		const ready = getGsap();
+		if (ready) {
+			attachGsap(ready);
+			return;
+		}
+		void loadGsap().then((gsap) => {
+			if (gsap && mounted.current) attachGsap(gsap);
+		});
+	}
 
 	// Rate-limit countdown, 1Hz, announced politely.
 	useEffect(() => {
@@ -277,7 +278,9 @@ export function ShortenBox() {
 			return;
 		}
 
-		const motion = !prefersReducedMotion();
+		// No gsap yet (submitted before the lazy fetch landed) means no choreography:
+		// fall through the same immediate path reduced-motion senders take.
+		const motion = !prefersReducedMotion() && gsapRef.current !== null;
 		setPhase("departing");
 
 		// Signed-in senders file the link under their account; a missing token
@@ -383,7 +386,11 @@ export function ShortenBox() {
 							required
 							disabled={disabled}
 							value={url}
-							onChange={(event) => setUrl(event.target.value)}
+							onFocus={warmMotion}
+							onChange={(event) => {
+								warmMotion();
+								setUrl(event.target.value);
+							}}
 							placeholder="https://verylongsite.com/a/really/long/path"
 							className="min-w-0 flex-1 bg-transparent px-3 text-[15px] text-card-foreground outline-none placeholder:text-[color:var(--placeholder)] disabled:opacity-0"
 						/>

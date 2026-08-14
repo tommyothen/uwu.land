@@ -2,7 +2,6 @@ import { UserButton } from "@clerk/react-router";
 import { getAuth } from "@clerk/react-router/server";
 import { Link, Outlet, redirect } from "react-router";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Toaster } from "@/components/ui/sonner";
 import type { Route } from "./+types/layout";
 
 const NAV = [
@@ -53,7 +52,6 @@ export default function DashboardLayout() {
 			<main className="mx-auto w-full max-w-5xl px-6 py-10">
 				<Outlet />
 			</main>
-			<Toaster />
 		</div>
 	);
 }

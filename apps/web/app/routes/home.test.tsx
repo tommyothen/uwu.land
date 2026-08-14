@@ -2,7 +2,13 @@ import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
+import { loadGsap } from "@/lib/motion";
 import Home from "./home";
+
+vi.mock("@/lib/motion", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/motion")>();
+	return { ...actual, loadGsap: vi.fn(async () => null) };
+});
 
 vi.mock("@clerk/react-router", () => ({
 	Show: ({ children }: { children: ReactNode }) => children,
@@ -50,6 +56,11 @@ describe("landing page", () => {
 		expect(nav.className).toContain("font-sans");
 		expect(nav.className).not.toContain("font-mono");
 		expect(screen.getByRole("link", { name: "Docs" })).toBeInTheDocument();
+	});
+
+	it("fetches no animation bundle on mount", () => {
+		renderHome();
+		expect(vi.mocked(loadGsap)).not.toHaveBeenCalled();
 	});
 
 	it("marks the decorative stamp aria-hidden", () => {
