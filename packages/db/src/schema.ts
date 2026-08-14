@@ -108,7 +108,10 @@ export const stripeLifetimePurchases = sqliteTable(
 			.notNull()
 			.references(() => stripeWebhookEvents.id)
 	},
-	(t) => [index("stripe_lifetime_purchases_user_idx").on(t.userId)]
+	(t) => [
+		index("stripe_lifetime_purchases_user_idx").on(t.userId),
+		index("stripe_lifetime_purchases_payment_intent_idx").on(t.paymentIntentId)
+	]
 );
 
 export const apiKeys = sqliteTable("api_keys", {
