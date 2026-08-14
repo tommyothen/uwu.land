@@ -4,7 +4,7 @@ import type { TierKey } from "@uwu/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { MiddlewareHandler } from "hono";
-import { insertUserUnlessDeleted, isDeletedUser } from "./deletion";
+import { insertUserUnlessDeleted } from "./deletion";
 import { errorResponse } from "./errors";
 import { hashKey } from "./keys";
 import type { Env } from "./worker";
@@ -167,28 +167,22 @@ async function resolveClerkSession(
 		throw new AuthError();
 	}
 
-	// A session JWT can outlive account deletion; it must not recreate the user.
-	if (await isDeletedUser(env.DB, payload.sub)) {
-		throw new AuthError();
+	// An existing users row proves the account is not deleted: deletion removes
+	// the row and writes the deleted_users tombstone in a single D1 batch (see
+	// applyUserDeletedEvent in clerk-webhook.ts), and every path that inserts
+	// into users folds a NOT EXISTS deleted_users guard into the statement. So
+	// the steady state here is one read and no writes.
+	const userId = payload.sub;
+	let user = await selectSessionUser(env.DB, userId);
+	if (user === undefined) {
+		// Either first sight of this session or an account already deleted. A
+		// session JWT can outlive account deletion and must never recreate the
+		// user, including when the deletion commits between the select above and
+		// this write, so the deleted_users guard lives inside the INSERT itself.
+		// The re-select then comes back empty and the session is rejected.
+		await insertUserUnlessDeleted(env.DB, userId);
+		user = await selectSessionUser(env.DB, userId);
 	}
-
-	// The check above is a cheap fast path with a race: a deletion can commit
-	// between it and this insert. Folding the guard into the statement makes
-	// the write itself atomic against that race; the re-select below then
-	// comes back empty and the session is rejected.
-	await insertUserUnlessDeleted(env.DB, payload.sub);
-	const db = drizzle(env.DB);
-	const [user] = await db
-		.select({
-			emailHash: users.emailHash,
-			id: users.id,
-			limitedUntil: users.limitedUntil,
-			tier: users.tier
-		})
-		.from(users)
-		.where(eq(users.id, payload.sub))
-		.limit(1)
-		.all();
 
 	if (user === undefined) {
 		throw new AuthError();
@@ -201,6 +195,21 @@ async function resolveClerkSession(
 		tier: user.tier,
 		userId: user.id
 	};
+}
+
+async function selectSessionUser(db: D1Database, userId: string) {
+	const [user] = await drizzle(db)
+		.select({
+			emailHash: users.emailHash,
+			id: users.id,
+			limitedUntil: users.limitedUntil,
+			tier: users.tier
+		})
+		.from(users)
+		.where(eq(users.id, userId))
+		.limit(1)
+		.all();
+	return user;
 }
 
 /**

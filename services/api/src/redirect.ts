@@ -27,11 +27,12 @@ export async function redirectSlug(c: Context<{ Bindings: Env }>): Promise<Respo
 }
 
 async function recordClick(env: Env, request: Request, slug: string): Promise<void> {
-	await incrementClicks(env.CLICKS, slug);
+	// writeDataPoint is synchronous and must not sit behind the KV round-trips.
 	env.CLICK_EVENTS.writeDataPoint({
 		blobs: [slug, countryFor(request), refererHostFor(request)],
 		indexes: [slug]
 	});
+	await incrementClicks(env.CLICKS, slug);
 }
 
 async function incrementClicks(kv: KVNamespace, slug: string): Promise<void> {

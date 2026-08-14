@@ -32,7 +32,8 @@ async function row(slug: string) {
 describe("link reconciliation", () => {
 	beforeEach(async () => resetD1(env.DB));
 
-	for (const boundary of [1, 2, 3]) {
+	// Publication makes two KV mutations: the slug and the urlmap entry.
+	for (const boundary of [1, 2]) {
 		it(`replays publication after KV mutation ${boundary} fails`, async () => {
 			await drizzle(env.DB).insert(links).values({ slug: `pub-${boundary}`, url: "https://example.com/pub", ownerId: null, externalRef: null, source: "web-anon", lifecycleState: "pending_publish", urlHash: `hash-${boundary}` }).run();
 			const pending = await row(`pub-${boundary}`);
@@ -41,7 +42,7 @@ describe("link reconciliation", () => {
 			await reconcileLink(env as Env, await row(pending.slug));
 			expect((await row(pending.slug)).lifecycleState).toBe("active");
 			expect(await env.UWU.get(pending.slug)).toBe(pending.url);
-			expect(await env.CLICKS.get(pending.slug)).toBe("0");
+			expect(await env.CLICKS.get(pending.slug)).toBeNull();
 			expect(await env.UWU.get(`urlmap:${pending.urlHash}`)).toBe(pending.slug);
 		});
 	}

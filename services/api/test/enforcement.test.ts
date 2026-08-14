@@ -3,7 +3,7 @@ import {
 	runDurableObjectAlarm,
 	runInDurableObject
 } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	ABUSE_THRESHOLD,
@@ -93,6 +93,26 @@ describe("atomic enforcement", () => {
 		expect(await stub.isBlocked(now)).toBe(true);
 		await runInDurableObject(stub, async (_instance, state) => {
 			expect(await state.storage.getAlarm()).toBe(blockExpiry);
+		});
+	});
+
+	it("writes the alarm once for a whole fixed window", async () => {
+		const stub = env.ENFORCEMENT.getByName("test:alarm-write-once");
+		const now = Date.now();
+
+		await runInDurableObject(stub, async (instance, state) => {
+			const setAlarm = vi.spyOn(state.storage, "setAlarm");
+			try {
+				await instance.limitFixedWindow(5, 60, now);
+				expect(setAlarm).toHaveBeenCalledTimes(1);
+				expect(setAlarm).toHaveBeenLastCalledWith(now + 60_000);
+
+				await instance.limitFixedWindow(5, 60, now + 1_000);
+				await instance.limitFixedWindow(5, 60, now + 2_000);
+				expect(setAlarm).toHaveBeenCalledTimes(1);
+			} finally {
+				setAlarm.mockRestore();
+			}
 		});
 	});
 

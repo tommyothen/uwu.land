@@ -63,6 +63,25 @@ function withAuthorizedParties(value: string): Env {
 	} as unknown as Env;
 }
 
+// Records every SQL statement the request issues, so a test can assert the
+// session path stays at one read rather than counting round-trips indirectly.
+function recordingEnv(statements: string[]): Env {
+	const db = env.DB;
+	const recorded = new Proxy(db, {
+		get(target, property, receiver) {
+			if (property === "prepare") {
+				return (query: string) => {
+					statements.push(query);
+					return db.prepare(query);
+				};
+			}
+			const value = Reflect.get(target, property, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		}
+	});
+	return { ...(env as Env), DB: recorded } as unknown as Env;
+}
+
 function bearer(secret: string, url = "https://uwu.land/api/v1/me"): Request {
 	return new Request(url, {
 		headers: { authorization: `Bearer ${secret}` }
@@ -267,6 +286,27 @@ describe("auth middleware", () => {
 				tier: "free"
 			}
 		]);
+	});
+
+	it("authenticates an existing user without touching users again", async () => {
+		const { jwt, jwks } = await createJwt("user_existing_session");
+		await seedUser("user_existing_session", "pro");
+		const statements: string[] = [];
+
+		const auth = await resolveAuth(
+			bearer(jwt),
+			recordingEnv(statements),
+			createExecutionContext(),
+			{ clerkIssuer: issuer, jwks }
+		);
+
+		expect(auth).toMatchObject({
+			kind: "session",
+			tier: "pro",
+			userId: "user_existing_session"
+		});
+		expect(statements).toHaveLength(1);
+		expect(statements[0]).toMatch(/^select/i);
 	});
 
 	it("rejects a still-valid session JWT for a deleted user without recreating it", async () => {

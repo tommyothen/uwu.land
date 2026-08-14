@@ -14,9 +14,9 @@ export async function isDeletedUser(
 }
 
 // Creates the users row on first sight of a session, unless the account has
-// been deleted. The deleted_users guard is folded into the statement itself
-// so it stays atomic against a deletion committing after a separate
-// isDeletedUser check (the SELECT-then-write race the fast path leaves open).
+// been deleted. The deleted_users guard is folded into the statement itself so
+// it stays atomic against a deletion committing after the caller's own read
+// (in resolveClerkSession, the select that found no users row).
 export async function insertUserUnlessDeleted(
 	db: D1Database,
 	userId: string

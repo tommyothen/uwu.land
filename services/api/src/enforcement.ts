@@ -10,6 +10,12 @@ export interface AbusePolicy {
 
 export class Enforcement extends DurableObject<Cloudflare.Env> {
 	private schemaReady = false;
+	// The alarm target already written to durable storage, so a fixed window's
+	// worth of requests does not rewrite the same alarm on every check. Purely
+	// in-memory: after a DO restart it is null and the first check reschedules.
+	// That is correct and deliberate. Durable storage still holds the right
+	// target, so rewriting it costs one extra write per restart.
+	#scheduledAlarm: number | null = null;
 
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
@@ -120,10 +126,14 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 	async clearStoredState(): Promise<void> {
 		await this.ctx.storage.deleteAll();
 		this.schemaReady = false;
+		this.#scheduledAlarm = null;
 	}
 
 	async alarm(): Promise<void> {
 		this.ensureSchema();
+		// The alarm that just fired is gone from storage, so the cache must not
+		// suppress rescheduling a still-active expiry at the same target.
+		this.#scheduledAlarm = null;
 		await this.scheduleCleanup(Date.now());
 	}
 
@@ -162,6 +172,10 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 		if (expiry === null) {
 			await this.ctx.storage.deleteAll();
 			this.schemaReady = false;
+			this.#scheduledAlarm = null;
+			return;
+		}
+		if (expiry === this.#scheduledAlarm) {
 			return;
 		}
 		// Alarms fire on the wall clock, so only schedule one when the expiry is
@@ -171,6 +185,7 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 		// handler runs against the real clock and wipes still-active state.
 		if (expiry > Date.now()) {
 			await this.ctx.storage.setAlarm(expiry);
+			this.#scheduledAlarm = expiry;
 		}
 	}
 }

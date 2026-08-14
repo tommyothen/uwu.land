@@ -145,7 +145,15 @@ describe("owned links CRUD", () => {
 			url: "https://example.com/owned"
 		});
 		expect(await env.UWU.get("mine")).toBe("https://example.com/owned");
-		expect(await env.CLICKS.get("mine")).toBe("0");
+		// The click counter key is created by the first click, not by
+		// publication, and a never-clicked link still reports zero.
+		expect(await env.CLICKS.get("mine")).toBeNull();
+		const stats = await workerFetch(
+			new Request("https://uwu.land/api/v1/links/mine/stats"),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(stats.json()).resolves.toEqual({ slug: "mine", clicks: 0 });
 		expect(await drizzle(env.DB).select().from(links).all()).toMatchObject([
 			{
 				slug: "mine",

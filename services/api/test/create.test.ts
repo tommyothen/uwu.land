@@ -141,7 +141,9 @@ describe("anonymous link creation", () => {
 		expect(response.status).toBe(201);
 		expect(body.url).toBe("https://example.com/ok");
 		expect(body.short_url).toBe(`https://uwu.land/${body.slug}`);
-		expect(await env.CLICKS.get(body.slug)).toBe("0");
+		// Publication does not seed the click counter; every reader treats an
+		// absent key as zero, and the first click creates it.
+		expect(await env.CLICKS.get(body.slug)).toBeNull();
 
 		const redirect = await workerFetch(
 			new Request(body.short_url),
