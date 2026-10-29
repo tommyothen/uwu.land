@@ -57,6 +57,20 @@
       "when": 1784196267081,
       "tag": "0007_strange_skrulls",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793293482483,
+      "tag": "0008_lifetime_purchases",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793293482484,
+      "tag": "0009_lifetime_payment_intent_index",
+      "breakpoints": true
     }
   ]
 }

@@ -30,6 +30,13 @@ describe("web worker security headers", () => {
 		requestHandler.mockImplementation(async () => new Response("ok"));
 	});
 
+	it("disables device permissions while allowing same-origin payments", async () => {
+		const response = await fetchWorker();
+		expect(response.headers.get("Permissions-Policy")).toBe(
+			"camera=(), microphone=(), geolocation=(), payment=(self)"
+		);
+	});
+
 	it("refuses to be framed by anyone", async () => {
 		const response = await fetchWorker();
 		expect(response.headers.get("X-Frame-Options")).toBe("DENY");

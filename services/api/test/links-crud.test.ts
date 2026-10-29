@@ -385,3 +385,18 @@ describe("owned links CRUD", () => {
 		});
 	});
 });
+
+it.each(["banned:evil.com", "urlmap:abc", "ratelimit:abc", "ab", "abcdefghijklmnopq"])(
+	"rejects invalid stats slug %s even when its KV key exists",
+	async (slug) => {
+		await env.UWU.put(slug, "1");
+		const ctx = createExecutionContext();
+		const response = await workerFetch(
+			new Request(`https://uwu.land/api/v1/links/${encodeURIComponent(slug)}/stats`),
+			env,
+			ctx
+		);
+		expect(response.status).toBe(404);
+		await waitOnExecutionContext(ctx);
+	}
+);

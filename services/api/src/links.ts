@@ -32,7 +32,8 @@ import {
 	generateSlug,
 	type IdGenerator,
 	isReservedSlug,
-	isValidCustomSlug
+	isValidCustomSlug,
+	SLUG_RE
 } from "./slugs";
 import type { Env } from "./worker";
 
@@ -358,7 +359,7 @@ export async function linkStats(
 	c: Context<{ Bindings: Env }>
 ): Promise<Response> {
 	const slug = c.req.param("slug");
-	if (slug === undefined) {
+	if (slug === undefined || !SLUG_RE.test(slug)) {
 		return errorResponse(404, "not_found", "Link not found.");
 	}
 

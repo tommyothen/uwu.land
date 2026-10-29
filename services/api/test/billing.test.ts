@@ -1,4 +1,4 @@
-import { createExecutionContext, env } from "cloudflare:test";
+import { createExecutionContext, env, runInDurableObject } from "cloudflare:test";
 import {
 	apiKeys,
 	deletedUsers,
@@ -37,9 +37,35 @@ beforeAll(async () => {
 
 beforeEach(async () => {
 	await resetD1(env.DB);
+	for (const endpoint of ["checkout", "portal"]) {
+		const stub = env.ENFORCEMENT.getByName(`billing:${endpoint}:user:user_billing`);
+		await runInDurableObject(stub, async (_instance, state) => {
+			state.storage.sql.exec("DELETE FROM fixed_window");
+		});
+	}
 });
 
 describe("Stripe billing routes", () => {
+	it("limits checkout and portal independently to five requests per minute per user", async () => {
+		const session = await createJwt("user_billing_rate_limit");
+		const app = createWorker({
+			auth: { clerkIssuer: issuer, jwks: session.jwks }
+		});
+		for (const path of ["/checkout", "/portal"]) {
+			for (let i = 0; i < 6; i++) {
+				const response = await (app.fetch as TestFetch)(
+					billingRequest(path, session.jwt, {}),
+					testEnv,
+					createExecutionContext()
+				);
+				expect(response.status).toBe(i < 5 ? (path === "/checkout" ? 400 : 404) : 429);
+				if (i === 5) {
+					expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+				}
+			}
+		}
+	});
+
 	it("rejects anonymous callers", async () => {
 		const response = await workerFetch(
 			new Request("https://uwu.land/api/v1/billing/checkout", {

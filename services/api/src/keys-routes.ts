@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { AuthOptions } from "./auth";
 import { errorResponse } from "./errors";
 import { generateApiKey } from "./keys";
+import { DurableObjectFixedWindow } from "./rate-limit";
 import { readJson, requireSession } from "./request-utils";
 import type { Env } from "./worker";
 
@@ -25,6 +26,20 @@ export async function createKey(
 	const auth = await requireSession(c, options, "API keys cannot manage keys.");
 	if (auth instanceof Response) {
 		return auth;
+	}
+
+	const rateLimit = await new DurableObjectFixedWindow(
+		c.env.ENFORCEMENT,
+		10,
+		60
+	).limit(`keys:user:${auth.userId}`);
+	if (!rateLimit.allowed) {
+		return errorResponse(
+			429,
+			"rate_limited",
+			"Rate limit exceeded.",
+			rateLimit.retryAfterSeconds
+		);
 	}
 
 	const body = await readJson(c.req.raw);
