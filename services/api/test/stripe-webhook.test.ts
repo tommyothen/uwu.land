@@ -78,6 +78,24 @@ beforeEach(async () => {
 });
 
 describe("Stripe subscription webhook", () => {
+	it("prefers the customer mapping when subscription metadata conflicts", async () => {
+		await drizzle(env.DB).insert(users).values([{ id: "user_actual" }, { id: "user_wrong" }]).run();
+		await drizzle(env.DB).insert(stripeCustomers).values({ userId: "user_actual", customerId: "cus_conflict" }).run();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const response = await sendWebhook(payload("customer.subscription.created", "active", {
+				userId: "user_wrong", customerId: "cus_conflict", subscriptionId: "sub_conflict"
+			}));
+			expect(response.status).toBe(200);
+			expect((await findSubscription("sub_conflict"))?.userId).toBe("user_actual");
+			expect(await findTier("user_actual")).toBe("pro");
+			expect(await findTier("user_wrong")).toBe("free");
+			expect(warn).toHaveBeenCalledOnce();
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
 	it("accepts a valid signature, including when another v1 is present", async () => {
 		const request = await signedRequest(
 			payload("customer.subscription.created", "active"),
@@ -413,23 +431,18 @@ describe("Stripe subscription webhook", () => {
 	});
 
 	it("prefers the tracked subscription owner over the customer mapping", async () => {
-		// Ownership moved (metadata said so on an earlier event) but the
-		// customer mapping still points at the original buyer. The row for THIS
-		// subscription is the more specific record, so it wins.
+		// Without metadata, retain the existing subscription owner fallback.
 		await drizzle(env.DB).insert(users).values({ id: "user_first" }).run();
 		await drizzle(env.DB).insert(users).values({ id: "user_second" }).run();
 		await drizzle(env.DB)
 			.insert(stripeCustomers)
 			.values({ userId: "user_first", customerId: "cus_shared" })
 			.run();
-		await sendWebhook(
-			payload("customer.subscription.created", "active", {
-				userId: "user_second",
-				subscriptionId: "sub_shared",
-				customerId: "cus_shared",
-				eventTimestamp: 100
-			})
-		);
+		await drizzle(env.DB).insert(stripeWebhookEvents).values({ id: "evt_seed", eventTimestamp: 100 }).run();
+		await drizzle(env.DB).insert(stripeSubscriptions).values({
+			id: "sub_shared", userId: "user_second", customerId: "cus_shared",
+			status: "active", priceId: "price_test", eventTimestamp: 100, eventId: "evt_seed"
+		}).run();
 		const event = payload("customer.subscription.updated", "past_due", {
 			subscriptionId: "sub_shared",
 			customerId: "cus_shared",
@@ -473,7 +486,7 @@ describe("Stripe subscription webhook", () => {
 		expect(await findSubscription("sub_erased_customer")).toBeUndefined();
 	});
 
-	it("recomputes both users when subscription ownership changes", async () => {
+	it("does not transfer subscription ownership through conflicting metadata", async () => {
 		await sendWebhook(
 			payload("customer.subscription.created", "active", {
 				userId: "user_old_owner",
@@ -489,10 +502,10 @@ describe("Stripe subscription webhook", () => {
 			})
 		);
 
-		expect(await findTier("user_old_owner")).toBe("free");
-		expect(await findTier("user_new_owner")).toBe("pro");
+		expect(await findTier("user_old_owner")).toBe("pro");
+		expect(await findTier("user_new_owner")).toBeUndefined();
 		expect((await findSubscription("sub_transferred"))?.userId).toBe(
-			"user_new_owner"
+			"user_old_owner"
 		);
 	});
 

@@ -29,6 +29,7 @@ async function clearKv(namespace: KVNamespace): Promise<void> {
 
 function createRequest(body: unknown, ip = "203.0.113.10"): Request {
 	return new Request("https://uwu.land/api/v1/links", {
+		cf: {},
 		method: "POST",
 		headers: {
 			"CF-Connecting-IP": ip,

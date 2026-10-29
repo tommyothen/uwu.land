@@ -9,11 +9,15 @@ const BANNED_PATHS = new Set([
 ]);
 
 export function isBannedPath(pathname: string): boolean {
-	let decoded: string;
-	try {
-		decoded = decodeURIComponent(pathname);
-	} catch {
-		decoded = pathname;
+	let decoded = pathname;
+	for (let iteration = 0; iteration < 3; iteration++) {
+		try {
+			const next = decodeURIComponent(decoded);
+			if (next === decoded) break;
+			decoded = next;
+		} catch {
+			break;
+		}
 	}
 	const segments: string[] = [];
 	for (const segment of decoded.toLowerCase().split("/")) {
