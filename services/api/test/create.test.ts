@@ -184,6 +184,20 @@ describe("anonymous link creation", () => {
 		).toBe(false);
 	});
 
+	it("rejects banned campaign paths on any host", async () => {
+		const response = await workerFetch(
+			createRequest({
+				url: "https://abcdef.qwertyu.com/wqamhcsom?r=sCFaNO&t=1792775122"
+			}),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ code: string }>();
+
+		expect(response.status).toBe(400);
+		expect(body.code).toBe("url_banned");
+	});
+
 	it("blocks IPs that have been auto-banned from creating links", async () => {
 		const ip = "203.0.113.60";
 		await Promise.all(

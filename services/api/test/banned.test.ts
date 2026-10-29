@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { isBannedHostname } from "../src/banned";
+import { isBannedHostname, isBannedPath } from "../src/banned";
 
 async function clearKv(namespace: KVNamespace): Promise<void> {
 	const list = await namespace.list();
@@ -40,5 +40,18 @@ describe("isBannedHostname", () => {
 
 		expect(await isBannedHostname(env.UWU, "198.51.100.7")).toBe(true);
 		expect(await isBannedHostname(env.UWU, "198.51.100.8")).toBe(false);
+	});
+});
+
+describe("isBannedPath", () => {
+	it("matches a campaign path regardless of case or trailing slash", () => {
+		expect(isBannedPath("/wqamhcsom")).toBe(true);
+		expect(isBannedPath("/WQAMHCSOM/")).toBe(true);
+	});
+
+	it("leaves other paths alone", () => {
+		expect(isBannedPath("/")).toBe(false);
+		expect(isBannedPath("/wqamhcsom/extra")).toBe(false);
+		expect(isBannedPath("/docs/wqamhcsom")).toBe(false);
 	});
 });

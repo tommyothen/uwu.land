@@ -17,7 +17,7 @@ import {
 	type AuthPrincipal,
 	resolveAuth
 } from "./auth";
-import { isBannedHostname } from "./banned";
+import { isBannedHostname, isBannedPath } from "./banned";
 import {
 	configuredLifetimePriceIds,
 	configuredPriceIds,
@@ -129,15 +129,18 @@ export async function createLink(
 		);
 	}
 
-	// After the rate limit on purpose: a banned-hostname attempt is a
+	// After the rate limit on purpose: a banned-destination attempt is a
 	// well-formed create and must consume one token, so authenticated callers
 	// (who are exempt from IP abuse blocking above) cannot probe banned hosts
 	// without burning their own quota.
-	if (await isBannedHostname(c.env.UWU, destination.hostname)) {
+	if (
+		isBannedPath(destination.pathname) ||
+		(await isBannedHostname(c.env.UWU, destination.hostname))
+	) {
 		if (auth.kind === "anon") {
 			await recordBannedAttempt(c.env.ENFORCEMENT, ip);
 		}
-		return errorResponse(400, "url_banned", "URL host is banned.");
+		return errorResponse(400, "url_banned", "URL is banned.");
 	}
 
 	if (auth.kind === "anon") {
