@@ -44,6 +44,18 @@ describe("isBannedHostname", () => {
 });
 
 describe("isBannedPath", () => {
+	it("decodes up to three layers before resolving dot segments", () => {
+		let path = "/x%2f..%2f%77qamhcsom";
+		for (let layer = 1; layer <= 3; layer++) {
+			expect(isBannedPath(path)).toBe(true);
+			path = encodeURIComponent(path);
+		}
+		expect(isBannedPath(path)).toBe(false);
+	});
+	it("retains the last decoded path when an escape is malformed", () => {
+		expect(isBannedPath("/%/../wqamhcsom")).toBe(true);
+		expect(isBannedPath("/%25%2f..%2fwqamhcsom")).toBe(true);
+	});
 	it("matches a campaign path regardless of case or trailing slash", () => {
 		expect(isBannedPath("/wqamhcsom")).toBe(true);
 		expect(isBannedPath("/WQAMHCSOM/")).toBe(true);

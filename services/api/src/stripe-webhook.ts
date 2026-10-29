@@ -151,18 +151,24 @@ export async function stripeWebhook(
 		? object.metadata
 		: null;
 	const metadataUserId = metadata?.userId;
-	// Attribution, most specific first, mirroring the lifetime handler: our own
-	// checkout metadata, then the row for THIS subscription, then the customer
-	// mapping. The last one is what entitles a subscription created outside our
-	// Checkout flow — a Billing Portal re-subscribe, the Stripe dashboard, the
-	// API — none of which carry subscription_data[metadata][userId], and a
-	// re-subscribe after cancellation has no surviving subscription row either.
-	// Without it the buyer pays and gets nothing. stripe_customers.customer_id
-	// is uniquely indexed, so the mapping resolves to at most one account.
-	const userId =
+	const validMetadataUserId =
 		typeof metadataUserId === "string" && metadataUserId.length > 0
 			? metadataUserId
-			: (existing?.user_id ?? existingCustomer?.user_id);
+			: undefined;
+	const conflictingCustomer = validMetadataUserId !== undefined &&
+		existingCustomer !== null && validMetadataUserId !== existingCustomer.user_id;
+	if (conflictingCustomer) {
+		console.warn("Stripe subscription metadata conflicts with customer mapping.", {
+			eventId: parsed.eventId,
+			subscriptionId: parsed.subscriptionId,
+			customerId: parsed.customerId
+		});
+	}
+	// Customer ownership overrides conflicting checkout metadata. Without metadata,
+	// retain the subscription owner fallback for subscriptions created outside Checkout.
+	const userId = conflictingCustomer
+		? existingCustomer.user_id
+		: (validMetadataUserId ?? existing?.user_id ?? existingCustomer?.user_id);
 	if (userId === undefined) {
 		// Nothing links this subscription to an account. For anything other than
 		// a cancellation that means money is moving with no entitlement behind

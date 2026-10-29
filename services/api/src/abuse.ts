@@ -3,6 +3,8 @@ export const ABUSE_WINDOW_SECONDS = 3_600;
 export const IP_BLOCK_SECONDS = 86_400;
 
 export function ipKey(request: Request): string {
+	// Without runtime metadata, client-supplied IP headers are untrusted.
+	if (request.cf == null) return "direct";
 	return request.headers.get("CF-Connecting-IP") ?? "unknown";
 }
 

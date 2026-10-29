@@ -358,6 +358,11 @@ export async function me(
 export async function linkStats(
 	c: Context<{ Bindings: Env }>
 ): Promise<Response> {
+	const rateLimit = await new DurableObjectFixedWindow(c.env.ENFORCEMENT, 60, 60)
+		.limit(`stats:${ipKey(c.req.raw)}`);
+	if (!rateLimit.allowed) {
+		return errorResponse(429, "rate_limited", "Rate limit exceeded.", rateLimit.retryAfterSeconds);
+	}
 	const slug = c.req.param("slug");
 	if (slug === undefined || !SLUG_RE.test(slug)) {
 		return errorResponse(404, "not_found", "Link not found.");
@@ -513,7 +518,7 @@ async function dedupeAnonymousLink(
 	if (reserved !== undefined && reserved.lifecycleState !== "pending_delete") {
 		if (reserved.lifecycleState === "pending_publish" || (await env.UWU.get(reserved.slug)) === null) {
 			const pending = { ...reserved, lifecycleState: "pending_publish" as const };
-			if (reserved.lifecycleState === "active") await drizzle(env.DB).update(linksTable).set({ lifecycleState: "pending_publish" }).where(eq(linksTable.slug, reserved.slug)).run();
+			if (reserved.lifecycleState === "active") await drizzle(env.DB).update(linksTable).set({ lifecycleState: "pending_publish" }).where(and(eq(linksTable.slug, reserved.slug), eq(linksTable.lifecycleState, "active"))).run();
 			try { await reconcileLink(env, pending); } catch { return publicationPending(); }
 		}
 		return createdLinkResponse(reserved.slug, destination.toString());
