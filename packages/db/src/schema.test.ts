@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { describe, expect, it } from "vitest";
 import {
 	accountTombstones,
@@ -408,4 +409,17 @@ describe("schema", () => {
 				.run()
 		).toThrow();
 	});
+});
+
+it("applies lifetime migrations through the Drizzle journal", () => {
+	const sqlite = new Database(":memory:");
+	try {
+		migrate(drizzle(sqlite), {
+			migrationsFolder: new URL("../migrations/", import.meta.url).pathname
+		});
+		expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'stripe_lifetime_purchases'").get()).toBeDefined();
+		expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'stripe_lifetime_purchases_payment_intent_idx'").get()).toBeDefined();
+	} finally {
+		sqlite.close();
+	}
 });

@@ -60,6 +60,12 @@ describe("isBannedPath", () => {
 		expect(isBannedPath("/wqamhcsom%2f.")).toBe(true);
 	});
 
+	it("checks the raw path when percent-decoding fails", () => {
+		expect(isBannedPath("/%E0%A4%A/../wqamhcsom")).toBe(true);
+		expect(isBannedPath("/wqamhcsom/%/..")).toBe(true);
+		expect(isBannedPath("/%/../safe")).toBe(false);
+	});
+
 	it("ignores malformed percent-encoding", () => {
 		expect(isBannedPath("/%E0%A4%A")).toBe(false);
 	});

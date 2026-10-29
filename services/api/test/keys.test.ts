@@ -185,6 +185,28 @@ describe("API key management", () => {
 		await clearKv(env.UWU);
 	});
 
+	it("limits key creation to ten requests per minute per user", async () => {
+		const { fetch, jwt } = await sessionFetch("user_key_rate_limit");
+		for (let i = 0; i < 11; i++) {
+			const response = await fetch(
+				request("/api/v1/keys", jwt, "POST", { name: "" }),
+				env as Env,
+				createExecutionContext()
+			);
+			expect(response.status).toBe(i < 10 ? 400 : 429);
+			if (i === 10) {
+				expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+			}
+		}
+		const other = await sessionFetch("user_key_rate_limit_other");
+		const response = await other.fetch(
+			request("/api/v1/keys", other.jwt, "POST", { name: "" }),
+			env as Env,
+			createExecutionContext()
+		);
+		expect(response.status).toBe(400);
+	});
+
 	it("reports empty usage, active keys, and excludes revoked keys from /me", async () => {
 		const { fetch, jwt } = await sessionFetch();
 

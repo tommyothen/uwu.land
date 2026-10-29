@@ -13,7 +13,7 @@ export function isBannedPath(pathname: string): boolean {
 	try {
 		decoded = decodeURIComponent(pathname);
 	} catch {
-		return false;
+		decoded = pathname;
 	}
 	const segments: string[] = [];
 	for (const segment of decoded.toLowerCase().split("/")) {

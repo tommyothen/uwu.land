@@ -14,6 +14,7 @@ import {
 } from "./billing-shared";
 import { isDeletedUser } from "./deletion";
 import { errorResponse } from "./errors";
+import { DurableObjectFixedWindow } from "./rate-limit";
 import { isRecord, readJson, requireSession } from "./request-utils";
 import type { Env } from "./worker";
 
@@ -42,6 +43,21 @@ export async function createBillingCheckout(
 	if (auth instanceof Response) {
 		return auth;
 	}
+
+	const rateLimit = await new DurableObjectFixedWindow(
+		c.env.ENFORCEMENT,
+		5,
+		60
+	).limit(`billing:checkout:user:${auth.userId}`);
+	if (!rateLimit.allowed) {
+		return errorResponse(
+			429,
+			"rate_limited",
+			"Rate limit exceeded.",
+			rateLimit.retryAfterSeconds
+		);
+	}
+
 	// A session resolved just before account deletion committed must not be
 	// able to start a payable checkout. The atomic backstop is the guarded
 	// insert in findOrCreateCustomer; this is the cheap early-out.
@@ -206,6 +222,20 @@ export async function createBillingPortal(
 	);
 	if (auth instanceof Response) {
 		return auth;
+	}
+
+	const rateLimit = await new DurableObjectFixedWindow(
+		c.env.ENFORCEMENT,
+		5,
+		60
+	).limit(`billing:portal:user:${auth.userId}`);
+	if (!rateLimit.allowed) {
+		return errorResponse(
+			429,
+			"rate_limited",
+			"Rate limit exceeded.",
+			rateLimit.retryAfterSeconds
+		);
 	}
 
 	const customer = await c.env.DB.prepare(

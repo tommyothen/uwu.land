@@ -68,6 +68,13 @@ export interface WorkerOptions {
 export function createApp(options: WorkerOptions = {}): Hono<{ Bindings: Env }> {
 	const app = new Hono<{ Bindings: Env }>();
 
+	app.use("*", async (c, next) => {
+		await next();
+		c.header("X-Content-Type-Options", "nosniff");
+		c.header("X-Frame-Options", "DENY");
+		c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+	});
+
 	// The dashboard origin is the only one hardcoded. The dev origin comes from
 	// CORS_DEV_ORIGIN, which lives in .dev.vars and is absent from
 	// wrangler.jsonc, so http://localhost:3000 never reaches production.
