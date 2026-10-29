@@ -49,6 +49,16 @@ describe("isBannedPath", () => {
 		expect(isBannedPath("/WQAMHCSOM/")).toBe(true);
 	});
 
+	it("sees through percent-encoding and doubled slashes", () => {
+		expect(isBannedPath("/%77qamhcsom")).toBe(true);
+		expect(isBannedPath("//wqamhcsom//")).toBe(true);
+		expect(isBannedPath("/%2Fwqamhcsom")).toBe(true);
+	});
+
+	it("ignores malformed percent-encoding", () => {
+		expect(isBannedPath("/%E0%A4%A")).toBe(false);
+	});
+
 	it("leaves other paths alone", () => {
 		expect(isBannedPath("/")).toBe(false);
 		expect(isBannedPath("/wqamhcsom/extra")).toBe(false);

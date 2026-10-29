@@ -1,13 +1,21 @@
 // Path signatures of redirect campaigns that rotate throwaway domains faster
-// than hostname bans can follow. Matched against the destination pathname,
-// case-insensitively, with an optional trailing slash.
+// than hostname bans can follow. Matched against the destination pathname
+// after percent-decoding, lowercasing and collapsing repeated slashes, since
+// `new URL` does none of those and the campaign's servers would.
 const BANNED_PATHS = new Set([
 	// TDS spam seen October 2026: https://<random>.<random7>.com/wqamhcsom?r=..&t=..
 	"/wqamhcsom"
 ]);
 
 export function isBannedPath(pathname: string): boolean {
-	return BANNED_PATHS.has(pathname.toLowerCase().replace(/\/$/, ""));
+	let decoded: string;
+	try {
+		decoded = decodeURIComponent(pathname);
+	} catch {
+		return false;
+	}
+	const normalised = decoded.toLowerCase().replace(/\/+/g, "/").replace(/\/$/, "");
+	return BANNED_PATHS.has(normalised);
 }
 
 export async function isBannedHostname(
