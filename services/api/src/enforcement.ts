@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
+import { reconcileLinkState } from "./link-reconciliation";
 import type { FixedWindowUsage, RateLimitResult } from "./rate-limit";
 
 export interface AbusePolicy {
@@ -10,6 +11,16 @@ export interface AbusePolicy {
 
 export class Enforcement extends DurableObject<Cloudflare.Env> {
 	private schemaReady = false;
+	#linkQueue: Promise<void> = Promise.resolve();
+
+	/** Dedicated link:<slug> objects serialise KV work while D1 retains retry state. */
+	async reconcileLink(slug: string): Promise<void> {
+		const operation = this.#linkQueue.then(() => reconcileLinkState(this.env, slug));
+		// One failed operation must not prevent the next request or cron retry.
+		this.#linkQueue = operation.catch(() => {});
+		await operation;
+	}
+
 	// The alarm target already written to durable storage, so a fixed window's
 	// worth of requests does not rewrite the same alarm on every check. Purely
 	// in-memory: after a DO restart it is null and the first check reschedules.

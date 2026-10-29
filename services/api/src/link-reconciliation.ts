@@ -1,46 +1,41 @@
 import { links } from "@uwu/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Env } from "./worker";
 
 type LinkRow = typeof links.$inferSelect;
+type LinkStorage = Pick<Env, "DB" | "UWU" | "CLICKS">;
 
-export async function reconcileLink(env: Pick<Env, "DB" | "UWU" | "CLICKS">, row: LinkRow): Promise<void> {
+export async function reconcileLink(env: Pick<Env, "ENFORCEMENT">, row: Pick<LinkRow, "slug">): Promise<void> {
+	await env.ENFORCEMENT.getByName(`link:${row.slug}`).reconcileLink(row.slug);
+}
+
+/** Called only inside the slug's Durable Object queue. Read fresh state after queuing. */
+export async function reconcileLinkState(env: LinkStorage, slug: string): Promise<void> {
 	const db = drizzle(env.DB);
-	let claimed = false;
+	const row = await db.select().from(links).where(eq(links.slug, slug)).get();
+	if (row === undefined || row.lifecycleState === "active") return;
 	try {
 		if (row.lifecycleState === "pending_publish") {
-			const result = await db.update(links)
-				.set({ lifecycleState: "active", lastReconcileAt: new Date(), lastReconcileError: null })
-				.where(and(eq(links.slug, row.slug), eq(links.lifecycleState, "pending_publish"))).run();
-			if (result.meta.changes === 0) return;
-			claimed = true;
 			await env.UWU.put(row.slug, row.url);
 			if (row.urlHash !== null) await env.UWU.put(`urlmap:${row.urlHash}`, row.slug);
-			// Deletion can also win after the conditional update, while KV writes await.
-			const current = await db.select().from(links).where(eq(links.slug, row.slug)).get();
-			if (current === undefined || current.lifecycleState === "pending_delete") {
-				await removeLinkKv(env, row);
-			}
-			return;
+			const result = await db.update(links)
+				.set({ lifecycleState: "active", lastReconcileAt: new Date(), lastReconcileError: null })
+				.where(and(eq(links.slug, slug), eq(links.lifecycleState, "pending_publish"))).run();
+			if (result.meta.changes !== 0) return;
+			// A delete may mark the row while publication awaits KV. Finish that
+			// deletion before releasing the queue or freeing the slug for reuse.
 		}
-		if (row.lifecycleState === "pending_delete") {
-			const result = await db.delete(links)
-				.where(and(eq(links.slug, row.slug), eq(links.lifecycleState, "pending_delete"))).run();
-			if (result.meta.changes === 0) return;
-			claimed = true;
-			await removeLinkKv(env, row);
-		}
+		await removeLinkKv(env, row);
+		await db.delete(links)
+			.where(and(eq(links.slug, slug), eq(links.lifecycleState, "pending_delete"))).run();
 	} catch (error) {
-		// Preserve retry state on KV failure without overwriting a concurrent deletion
-		// or a replacement row.
-		if (claimed && row.lifecycleState === "pending_publish") {
-			await db.update(links).set({ lifecycleState: "pending_publish" })
-				.where(and(eq(links.slug, row.slug), eq(links.lifecycleState, "active"))).run();
-		} else if (claimed && row.lifecycleState === "pending_delete") {
-			await db.insert(links).values(row).onConflictDoNothing().run();
-		}
-		await db.update(links).set({ reconcileAttempts: row.reconcileAttempts + 1, lastReconcileAt: new Date(), lastReconcileError: error instanceof Error ? error.message.slice(0, 500) : "Unknown reconciliation error" }).where(eq(links.slug, row.slug)).run();
+		// Pending state survives both exceptions and termination of the invocation.
+		await db.update(links).set({
+			reconcileAttempts: sql`${links.reconcileAttempts} + 1`,
+			lastReconcileAt: new Date(),
+			lastReconcileError: error instanceof Error ? error.message.slice(0, 500) : "Unknown reconciliation error"
+		}).where(eq(links.slug, slug)).run();
 		throw error;
 	}
 }
@@ -54,7 +49,7 @@ async function removeLinkKv(env: Pick<Env, "UWU" | "CLICKS">, row: LinkRow): Pro
 	}
 }
 
-export async function reconcilePendingLinks(env: Pick<Env, "DB" | "UWU" | "CLICKS">): Promise<void> {
+export async function reconcilePendingLinks(env: Pick<Env, "DB" | "ENFORCEMENT">): Promise<void> {
 	// Listing the pending states rather than negating "active" keeps the scan on
 	// links_lifecycle_idx; SQLite cannot use an index for an inequality here.
 	const rows = await drizzle(env.DB).select().from(links).where(inArray(links.lifecycleState, ["pending_publish", "pending_delete"])).limit(100).all();

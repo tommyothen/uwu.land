@@ -38,7 +38,12 @@ Declared in `wrangler.jsonc`:
 | `CLICKS` | KV | Per-slug click counters |
 | `CLICK_EVENTS` | Analytics Engine | Raw click events (created on first write) |
 | `DB` | D1 (`uwu-land`) | Users, links, API keys, Stripe/Clerk state |
-| `ENFORCEMENT` | Durable Object | Per-IP rate limiting / abuse enforcement |
+| `ENFORCEMENT` | Durable Object | Rate limiting, abuse enforcement and per-slug link reconciliation |
+
+Link reconciliation uses one `ENFORCEMENT` object named `link:<slug>` per slug.
+Its queue serialises KV mutations and reads the current D1 row after queuing.
+Rows stay `pending_publish` or `pending_delete` until the KV work finishes, so
+cron can retry interrupted work and a slug stays reserved until cleanup completes.
 
 Cron triggers: `*/5 * * * *` reconciles links and materializes clicks;
 `0 6 * * *` refreshes the ban list.
