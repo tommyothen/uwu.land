@@ -55,6 +55,11 @@ describe("isBannedPath", () => {
 		expect(isBannedPath("/%2Fwqamhcsom")).toBe(true);
 	});
 
+	it("resolves dot segments hidden behind encoded slashes", () => {
+		expect(isBannedPath("/x%2f..%2fwqamhcsom")).toBe(true);
+		expect(isBannedPath("/wqamhcsom%2f.")).toBe(true);
+	});
+
 	it("ignores malformed percent-encoding", () => {
 		expect(isBannedPath("/%E0%A4%A")).toBe(false);
 	});

@@ -131,7 +131,7 @@ export async function createLink(
 
 	// After the rate limit on purpose: a banned-destination attempt is a
 	// well-formed create and must consume one token, so authenticated callers
-	// (who are exempt from IP abuse blocking above) cannot probe banned hosts
+	// (who are exempt from IP abuse blocking above) cannot probe banned destinations
 	// without burning their own quota.
 	if (
 		isBannedPath(destination.pathname) ||
