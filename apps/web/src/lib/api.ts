@@ -7,20 +7,27 @@ import type {
 	CreateKeyResponse,
 	CreateLinkRequest,
 	CreateLinkResponse,
+	ErrorCode,
 	ListKeysResponse,
 	ListLinksResponse,
 	MeResponse
 } from "@uwu/shared";
+import { isErrorCode } from "@uwu/shared";
 
 const API_BASE = import.meta.env.VITE_UWU_API_URL ?? "https://uwu.land";
 
+/** The API's error envelope, or "unknown" for a response that is not one. */
+export type ClientApiError = Omit<ApiError, "code"> & {
+	code: ErrorCode | "unknown";
+};
+
 export class UwuApiError extends Error {
-	constructor(public readonly error: ApiError) {
+	constructor(public readonly error: ClientApiError) {
 		super(error.message);
 		this.name = "UwuApiError";
 	}
 
-	get code(): string {
+	get code(): ClientApiError["code"] {
 		return this.error.code;
 	}
 }
@@ -54,13 +61,16 @@ async function request<T>(
 	return (await response.json()) as T;
 }
 
-async function parseErrorEnvelope(response: Response): Promise<ApiError> {
+async function parseErrorEnvelope(
+	response: Response
+): Promise<ClientApiError> {
 	try {
-		const body = (await response.json()) as Partial<ApiError>;
+		const body = (await response.json()) as Partial<Record<keyof ApiError, unknown>>;
 		if (typeof body.code === "string" && typeof body.message === "string") {
 			return {
 				status: typeof body.status === "number" ? body.status : response.status,
-				code: body.code,
+				// A code newer than this build still carries a usable message.
+				code: isErrorCode(body.code) ? body.code : "unknown",
 				message: body.message
 			};
 		}

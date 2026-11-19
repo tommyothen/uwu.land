@@ -15,6 +15,7 @@ export type {
 	ListLinksResponse,
 	MeResponse
 } from "./api";
+export { isErrorCode } from "./api";
 export type { TierKey, TierLimits } from "./tiers";
 export {
 	LAUNCH_DISCOUNT_PCT,

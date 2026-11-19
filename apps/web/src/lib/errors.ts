@@ -1,7 +1,7 @@
-import { UwuApiError } from "./api";
+import { type ClientApiError, UwuApiError } from "./api";
 
-/** Friendly copy for stable API error codes. */
-const ERROR_COPY: Record<string, string> = {
+/** Friendly copy for stable API error codes; the rest show the API's message. */
+const ERROR_COPY: Partial<Record<ClientApiError["code"], string>> = {
 	rate_limited:
 		"Daily anonymous limit reached. Try again tomorrow, or sign up for more.",
 	slug_taken: "That slug is already taken. Try another one.",
