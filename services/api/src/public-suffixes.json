@@ -1,0 +1,18 @@
+[
+	"ac.uk", "co.uk", "gov.uk", "me.uk", "net.uk", "org.uk", "sch.uk",
+	"com.au", "edu.au", "gov.au", "net.au", "org.au",
+	"co.nz", "net.nz", "org.nz",
+	"co.za", "org.za",
+	"co.jp", "ne.jp", "or.jp",
+	"com.br", "com.mx", "com.ar", "com.co", "com.pe",
+	"com.cn", "com.hk", "com.sg", "com.my", "com.ph", "com.vn", "com.tw",
+	"co.in", "co.id", "co.il", "co.kr", "co.th",
+	"com.tr", "com.ua", "com.pl", "com.ru", "com.es", "com.pt", "com.gr",
+	"amazonaws.com", "appspot.com", "azurewebsites.net", "blogspot.com",
+	"cloudfront.net", "deno.dev", "firebaseapp.com", "fly.dev", "github.io",
+	"gitlab.io", "glitch.me", "herokuapp.com", "myshopify.com", "netlify.app",
+	"ngrok-free.app", "ngrok.io", "onrender.com", "pages.dev", "r2.dev",
+	"replit.app", "replit.dev", "sharepoint.com", "surge.sh", "trycloudflare.com",
+	"vercel.app", "web.app", "weebly.com", "wixsite.com", "wordpress.com",
+	"workers.dev"
+]

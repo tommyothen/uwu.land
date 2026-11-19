@@ -2,23 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-/**
- * Public suffixes that survive the "must contain a dot" rule. isBannedHostname
- * refuses to match a bare final label, so `ban com` is inert there, but a
- * two-label suffix like `co.uk` still matches every domain registered under it.
- */
-const PUBLIC_SUFFIXES = new Set([
-	"ac.uk", "co.uk", "gov.uk", "me.uk", "net.uk", "org.uk", "sch.uk",
-	"com.au", "edu.au", "gov.au", "net.au", "org.au",
-	"co.nz", "net.nz", "org.nz",
-	"co.za", "org.za",
-	"co.jp", "ne.jp", "or.jp",
-	"com.br", "com.mx", "com.ar", "com.co", "com.pe",
-	"com.cn", "com.hk", "com.sg", "com.my", "com.ph", "com.vn", "com.tw",
-	"co.in", "co.id", "co.il", "co.kr", "co.th",
-	"com.tr", "com.ua", "com.pl", "com.ru", "com.es", "com.pt", "com.gr"
-]);
+import { findLinksOnDomain, markForDeletion, parseBannableDomain } from "./domain-sweep.mjs";
 
 const [action, argument] = process.argv.slice(2);
 
@@ -37,8 +21,10 @@ if (
 }
 
 // Guards `ban` only. `unban` has to stay open so an operator can delete a bad
-// key that predates this check.
-if (action === "ban" && !isBannableDomain(argument)) {
+// key that predates this check. The parsed form is lowercase punycode, which is
+// what isBannedHostname looks up.
+const domain = action === "ban" ? parseBannableDomain(argument) : null;
+if (action === "ban" && domain === null) {
 	console.error(
 		`Refusing to ban "${argument}": pass a full domain (e.g. evil.example.com). A bare public suffix would target every domain under it.`
 	);
@@ -50,18 +36,15 @@ if (action === "list" && argument === undefined) {
 } else if (action === "list") {
 	listBySource(argument === "--auto" ? "auto" : "manual");
 } else if (action === "ban") {
-	// Lowercased because isBannedHostname only looks up lowercase keys; unban
-	// keeps the raw argument so a mixed-case legacy key stays deletable.
-	runWrangler(["kv", "key", "put", "--binding", "UWU", `banned:${argument.toLowerCase()}`, "1", "--remote"]);
+	runWrangler(["kv", "key", "put", "--binding", "UWU", `banned:${domain}`, "1", "--remote"]);
+	// The key only blocks new links. Sweeping after it is written means nothing
+	// can be created behind the sweep.
+	const slugs = findLinksOnDomain(domain).map((row) => row.slug);
+	markForDeletion(slugs);
+	console.log(`Banned ${domain}; marked ${slugs.length} existing link(s) for deletion.`);
 } else {
+	// Unban keeps the raw argument so a mixed-case legacy key stays deletable.
 	runWrangler(["kv", "key", "delete", "--binding", "UWU", `banned:${argument}`, "--remote"]);
-}
-
-function isBannableDomain(domain) {
-	const lowered = domain.toLowerCase();
-	return (
-		/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(lowered) && !PUBLIC_SUFFIXES.has(lowered)
-	);
 }
 
 function listBySource(source) {

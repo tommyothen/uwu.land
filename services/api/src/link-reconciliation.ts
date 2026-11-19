@@ -1,5 +1,5 @@
 import { links } from "@uwu/db/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Env } from "./worker";
 
@@ -56,4 +56,47 @@ export async function reconcilePendingLinks(env: Pick<Env, "DB" | "ENFORCEMENT">
 	const results = await Promise.allSettled(rows.map((row) => reconcileLink(env, row)));
 	const failures = results.filter((result) => result.status === "rejected");
 	if (failures.length > 0) console.error(JSON.stringify({ event: "link_reconciliation_failed", failures: failures.length, attempted: rows.length }));
+}
+
+// D1 caps a statement at 100 bound parameters; two go on the lifecycle states.
+const PARAMETER_BATCH = 90;
+const LIVE_STATES = ["active", "pending_publish"] as const;
+
+/**
+ * Hands every live link whose host is one of `domains`, or a subdomain of one,
+ * to the reconciler by marking it `pending_delete`. Used when a domain is
+ * banned, so links created before the ban stop redirecting on the next cron
+ * pass. The LIKE only narrows the scan; the parsed hostname decides.
+ */
+export async function markDomainLinksForDeletion(db: D1Database, domains: readonly string[]): Promise<number> {
+	const orm = drizzle(db);
+	// A Set, since a row can match domains from two batches.
+	const slugs = new Set<string>();
+	for (const batch of chunks(domains, PARAMETER_BATCH)) {
+		const rows = await orm.select({ slug: links.slug, url: links.url }).from(links)
+			.where(and(
+				inArray(links.lifecycleState, LIVE_STATES),
+				or(...batch.map((domain) => like(sql`lower(${links.url})`, `%${domain}%`)))
+			)).all();
+		for (const row of rows) {
+			if (batch.some((domain) => urlIsUnderDomain(row.url, domain))) slugs.add(row.slug);
+		}
+	}
+	for (const batch of chunks([...slugs], PARAMETER_BATCH)) {
+		await orm.update(links).set({ lifecycleState: "pending_delete" })
+			.where(and(inArray(links.slug, batch), inArray(links.lifecycleState, LIVE_STATES))).run();
+	}
+	return slugs.size;
+}
+
+function urlIsUnderDomain(url: string, domain: string): boolean {
+	if (!URL.canParse(url)) return false;
+	const hostname = new URL(url).hostname;
+	return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function chunks<T>(items: readonly T[], size: number): T[][] {
+	const result: T[][] = [];
+	for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
+	return result;
 }

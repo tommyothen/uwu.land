@@ -1,8 +1,12 @@
+import { markDomainLinksForDeletion } from "./link-reconciliation";
+import publicSuffixes from "./public-suffixes.json";
 import type { Env } from "./worker";
 
 const SOURCE_URL =
 	"https://raw.githubusercontent.com/mayzelf/grabify-domains/main/domains.txt";
-const DOMAIN_RE = /^[a-z0-9.-]+\.[a-z]{2,}$/;
+// The final label is letters or an IDN TLD in punycode (`xn--p1ai`), which a
+// letters-only TLD rule would drop without a word.
+const DOMAIN_RE = /^(?:[a-z0-9-]+\.)+(?:[a-z]{2,}|xn--[a-z0-9-]+)$/;
 const MAX_DOMAINS = 5_000;
 const WRITE_BATCH_SIZE = 100;
 
@@ -49,6 +53,12 @@ const NEVER_AUTO_BAN = new Set([
 	"zoom.us"
 ]);
 
+// Shared with scripts/banned.mjs. Each entry is a registry or hosting suffix
+// whose subdomains belong to unrelated owners, so a ban on the bare suffix is
+// always a mistake. Unlike NEVER_AUTO_BAN this is an exact match: banning one
+// site on github.io is fine, banning github.io itself is not.
+const PUBLIC_SUFFIXES: ReadonlySet<string> = new Set(publicSuffixes);
+
 // A single run may add at most this many domains, or half the existing set,
 // whichever is larger. Production carries ~71 `banned:` keys and the upstream
 // feed publishes ~29 entries, so 100 leaves better than 3x headroom over any
@@ -61,30 +71,32 @@ const MAX_GROWTH_RATIO = 0.5;
 export interface BanSyncResult {
 	added: number;
 	scanned: number;
+	/** Live links on a listed domain handed to the reconciler for deletion. */
+	swept: number;
 	/** True when the delta guard rejected the run and nothing was written. */
 	refused: boolean;
 }
 
 export async function syncBannedDomains(
-	env: Pick<Env, "UWU">,
+	env: Pick<Env, "UWU" | "DB">,
 	fetchImpl: typeof fetch = fetch
 ): Promise<BanSyncResult> {
 	let response: Response;
 	try {
 		response = await fetchImpl(SOURCE_URL);
 	} catch {
-		return { added: 0, scanned: 0, refused: false };
+		return { added: 0, scanned: 0, swept: 0, refused: false };
 	}
 
 	if (!response.ok) {
-		return { added: 0, scanned: 0, refused: false };
+		return { added: 0, scanned: 0, swept: 0, refused: false };
 	}
 
 	let source: string;
 	try {
 		source = await response.text();
 	} catch {
-		return { added: 0, scanned: 0, refused: false };
+		return { added: 0, scanned: 0, swept: 0, refused: false };
 	}
 
 	const candidateLines = source
@@ -112,13 +124,13 @@ export async function syncBannedDomains(
 				sample: candidateLines.slice(0, 3).map((line) => line.slice(0, 120))
 			});
 		}
-		return { added: 0, scanned: 0, refused: false };
+		return { added: 0, scanned: 0, swept: 0, refused: false };
 	}
 
 	const candidates: string[] = [];
 	const rejected: string[] = [];
 	for (const domain of new Set(parsed)) {
-		if (isNeverAutoBanned(domain)) {
+		if (isNeverAutoBanned(domain) || PUBLIC_SUFFIXES.has(domain)) {
 			rejected.push(domain);
 		} else {
 			candidates.push(domain);
@@ -130,7 +142,7 @@ export async function syncBannedDomains(
 		// feed is compromised, squatted, or broken — investigate before
 		// trusting anything else it published.
 		console.error(
-			"Blocklist source published allowlisted domains; they were ignored. Review the upstream feed.",
+			"Blocklist source published allowlisted domains or public suffixes; they were ignored. Review the upstream feed.",
 			{ domains: rejected.slice(0, 20), total: rejected.length }
 		);
 	}
@@ -157,7 +169,7 @@ export async function syncBannedDomains(
 				sample: missing.slice(0, 20)
 			}
 		);
-		return { added: 0, scanned: parsed.length, refused: true };
+		return { added: 0, scanned: parsed.length, swept: 0, refused: true };
 	}
 
 	for (let index = 0; index < missing.length; index += WRITE_BATCH_SIZE) {
@@ -168,7 +180,14 @@ export async function syncBannedDomains(
 		);
 	}
 
-	return { added: missing.length, scanned: parsed.length, refused: false };
+	// Bans only gate creation, so links made before the ban would keep
+	// redirecting. Runs after the keys are written, so nothing new can slip in
+	// behind it, and covers every listed domain rather than just the new ones:
+	// a sweep that fails today is retried tomorrow, and the cost is one
+	// prefiltered scan of `links` a day.
+	const swept = await markDomainLinksForDeletion(env.DB, candidates);
+
+	return { added: missing.length, scanned: parsed.length, swept, refused: false };
 }
 
 // Walks the domain's own suffixes, stopping before the bare final label so a
