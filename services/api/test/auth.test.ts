@@ -205,6 +205,7 @@ describe("auth middleware", () => {
 			kind: "key",
 			keyId: "key_123",
 			limitedUntil,
+			suspended: false,
 			tier: "pro",
 			userId: "user_123"
 		});
@@ -277,6 +278,7 @@ describe("auth middleware", () => {
 			emailHash: null,
 			kind: "session",
 			limitedUntil: null,
+			suspended: false,
 			tier: "free",
 			userId: "user_jwt"
 		});
@@ -307,6 +309,32 @@ describe("auth middleware", () => {
 		});
 		expect(statements).toHaveLength(1);
 		expect(statements[0]).toMatch(/^select/i);
+	});
+
+	it("marks key and session principals of a suspended account", async () => {
+		await seedUser("user_123");
+		await drizzle(env.DB)
+			.update(users)
+			.set({ suspendedAt: new Date("2026-11-19T00:00:00.000Z") })
+			.where(eq(users.id, "user_123"))
+			.run();
+		const seeded = await seedApiKey();
+		const { jwt, jwks } = await createJwt("user_123");
+
+		const viaKey = await resolveAuth(
+			bearer(seeded.secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const viaSession = await resolveAuth(
+			bearer(jwt),
+			env as Env,
+			createExecutionContext(),
+			{ clerkIssuer: issuer, jwks }
+		);
+
+		expect(viaKey).toMatchObject({ kind: "key", suspended: true });
+		expect(viaSession).toMatchObject({ kind: "session", suspended: true });
 	});
 
 	it("rejects a still-valid session JWT for a deleted user without recreating it", async () => {
@@ -369,6 +397,7 @@ describe("auth middleware", () => {
 			emailHash: null,
 			kind: "session",
 			limitedUntil: null,
+			suspended: false,
 			tier: "free",
 			userId: "user_fetched"
 		});

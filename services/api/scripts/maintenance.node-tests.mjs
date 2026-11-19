@@ -5,13 +5,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { deletedOwnerHash, ownerCondition } from "./purge-owner.mjs";
 
 const scriptsDirectory = fileURLToPath(new URL("./", import.meta.url));
 
 for (const [script, args] of [
 	["banned.mjs", []],
 	["abuse-top.mjs", ["--days", "0"]],
-	["purge-domain.mjs", []]
+	["abuse-top.mjs", ["--by", "email"]],
+	["abuse-top.mjs", ["--days"]],
+	["purge-domain.mjs", []],
+	["purge-owner.mjs", []],
+	["purge-owner.mjs", ["user_x'; DROP TABLE links; --"]],
+	["purge-owner.mjs", ["user_a", "user_b"]],
+	["suspend.mjs", ["suspend"]],
+	["suspend.mjs", ["suspend", "not-a-clerk-id"]],
+	["suspend.mjs", ["delete", "user_abc"]]
 ]) {
 	test(`${script} rejects invalid usage before running Wrangler`, () => {
 		const result = spawnSync(process.execPath, [scriptsDirectory + script, ...args], {
@@ -22,6 +31,25 @@ for (const [script, args] of [
 		assert.match(result.stderr, /Usage:/);
 	});
 }
+
+// Pinned in test/clerk-webhook.test.ts too, so the worker and this script
+// always agree on which links a user id owned before deletion.
+test("purge-owner.mjs hashes user ids the same way the Clerk webhook does", () => {
+	assert.equal(
+		deletedOwnerHash("user_deleted"),
+		"bdf7a361d35f261bb56ef3885c415230222a127440310357e72d057cb4367e0a"
+	);
+});
+
+test("purge-owner.mjs matches a user id's live and deleted links, a hash only its deleted ones", () => {
+	const hash = deletedOwnerHash("user_abc");
+	assert.equal(
+		ownerCondition("user_abc"),
+		`(owner_id = 'user_abc' OR deleted_owner_hash = '${hash}')`
+	);
+	assert.equal(ownerCondition(hash), `deleted_owner_hash = '${hash}'`);
+	assert.equal(ownerCondition(hash.toUpperCase()), null);
+});
 
 // co.ke and *.ck are on the Public Suffix List but were never in a hand-written
 // list; github.io and pages.dev are private suffixes, refused all the same.

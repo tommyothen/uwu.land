@@ -12,7 +12,7 @@ export const meta: Route.MetaFunction = () => [
 
 export default function PrivacyPage() {
 	return (
-		<LegalPage title="Privacy Policy" lastUpdated="14 July 2026">
+		<LegalPage title="Privacy Policy" lastUpdated="19 November 2026">
 			<P>
 				uwu.land is a URL shortener, the tiny link post office. This policy
 				explains what data the service collects, why, the lawful bases we rely
@@ -160,8 +160,10 @@ export default function PrivacyPage() {
 				free-tier limits. We also keep the closed account's internal
 				identifier permanently. It contains no email address and no content,
 				and we keep it only so a closed account cannot be recreated or
-				reopened. Links you created may keep working as
-				anonymous links, so delete any you want gone before closing. Abuse and
+				reopened. When an account is deleted its short links stay active, and
+				we keep a one-way, non-identifying reference to the closed account on
+				them so abusive links can still be removed. Delete any links you want
+				gone before closing. Abuse and
 				rate-limit state is cleared after its window (about 24 hours), and
 				analytics events roll off at about three months.
 			</P>

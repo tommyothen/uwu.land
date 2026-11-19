@@ -111,3 +111,13 @@ Migrations live in `packages/db/migrations` (referenced via `migrations_dir`).
 Run these from `services/api`; they operate on remote production infrastructure.
 The [root README](../../README.md#maintenance) has the full list: `pnpm ban`,
 `pnpm unban`, `pnpm banned`, `pnpm abuse:top`, `pnpm purge:domain`.
+
+Account moderation:
+
+- `pnpm suspend <userId>` / `pnpm unsuspend <userId>` refuse or restore an
+  account's creates. Its existing links stay up.
+- `pnpm abuse:top --by owner [--days N]` groups recent links by account. Live
+  accounts show their Clerk user id; deleted ones show the one-way
+  `deleted_owner_hash` written when the account was deleted.
+- `pnpm purge:owner <userId|ownerHash> [--yes]` marks all of that owner's links
+  `pending_delete` for the reconciler to remove. Dry run without `--yes`.
