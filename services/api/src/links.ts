@@ -28,6 +28,7 @@ import { hashKey } from "./keys";
 import { reconcileLink } from "./link-reconciliation";
 import { canonicalHostname, normalizeUrl } from "./normalize";
 import { DurableObjectFixedWindow } from "./rate-limit";
+import { isUrlShortener } from "./shorteners";
 import {
 	generateSlug,
 	type IdGenerator,
@@ -46,6 +47,7 @@ const createLinkSchema = z.object({
 const CREATE_WINDOW_SECONDS = 86_400;
 const LIST_PAGE_SIZE = 25;
 const ANON_CREATE_ATTEMPTS = 3;
+const MAX_HOST_LABELS = 10;
 
 type AuthenticatedPrincipal = Extract<
 	AuthPrincipal,
@@ -116,8 +118,28 @@ export async function createLink(
 	}
 	destination.hostname = hostname;
 
+	// Destinations must be public domain names. IP literals and dotless hosts
+	// (`localhost`, intranet names) reach local or private services, and the
+	// banned-hostname walk has no parent domain to match them against.
+	if (isIpLiteral(hostname) || !hostname.includes(".")) {
+		return errorResponse(400, "invalid_body", "URL host must be a domain name.");
+	}
+	// Real hosts are a handful of labels deep; past this they only pad out the
+	// banned-hostname walk.
+	if (hostname.split(".").length > MAX_HOST_LABELS) {
+		return errorResponse(400, "invalid_body", "URL host has too many labels.");
+	}
+
 	if (isOwnHostname(destination.hostname, c.req.url)) {
 		return errorResponse(400, "invalid_body", "uwu.land URLs are not allowed.");
+	}
+
+	if (auth.kind === "anon" && isUrlShortener(hostname)) {
+		return errorResponse(
+			403,
+			"forbidden",
+			"Links to other URL shorteners need an account."
+		);
 	}
 
 	const rateLimit = await limitCreate(c, auth, options.createPerDayLimit);
@@ -706,6 +728,16 @@ async function readJson(request: Request): Promise<unknown> {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Whether a parsed, canonical hostname is an IP address. The URL parser
+ * brackets every IPv6 host (IPv4-mapped included) and reads any host whose last
+ * label is a decimal or hex number as IPv4, so `0x7f.1` and `127.1` count too.
+ */
+function isIpLiteral(hostname: string): boolean {
+	const last = hostname.slice(hostname.lastIndexOf(".") + 1);
+	return hostname.startsWith("[") || /^(?:0x[0-9a-f]*|\d+)$/.test(last);
 }
 
 /**

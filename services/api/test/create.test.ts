@@ -447,6 +447,97 @@ describe("anonymous link creation", () => {
 		expect(body.code).toBe("invalid_body");
 	});
 
+	it.each([
+		"http://127.0.0.1/",
+		"http://10.0.0.1./admin",
+		"http://0x7f.1/",
+		"http://2130706433/",
+		"https://[2001:db8::1]/",
+		"https://[::ffff:192.0.2.1]/",
+		"http://localhost:8080/",
+		"https://intranet/"
+	])("rejects the IP-literal or dotless destination %s", async (url) => {
+		const secret = await seedApiKey();
+		for (const request of [
+			createRequest({ url }, "203.0.113.90"),
+			createAuthedRequest({ url }, secret)
+		]) {
+			const response = await workerFetch(
+				request,
+				env as Env,
+				createExecutionContext()
+			);
+			expect(response.status).toBe(400);
+			expect((await response.json<{ code: string }>()).code).toBe("invalid_body");
+		}
+	});
+
+	it("rejects hosts more than ten labels deep", async () => {
+		const deep = await workerFetch(
+			createRequest({ url: `https://${"a.".repeat(9)}example.com/` }, "203.0.113.91"),
+			env as Env,
+			createExecutionContext()
+		);
+		const limit = await workerFetch(
+			createRequest({ url: `https://${"a.".repeat(8)}example.com/` }, "203.0.113.91"),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(deep.status).toBe(400);
+		expect((await deep.json<{ code: string }>()).code).toBe("invalid_body");
+		expect(limit.status).toBe(201);
+	});
+
+	it("rejects anonymous links to other URL shorteners", async () => {
+		for (const url of ["https://bit.ly/abc", "https://WWW.TinyURL.com./abc"]) {
+			const response = await workerFetch(
+				createRequest({ url }, "203.0.113.92"),
+				env as Env,
+				createExecutionContext()
+			);
+			expect(response.status).toBe(403);
+			expect((await response.json<{ code: string }>()).code).toBe("forbidden");
+		}
+	});
+
+	it("lets authenticated callers link to URL shorteners", async () => {
+		const secret = await seedApiKey();
+		const response = await workerFetch(
+			createAuthedRequest({ url: "https://bit.ly/abc" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(201);
+	});
+
+	it("shares the anon daily limit across one IPv6 /64", async () => {
+		const ipInSlash64 = (index: number) => `2001:db8:0:7::${(index + 1).toString(16)}`;
+		for (let i = 0; i < TIERS.anon.createPerDay; i++) {
+			const response = await workerFetch(
+				createRequest({ url: `https://example.com/v6-${i}` }, ipInSlash64(i)),
+				env as Env,
+				createExecutionContext()
+			);
+			expect(response.status).toBe(201);
+		}
+
+		const over = await workerFetch(
+			createRequest({ url: "https://example.com/v6-over" }, "2001:db8:0:7:ffff::1"),
+			env as Env,
+			createExecutionContext()
+		);
+		const elsewhere = await workerFetch(
+			createRequest({ url: "https://example.com/v6-elsewhere" }, "2001:db8:0:8::1"),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(over.status).toBe(429);
+		expect(elsewhere.status).toBe(201);
+	});
+
 	it("deduplicates dotted and undotted spellings of one anonymous URL", async () => {
 		const first = await workerFetch(
 			createRequest({ url: "https://example.com/fqdn" }, "203.0.113.83"),
