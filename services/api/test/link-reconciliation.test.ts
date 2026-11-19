@@ -173,12 +173,13 @@ describe("link reconciliation", () => {
 
 	it("lets healthy rows past permanently failing ones and flags the stuck rows", async () => {
 		// A full batch of rows that have failed for hours, ahead of a fresh publish
-		// in the index's natural (pending_delete first) order.
+		// in the index's natural (pending_delete first) order. Half are one failure
+		// short of stuck and half fail for the 12th time in this run.
 		await env.DB.prepare(
 			`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100)
 			 INSERT INTO links (slug, url, source, lifecycle_state, reconcile_attempts, last_reconcile_at, created_at)
-			 SELECT 'stuck-' || i, 'https://example.com/', 'web-anon', 'pending_delete', ?, ?, 0 FROM n`
-		).bind(STUCK_RECONCILE_ATTEMPTS, Math.floor(Date.now() / 1000)).run();
+			 SELECT 'stuck-' || i, 'https://example.com/', 'web-anon', 'pending_delete', CASE WHEN i <= 50 THEN ? ELSE ? END, ?, 0 FROM n`
+		).bind(STUCK_RECONCILE_ATTEMPTS - 2, STUCK_RECONCILE_ATTEMPTS - 1, Math.floor(Date.now() / 1000)).run();
 		await drizzle(env.DB).insert(links).values({ slug: "fresh", url: "https://example.com/fresh", source: "web-anon", lifecycleState: "pending_publish" }).run();
 		const attempted: string[] = [];
 		const ENFORCEMENT = {
@@ -196,7 +197,8 @@ describe("link reconciliation", () => {
 			expect(attempted).toHaveLength(100);
 			expect(attempted).toContain("fresh");
 			const warning = JSON.parse(String(warn.mock.calls[0]?.[0]));
-			expect(warning).toMatchObject({ event: "link_reconciliation_stuck", count: 99 });
+			// The fewer-attempt half goes first, leaving room for 49 of the rest.
+			expect(warning).toMatchObject({ event: "link_reconciliation_stuck", count: 49 });
 		} finally {
 			warn.mockRestore();
 			error.mockRestore();

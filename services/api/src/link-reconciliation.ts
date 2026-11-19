@@ -65,8 +65,8 @@ async function removeLinkKv(env: Pick<Env, "UWU" | "CLICKS">, row: LinkRow): Pro
 	}
 }
 
-// Rows that have already failed this many times log a distinct
-// link_reconciliation_stuck warning each time they fail again. At the 5-minute
+// From a row's 12th failed attempt onwards, every failure also logs a distinct
+// link_reconciliation_stuck warning. At the 5-minute
 // cron that is roughly an hour of failures for a row retried every run.
 export const STUCK_RECONCILE_ATTEMPTS = 12;
 
@@ -84,7 +84,8 @@ export async function reconcilePendingLinks(env: Pick<Env, "DB" | "ENFORCEMENT">
 	const failed = rows.filter((_row, index) => results[index]?.status === "rejected");
 	if (failed.length === 0) return;
 	console.error(JSON.stringify({ event: "link_reconciliation_failed", failures: failed.length, attempted: rows.length }));
-	const stuck = failed.filter((row) => row.reconcileAttempts >= STUCK_RECONCILE_ATTEMPTS);
+	// reconcileAttempts was read before this run's failure incremented it.
+	const stuck = failed.filter((row) => row.reconcileAttempts + 1 >= STUCK_RECONCILE_ATTEMPTS);
 	if (stuck.length > 0) {
 		console.warn(JSON.stringify({ event: "link_reconciliation_stuck", count: stuck.length, slugs: stuck.slice(0, 20).map((row) => row.slug) }));
 	}
