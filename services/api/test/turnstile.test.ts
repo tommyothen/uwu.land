@@ -1,5 +1,6 @@
 import { createExecutionContext, env } from "cloudflare:test";
 import { apiKeys, users } from "@uwu/db/schema";
+import { TIERS } from "@uwu/shared";
 import { drizzle } from "drizzle-orm/d1";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashKey } from "../src/keys";
@@ -63,15 +64,6 @@ afterEach(() => {
 });
 
 describe("Turnstile on anonymous creates", () => {
-	it("rejects an anonymous create without a token", async () => {
-		const { siteverify } = stubSiteverify(true);
-
-		const result = await create({ url: "https://ts-missing.example/" }, turnstileEnv);
-
-		expect(result).toMatchObject({ status: 400, body: { code: "turnstile_required" } });
-		expect(siteverify).not.toHaveBeenCalled();
-	});
-
 	it("rejects a token siteverify does not accept", async () => {
 		stubSiteverify(false);
 
@@ -81,6 +73,18 @@ describe("Turnstile on anonymous creates", () => {
 		);
 
 		expect(result).toMatchObject({ status: 403, body: { code: "turnstile_failed" } });
+	});
+
+	it("rejects an empty token without calling siteverify", async () => {
+		const { siteverify } = stubSiteverify(true);
+
+		const result = await create(
+			{ url: "https://ts-empty.example/", turnstile_token: "" },
+			turnstileEnv
+		);
+
+		expect(result).toMatchObject({ status: 403, body: { code: "turnstile_failed" } });
+		expect(siteverify).not.toHaveBeenCalled();
 	});
 
 	it("fails closed when siteverify is unreachable", async () => {
@@ -119,7 +123,10 @@ describe("Turnstile on anonymous creates", () => {
 	it("skips verification while the secret is unset", async () => {
 		const { siteverify } = stubSiteverify(false);
 
-		const result = await create({ url: "https://ts-unset.example/" }, env as Env);
+		const result = await create(
+			{ url: "https://ts-unset.example/", turnstile_token: "anything" },
+			env as Env
+		);
 
 		expect(result.status).toBe(201);
 		expect(siteverify).not.toHaveBeenCalled();
@@ -147,6 +154,103 @@ describe("Turnstile on anonymous creates", () => {
 
 		expect(response.status).toBe(201);
 		expect(siteverify).not.toHaveBeenCalled();
+	});
+});
+
+describe("keyless anonymous creates", () => {
+	/** Sends `count` creates from one IP, each to its own URL under `prefix`. */
+	async function createMany(
+		count: number,
+		prefix: string,
+		ip: string,
+		token?: string
+	) {
+		const statuses: number[] = [];
+		for (let index = 0; index < count; index++) {
+			const body =
+				token === undefined
+					? { url: `https://${prefix}${index}.example/` }
+					: { url: `https://${prefix}${index}.example/`, turnstile_token: token };
+			statuses.push((await create(body, turnstileEnv, ip)).status);
+		}
+		return statuses;
+	}
+
+	it("allows three a day without a token, then asks for a token or key", async () => {
+		const { siteverify } = stubSiteverify(true);
+		const ip = "203.0.113.130";
+
+		expect(await createMany(3, "kl-basic", ip)).toEqual([201, 201, 201]);
+		const over = await workerFetch(
+			createRequest({ url: "https://kl-basic-over.example/" }, ip),
+			turnstileEnv,
+			createExecutionContext()
+		);
+		const body = await over.json<{ code: string; message: string; retry_after: number }>();
+
+		expect(over.status).toBe(429);
+		expect(body.code).toBe("keyless_rate_limited");
+		expect(body.message).toMatch(/homepage.*API key/);
+		expect(body.retry_after).toBeGreaterThan(0);
+		expect(over.headers.get("Retry-After")).toBe(String(body.retry_after));
+		expect(siteverify).not.toHaveBeenCalled();
+	});
+
+	it("counts keyless creates toward the anonymous quota tokens still use", async () => {
+		stubSiteverify(true);
+		const ip = "203.0.113.131";
+
+		expect(await createMany(4, "kl-share", ip)).toEqual([201, 201, 201, 429]);
+		// The refused fourth keyless call did not touch the 20 a day.
+		const tokened = await createMany(
+			TIERS.anon.createPerDay - 3 + 1,
+			"kl-share-tok",
+			ip,
+			"tok_ok"
+		);
+
+		expect(tokened.slice(0, -1).every((status) => status === 201)).toBe(true);
+		expect(tokened.at(-1)).toBe(429);
+	});
+
+	it("refuses junk tokens without spending the keyless allowance", async () => {
+		stubSiteverify(false);
+		const ip = "203.0.113.132";
+
+		expect(await createMany(5, "kl-junk", ip, "junk")).toEqual([403, 403, 403, 403, 403]);
+		expect(await createMany(3, "kl-junk-none", ip)).toEqual([201, 201, 201]);
+	});
+
+	it("applies the per-domain cap to keyless creates", async () => {
+		stubSiteverify(true);
+		for (let index = 0; index < 10; index++) {
+			const result = await create(
+				{ url: `https://k${index}.keyless-capped.example/` },
+				turnstileEnv,
+				`198.51.100.${200 + index}`
+			);
+			expect(result.status).toBe(201);
+		}
+
+		const over = await create(
+			{ url: "https://over.keyless-capped.example/" },
+			turnstileEnv,
+			"198.51.100.250"
+		);
+		expect(over).toMatchObject({ status: 429, body: { code: "domain_rate_limited" } });
+	});
+
+	it("still applies while the secret is unset", async () => {
+		const ip = "203.0.113.133";
+
+		const statuses: number[] = [];
+		for (let index = 0; index < 4; index++) {
+			statuses.push(
+				(await create({ url: `https://kl-unset${index}.example/` }, env as Env, ip)).status
+			);
+		}
+
+		expect(statuses).toEqual([201, 201, 201, 429]);
 	});
 });
 

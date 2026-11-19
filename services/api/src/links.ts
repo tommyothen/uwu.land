@@ -1,5 +1,6 @@
 import { apiKeys, links as linksTable, slugTombstones } from "@uwu/db/schema";
 import {
+	ANON_KEYLESS_CREATE_PER_DAY,
 	type CreateLinkResponse,
 	type LinkSummary,
 	type ListLinksResponse,
@@ -38,7 +39,7 @@ import {
 	isValidCustomSlug,
 	SLUG_RE
 } from "./slugs";
-import { turnstileRejection } from "./turnstile";
+import { anonymousTier } from "./turnstile";
 import type { Env } from "./worker";
 
 const createLinkSchema = z.object({
@@ -98,15 +99,12 @@ export async function createLink(
 			"This address is temporarily blocked for abuse."
 		);
 	}
-	if (auth.kind === "anon") {
-		const rejection = await turnstileRejection(
-			c.env,
-			parsed.data.turnstile_token,
-			ip
-		);
-		if (rejection !== null) {
-			return rejection;
-		}
+	const tier =
+		auth.kind === "anon"
+			? await anonymousTier(c.env, parsed.data.turnstile_token, ip)
+			: null;
+	if (tier instanceof Response) {
+		return tier;
 	}
 
 	if (parsed.data.slug !== undefined || parsed.data.external_ref !== undefined) {
@@ -167,6 +165,25 @@ export async function createLink(
 		parsed.data.slug === undefined ? null : customSlugError(parsed.data.slug);
 	if (slugError !== null) {
 		return slugError;
+	}
+
+	// Keyless calls draw on their own small bucket first, then on the usual
+	// anonymous quota as well. Checking the keyless bucket first means a caller
+	// stuck on it does not also burn the quota their homepage creates share.
+	if (tier === "keyless") {
+		const keylessLimit = await new DurableObjectFixedWindow(
+			c.env.ENFORCEMENT,
+			ANON_KEYLESS_CREATE_PER_DAY,
+			CREATE_WINDOW_SECONDS
+		).limit(`anon-keyless:${ip}`);
+		if (!keylessLimit.allowed) {
+			return errorResponse(
+				429,
+				"keyless_rate_limited",
+				`Keyless API calls are limited to ${ANON_KEYLESS_CREATE_PER_DAY} links a day. Use the uwu.land homepage or a free API key for more.`,
+				keylessLimit.retryAfterSeconds
+			);
+		}
 	}
 
 	const rateLimit = await limitCreate(c, auth, options.createPerDayLimit);

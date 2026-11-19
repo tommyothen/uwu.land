@@ -4,7 +4,10 @@ export interface CreateLinkRequest {
 	url: string;
 	slug?: string;
 	external_ref?: string;
-	/** Required for anonymous creates once the API has a Turnstile secret. */
+	/**
+	 * Anonymous creates from the homepage send this. Leaving it out is allowed
+	 * but puts the caller on the smaller keyless quota.
+	 */
 	turnstile_token?: string;
 }
 
@@ -99,7 +102,7 @@ const ERROR_CODES = [
 	"ip_blocked",
 	"rate_limited",
 	"domain_rate_limited",
-	"turnstile_required",
+	"keyless_rate_limited",
 	"turnstile_failed",
 	"not_found",
 	"unauthorized",

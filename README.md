@@ -95,6 +95,9 @@ curl -X POST https://uwu.land/api/v1/links \
   -d '{"url":"https://example.com"}'
 ```
 
+Keyless calls like this are limited to 3 links a day; the
+[homepage](https://uwu.land) or a free API key gives you more.
+
 Full endpoint reference, error codes, and the response envelope are documented at
 [app.uwu.land/docs](https://app.uwu.land/docs). The contract types the worker
 validates against are in `packages/shared`.

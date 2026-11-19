@@ -27,7 +27,16 @@ async function clearKv(namespace: KVNamespace): Promise<void> {
 	await Promise.all(list.keys.map((key) => namespace.delete(key.name)));
 }
 
+/**
+ * Object bodies get a Turnstile token so anonymous creates use the homepage
+ * quota rather than the keyless one (turnstile.test.ts covers that tier). The
+ * test env has no secret, so any token passes.
+ */
 function createRequest(body: unknown, ip = "203.0.113.10"): Request {
+	const withToken =
+		typeof body === "object" && body !== null
+			? { turnstile_token: "test-token", ...body }
+			: body;
 	return new Request("https://uwu.land/api/v1/links", {
 		cf: {},
 		method: "POST",
@@ -35,7 +44,7 @@ function createRequest(body: unknown, ip = "203.0.113.10"): Request {
 			"CF-Connecting-IP": ip,
 			"content-type": "application/json"
 		},
-		body: JSON.stringify(body)
+		body: JSON.stringify(withToken)
 	});
 }
 

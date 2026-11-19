@@ -79,7 +79,7 @@ function toPostalError(error: unknown): PostalError {
 		if (error.code === "url_banned") {
 			return { stamp: "RETURN TO SENDER", tone: "red", message: COPY.banned, retryAfter: null };
 		}
-		if (error.code === "turnstile_required" || error.code === "turnstile_failed") {
+		if (error.code === "turnstile_failed") {
 			return { stamp: "RETURN TO SENDER", tone: "red", message: COPY.human, retryAfter: null };
 		}
 		// Its retry_after can run to most of a day, too long for a live countdown.
@@ -307,9 +307,9 @@ export function ShortenBox() {
 		setPhase("departing");
 
 		// Signed-in senders file the link under their account. A missing token
-		// (unexpected) falls back to an anonymous create, which carries no
-		// Turnstile token, so an enforcing API asks them to try again. Everyone
-		// else proves they're human with the Turnstile widget instead.
+		// (unexpected) falls back to an anonymous create with no Turnstile token,
+		// which the API serves from its small keyless quota. Everyone else proves
+		// they're human with the Turnstile widget instead.
 		const request: Promise<CreateLinkResponse> =
 			signedIn
 				? auth

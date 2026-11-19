@@ -1,4 +1,4 @@
-import { TIERS } from "@uwu/shared";
+import { ANON_KEYLESS_CREATE_PER_DAY, TIERS } from "@uwu/shared";
 import type { ReactNode } from "react";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -75,7 +75,6 @@ const ERROR_CODES: readonly [status: string, code: string, when: ReactNode][] = 
 	["400", "invalid_body", "Malformed JSON, URL, slug, or cursor."],
 	["400", "slug_reserved", "The requested slug is reserved (for example, api)."],
 	["400", "url_banned", "The destination is blocked by moderation."],
-	["400", "turnstile_required", "An anonymous create sent no Turnstile token."],
 	["401", "unauthorized", "Auth is missing, invalid, or revoked."],
 	[
 		"403",
@@ -91,6 +90,11 @@ const ERROR_CODES: readonly [status: string, code: string, when: ReactNode][] = 
 	["409", "slug_taken", "The requested slug already exists."],
 	["409", "key_limit", "Your account reached its API key limit."],
 	["429", "rate_limited", "You exceeded your daily link-creation quota."],
+	[
+		"429",
+		"keyless_rate_limited",
+		"An anonymous create with no Turnstile token used up its daily allowance."
+	],
 	[
 		"429",
 		"domain_rate_limited",
@@ -140,6 +144,10 @@ export default function DocsPage() {
 				<Code>{`curl -X POST https://uwu.land/api/v1/links \\
   -H "Content-Type: application/json" \\
   -d '{"url": "https://example.com/some/long/path"}'`}</Code>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Keyless calls are limited to {ANON_KEYLESS_CREATE_PER_DAY} links a
+					day; the uwu.land homepage or a free API key gives you more.
+				</p>
 
 				<H2 id="authentication">Authentication</H2>
 				<p className="mt-3 leading-relaxed text-muted-foreground">
@@ -220,10 +228,14 @@ export default function DocsPage() {
 					custom slug and attach an <code>external_ref</code>.
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-					Anonymous creates must also send a <code>turnstile_token</code> from
-					the Cloudflare Turnstile check on the uwu.land homepage, so they only
-					work from a browser. Scripts and bots should use an API key, which
-					needs no token.
+					The uwu.land homepage sends a <code>turnstile_token</code> from its
+					Cloudflare Turnstile check, which gives anonymous creates the full
+					anonymous quota. Anonymous calls without one still work but are
+					limited to {ANON_KEYLESS_CREATE_PER_DAY} a day per IP, counted
+					within that quota, and past it return 429{" "}
+					<code>keyless_rate_limited</code>. A token that is sent but rejected
+					or expired returns 403 <code>turnstile_failed</code>. Scripts and
+					bots should use an API key, which needs no token.
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					The <code>url</code> must be <code>http</code> or <code>https</code>, at
@@ -373,7 +385,9 @@ console.log(data.short_url);`}</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Link-creation quotas are per day. Anonymous callers are limited per
 					IP; authenticated callers are limited per account, shared across every
-					API key and the dashboard. Anonymous links are also capped at 10 new
+					API key and the dashboard. Anonymous calls without a Turnstile token
+					can use only {ANON_KEYLESS_CREATE_PER_DAY} of that a day.
+					Anonymous links are also capped at 10 new
 					links per destination domain per day across everyone, returning 429{" "}
 					<code>domain_rate_limited</code>; a URL that was already shortened
 					still comes back without counting.
