@@ -28,11 +28,9 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 	// target, so rewriting it costs one extra write per restart.
 	#scheduledAlarm: number | null = null;
 
-	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
-		super(ctx, env);
-		this.ensureSchema();
-	}
-
+	// The schema is created lazily on write paths only. Read-only touches
+	// (isBlocked on every anonymous create, link:<slug> reconciliation) would
+	// otherwise leave a permanent empty database behind with no cleanup alarm.
 	private ensureSchema(): void {
 		if (this.schemaReady) {
 			return;
@@ -51,6 +49,17 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 			);
 		`);
 		this.schemaReady = true;
+	}
+
+	/** Whether a write has created the tables yet. Reads treat absent as empty. */
+	private hasSchema(): boolean {
+		if (!this.schemaReady) {
+			this.schemaReady =
+				this.ctx.storage.sql
+					.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'abuse'")
+					.toArray().length > 0;
+		}
+		return this.schemaReady;
 	}
 
 	async limitFixedWindow(
@@ -85,8 +94,7 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 	}
 
 	async fixedWindowUsage(now = Date.now()): Promise<FixedWindowUsage | null> {
-		this.ensureSchema();
-		return this.fixedWindow(now);
+		return this.hasSchema() ? this.fixedWindow(now) : null;
 	}
 
 	async recordBannedAttempt(
@@ -123,7 +131,9 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 	}
 
 	async isBlocked(now = Date.now()): Promise<boolean> {
-		this.ensureSchema();
+		if (!this.hasSchema()) {
+			return false;
+		}
 		const row = this.ctx.storage.sql
 			.exec<{ blocked_until: number | null }>(
 				"SELECT blocked_until FROM abuse WHERE id = 1"
@@ -141,7 +151,6 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 	}
 
 	async alarm(): Promise<void> {
-		this.ensureSchema();
 		// The alarm that just fired is gone from storage, so the cache must not
 		// suppress rescheduling a still-active expiry at the same target.
 		this.#scheduledAlarm = null;
@@ -179,7 +188,7 @@ export class Enforcement extends DurableObject<Cloudflare.Env> {
 	}
 
 	private async scheduleCleanup(now: number): Promise<void> {
-		const expiry = this.latestActiveExpiry(now);
+		const expiry = this.hasSchema() ? this.latestActiveExpiry(now) : null;
 		if (expiry === null) {
 			await this.ctx.storage.deleteAll();
 			this.schemaReady = false;

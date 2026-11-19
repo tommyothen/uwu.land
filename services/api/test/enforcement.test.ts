@@ -10,6 +10,7 @@ import {
 	ABUSE_WINDOW_SECONDS,
 	IP_BLOCK_SECONDS
 } from "../src/abuse";
+import { resetD1 } from "./helpers/d1";
 
 describe("atomic enforcement", () => {
 	it("allows exactly the fixed-window maximum under concurrency", async () => {
@@ -147,5 +148,24 @@ describe("atomic enforcement", () => {
 			expect(await state.storage.getAlarm()).toBeNull();
 		});
 		expect(await stub.fixedWindowUsage()).toBeNull();
+	});
+
+	it("leaves no storage behind for read-only and link objects", async () => {
+		const reader = env.ENFORCEMENT.getByName("abuse:198.51.100.30");
+		const link = env.ENFORCEMENT.getByName("link:read-only");
+		await resetD1(env.DB);
+
+		expect(await reader.isBlocked()).toBe(false);
+		expect(await reader.fixedWindowUsage()).toBeNull();
+		await link.reconcileLink("read-only");
+
+		for (const stub of [reader, link]) {
+			await runInDurableObject(stub, async (_instance, state) => {
+				const tables = state.storage.sql
+					.exec("SELECT name FROM sqlite_master WHERE type = 'table'")
+					.toArray();
+				expect(tables).toEqual([]);
+			});
+		}
 	});
 });

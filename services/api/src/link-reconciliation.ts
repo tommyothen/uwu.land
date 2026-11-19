@@ -1,5 +1,5 @@
 import { links } from "@uwu/db/schema";
-import { and, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { isBannedHostname, isBannedPath } from "./banned";
 import type { Env } from "./worker";
@@ -65,13 +65,30 @@ async function removeLinkKv(env: Pick<Env, "UWU" | "CLICKS">, row: LinkRow): Pro
 	}
 }
 
+// From a row's 12th failed attempt onwards, every failure also logs a distinct
+// link_reconciliation_stuck warning. At the 5-minute
+// cron that is roughly an hour of failures for a row retried every run.
+export const STUCK_RECONCILE_ATTEMPTS = 12;
+
 export async function reconcilePendingLinks(env: Pick<Env, "DB" | "ENFORCEMENT">): Promise<void> {
 	// Listing the pending states rather than negating "active" keeps the scan on
 	// links_lifecycle_idx; SQLite cannot use an index for an inequality here.
-	const rows = await drizzle(env.DB).select().from(links).where(inArray(links.lifecycleState, ["pending_publish", "pending_delete"])).limit(100).all();
+	// Fewest attempts first, then least recently tried (never-tried NULLs sort
+	// first), so rows that keep failing back off behind healthy ones instead of
+	// filling the batch on every run.
+	const rows = await drizzle(env.DB).select().from(links)
+		.where(inArray(links.lifecycleState, ["pending_publish", "pending_delete"]))
+		.orderBy(asc(links.reconcileAttempts), asc(links.lastReconcileAt))
+		.limit(100).all();
 	const results = await Promise.allSettled(rows.map((row) => reconcileLink(env, row)));
-	const failures = results.filter((result) => result.status === "rejected");
-	if (failures.length > 0) console.error(JSON.stringify({ event: "link_reconciliation_failed", failures: failures.length, attempted: rows.length }));
+	const failed = rows.filter((_row, index) => results[index]?.status === "rejected");
+	if (failed.length === 0) return;
+	console.error(JSON.stringify({ event: "link_reconciliation_failed", failures: failed.length, attempted: rows.length }));
+	// reconcileAttempts was read before this run's failure incremented it.
+	const stuck = failed.filter((row) => row.reconcileAttempts + 1 >= STUCK_RECONCILE_ATTEMPTS);
+	if (stuck.length > 0) {
+		console.warn(JSON.stringify({ event: "link_reconciliation_stuck", count: stuck.length, slugs: stuck.slice(0, 20).map((row) => row.slug) }));
+	}
 }
 
 // D1 caps a statement at 100 bound parameters; two go on the lifecycle states.

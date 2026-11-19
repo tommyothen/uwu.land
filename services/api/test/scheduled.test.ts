@@ -4,10 +4,17 @@ import {
 	env,
 	waitOnExecutionContext
 } from "cloudflare:test";
-import { accountTombstones, deletedUsers } from "@uwu/db/schema";
+import {
+	accountTombstones,
+	clerkWebhookEvents,
+	deletedUsers,
+	stripeSubscriptions,
+	stripeWebhookEvents
+} from "@uwu/db/schema";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ACCOUNT_TOMBSTONE_WINDOW_SECONDS } from "../src/clerk-webhook";
+import { WEBHOOK_EVENT_RETENTION_MS } from "../src/webhook-retention";
 import type { Env } from "../src/worker";
 import { createWorker } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
@@ -116,5 +123,73 @@ describe("scheduled maintenance", () => {
 		expect(cancelRequests).toEqual([
 			"https://api.stripe.com/v1/subscriptions/sub_orphan"
 		]);
+	});
+
+	it("prunes expired webhook replay records but keeps referenced Stripe events", async () => {
+		const now = Date.now();
+		const expired = new Date(now - WEBHOOK_EVENT_RETENTION_MS - 86_400_000);
+		const recent = new Date(now - WEBHOOK_EVENT_RETENTION_MS + 86_400_000);
+		const db = drizzle(env.DB);
+		await db
+			.insert(stripeWebhookEvents)
+			.values([
+				{ id: "evt_expired", eventTimestamp: 1, processedAt: expired },
+				{ id: "evt_referenced", eventTimestamp: 1, processedAt: expired },
+				{ id: "evt_recent", eventTimestamp: 1, processedAt: recent }
+			])
+			.run();
+		await db
+			.insert(stripeSubscriptions)
+			.values({
+				id: "sub_kept",
+				customerId: "cus_kept",
+				priceId: "price_monthly",
+				userId: "user_subscribed",
+				status: "active",
+				eventTimestamp: 1,
+				eventId: "evt_referenced"
+			})
+			.run();
+		await db
+			.insert(clerkWebhookEvents)
+			.values([
+				{ id: "msg_expired", eventTimestamp: 1, processedAt: expired },
+				{ id: "msg_recent", eventTimestamp: 1, processedAt: recent }
+			])
+			.run();
+		await db
+			.insert(deletedUsers)
+			.values({ userId: "user_long_gone", deletedAt: expired })
+			.run();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn<typeof fetch>(async () => new Response(null, { status: 503 }))
+		);
+
+		try {
+			const scheduled = createWorker().scheduled;
+			if (scheduled === undefined) {
+				throw new Error("Worker scheduled handler is missing");
+			}
+			const ctx = createExecutionContext();
+			await scheduled(
+				createScheduledController({ cron: "0 6 * * *", scheduledTime: now }),
+				env as Env,
+				ctx
+			);
+			await waitOnExecutionContext(ctx);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+
+		const ids = (rows: { id: string }[]) => rows.map((row) => row.id).sort();
+		expect(ids(await db.select().from(stripeWebhookEvents).all())).toEqual([
+			"evt_recent",
+			"evt_referenced"
+		]);
+		expect(ids(await db.select().from(clerkWebhookEvents).all())).toEqual([
+			"msg_recent"
+		]);
+		expect(await db.select().from(deletedUsers).all()).toHaveLength(1);
 	});
 });
