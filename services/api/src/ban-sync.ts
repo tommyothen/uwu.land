@@ -1,5 +1,5 @@
+import { getDomain } from "tldts";
 import { markDomainLinksForDeletion } from "./link-reconciliation";
-import publicSuffixes from "./public-suffixes.json";
 import type { Env } from "./worker";
 
 const SOURCE_URL =
@@ -52,12 +52,6 @@ const NEVER_AUTO_BAN = new Set([
 	"youtube.com",
 	"zoom.us"
 ]);
-
-// Shared with scripts/banned.mjs. Each entry is a registry or hosting suffix
-// whose subdomains belong to unrelated owners, so a ban on the bare suffix is
-// always a mistake. Unlike NEVER_AUTO_BAN this is an exact match: banning one
-// site on github.io is fine, banning github.io itself is not.
-const PUBLIC_SUFFIXES: ReadonlySet<string> = new Set(publicSuffixes);
 
 // A single run may add at most this many domains, or half the existing set,
 // whichever is larger. Production carries ~71 `banned:` keys and the upstream
@@ -130,7 +124,7 @@ export async function syncBannedDomains(
 	const candidates: string[] = [];
 	const rejected: string[] = [];
 	for (const domain of new Set(parsed)) {
-		if (isNeverAutoBanned(domain) || PUBLIC_SUFFIXES.has(domain)) {
+		if (isNeverAutoBanned(domain) || isPublicSuffix(domain)) {
 			rejected.push(domain);
 		} else {
 			candidates.push(domain);
@@ -188,6 +182,14 @@ export async function syncBannedDomains(
 	const swept = await markDomainLinksForDeletion(env.DB, candidates);
 
 	return { added: missing.length, scanned: parsed.length, swept, refused: false };
+}
+
+// True for a registry or hosting suffix (`co.ke`, `github.io`) whose subdomains
+// belong to unrelated owners. A ban on one would sweep every link under it, so
+// it is always a mistake; banning one site on github.io is fine. Matches
+// scripts/domain-sweep.mjs. Private suffixes are included on purpose.
+function isPublicSuffix(domain: string): boolean {
+	return getDomain(domain, { allowPrivateDomains: true }) === null;
 }
 
 // Walks the domain's own suffixes, stopping before the bare final label so a

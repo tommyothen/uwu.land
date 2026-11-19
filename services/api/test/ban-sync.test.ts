@@ -219,14 +219,18 @@ describe("banned-domain sync", () => {
 
 		const result = await syncBannedDomains(
 			{ UWU: env.UWU, DB: env.DB },
-			sourceOf(["xn--e1afmkfd.xn--p1ai", "co.uk", "github.io", "evil.github.io"])
+			// co.ke and *.ck come from the full Public Suffix List; github.io is a
+			// private suffix, refused all the same.
+			sourceOf(["xn--e1afmkfd.xn--p1ai", "co.uk", "co.ke", "customer.co.ke", "anything.ck", "github.io", "evil.github.io"])
 		);
 
-		expect(result).toEqual({ added: 2, scanned: 4, swept: 0, refused: false });
+		expect(result).toEqual({ added: 3, scanned: 7, swept: 0, refused: false });
 		expect(await env.UWU.get("banned:xn--e1afmkfd.xn--p1ai")).toBe("auto");
+		expect(await env.UWU.get("banned:customer.co.ke")).toBe("auto");
 		expect(await env.UWU.get("banned:evil.github.io")).toBe("auto");
-		expect(await env.UWU.get("banned:co.uk")).toBeNull();
-		expect(await env.UWU.get("banned:github.io")).toBeNull();
+		for (const suffix of ["co.uk", "co.ke", "anything.ck", "github.io"]) {
+			expect(await env.UWU.get(`banned:${suffix}`)).toBeNull();
+		}
 		expect(consoleError).toHaveBeenCalled();
 		consoleError.mockRestore();
 	});

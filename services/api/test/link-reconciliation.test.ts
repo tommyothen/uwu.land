@@ -89,6 +89,21 @@ describe("link reconciliation", () => {
 		expect(await env.UWU.get("reused")).toBe("https://new.example/");
 	});
 
+	// A ban swept between createLink's check and its insert misses the row, so
+	// publication checks again.
+	it("deletes a pending row whose destination was banned instead of publishing it", async () => {
+		await env.UWU.put("banned:late.example", "1");
+		try {
+			await drizzle(env.DB).insert(links).values({ slug: "late", url: "https://www.late.example/x", source: "web-anon", lifecycleState: "pending_publish", urlHash: "late-hash" }).run();
+			await reconcileLinkState(env, "late");
+			expect(await env.UWU.get("late")).toBeNull();
+			expect(await env.UWU.get("urlmap:late-hash")).toBeNull();
+			expect(await drizzle(env.DB).select().from(links).where(eq(links.slug, "late")).get()).toBeUndefined();
+		} finally {
+			await env.UWU.delete("banned:late.example");
+		}
+	});
+
 	it("serialises overlapping reconciliations and continues after a failure", async () => {
 		const stub = env.ENFORCEMENT.getByName("link:queue-test");
 		await runInDurableObject(stub, async (instance) => {

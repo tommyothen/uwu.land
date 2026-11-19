@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findLinksOnDomain, markForDeletion, parseBannableDomain } from "./domain-sweep.mjs";
+import { linkPagesOnDomain, markForDeletion, parseBannableDomain, parseHostname } from "./domain-sweep.mjs";
 
 const [action, argument] = process.argv.slice(2);
 
@@ -38,13 +38,25 @@ if (action === "list" && argument === undefined) {
 } else if (action === "ban") {
 	runWrangler(["kv", "key", "put", "--binding", "UWU", `banned:${domain}`, "1", "--remote"]);
 	// The key only blocks new links. Sweeping after it is written means nothing
-	// can be created behind the sweep.
-	const slugs = findLinksOnDomain(domain).map((row) => row.slug);
-	markForDeletion(slugs);
-	console.log(`Banned ${domain}; marked ${slugs.length} existing link(s) for deletion.`);
+	// can be created behind the sweep, and the reconciler re-checks bans before
+	// publishing anything that was mid-create while it ran.
+	let marked = 0;
+	for (const rows of linkPagesOnDomain(domain)) {
+		markForDeletion(rows);
+		marked += rows.length;
+	}
+	console.log(`Banned ${domain}; marked ${marked} existing link(s) for deletion.`);
 } else {
-	// Unban keeps the raw argument so a mixed-case legacy key stays deletable.
-	runWrangler(["kv", "key", "delete", "--binding", "UWU", `banned:${argument}`, "--remote"]);
+	// `ban` writes the normalised key, so that is the one that matters. The raw
+	// argument goes too, unguarded, so a mixed-case or unicode legacy key that
+	// predates normalising stays deletable.
+	const normalised = parseHostname(argument);
+	if (normalised !== null) {
+		runWrangler(["kv", "key", "delete", "--binding", "UWU", `banned:${normalised}`, "--remote"]);
+	}
+	if (normalised !== argument) {
+		runWrangler(["kv", "key", "delete", "--binding", "UWU", `banned:${argument}`, "--remote"]);
+	}
 }
 
 function listBySource(source) {

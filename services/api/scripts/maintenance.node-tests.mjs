@@ -23,7 +23,9 @@ for (const [script, args] of [
 	});
 }
 
-for (const suffix of ["com", "co.uk", "pages.dev", "https://evil.example/path"]) {
+// co.ke and *.ck are on the Public Suffix List but were never in a hand-written
+// list; github.io and pages.dev are private suffixes, refused all the same.
+for (const suffix of ["com", "co.uk", "co.ke", "anything.ck", "github.io", "pages.dev", "https://evil.example/path"]) {
 	test(`banned.mjs refuses to ban "${suffix}" before running Wrangler`, () => {
 		const result = spawnSync(
 			process.execPath,
@@ -74,6 +76,26 @@ test("banned.mjs writes the hostname the worker sees", stubOptions, () => {
 	assert.match(unicode.stdout, /banned:xn--e1afmkfd\.xn--p1ai /);
 });
 
+test("banned.mjs bans a single site under a public suffix", stubOptions, () => {
+	for (const domain of ["customer.co.ke", "someone.github.io"]) {
+		const result = runWithStub("banned.mjs", ["ban", domain]);
+		assert.equal(result.status, 0);
+		assert.match(result.stdout, new RegExp(`banned:${domain.replaceAll(".", "\\.")} `));
+	}
+});
+
+test("banned.mjs unban deletes the key ban wrote and the raw legacy key", stubOptions, () => {
+	const result = runWithStub("banned.mjs", ["unban", "Bücher.de"]);
+	assert.equal(result.status, 0);
+	assert.match(result.stdout, /key delete --binding UWU banned:xn--bcher-kva\.de /);
+	assert.match(result.stdout, /key delete --binding UWU banned:Bücher\.de /);
+
+	// Legacy keys skip the public suffix guard, and one spelling deletes once.
+	const suffix = runWithStub("banned.mjs", ["unban", "co.ke"]);
+	assert.equal(suffix.status, 0);
+	assert.equal(suffix.stdout.match(/key delete/g)?.length, 1);
+});
+
 const domainRows = [
 	{ slug: "apex", url: "https://evil.example/a" },
 	{ slug: "sub", url: "https://www.evil.example/b" },
@@ -85,7 +107,12 @@ test("banned.mjs hands existing links on the domain to the reconciler", stubOpti
 	const result = runWithStub("banned.mjs", ["ban", "evil.example"], domainRows);
 	assert.equal(result.status, 0);
 	const update = result.stdout.split("\n").find((line) => line.includes("UPDATE links"));
-	assert.match(update ?? "", /lifecycle_state = 'pending_delete' WHERE slug IN \('apex', 'sub'\)/);
+	// Each slug is matched with the URL that was read, so a reused slug is spared.
+	assert.match(
+		update ?? "",
+		/\(slug = 'apex' AND url = 'https:\/\/evil\.example\/a'\) OR \(slug = 'sub' AND url = 'https:\/\/www\.evil\.example\/b'\)\)/
+	);
+	assert.doesNotMatch(update ?? "", /lookalike|mention/);
 });
 
 test("purge-domain.mjs only reports without --yes", stubOptions, () => {
@@ -96,5 +123,5 @@ test("purge-domain.mjs only reports without --yes", stubOptions, () => {
 
 	const confirmed = runWithStub("purge-domain.mjs", ["evil.example", "--yes"], domainRows);
 	assert.equal(confirmed.status, 0);
-	assert.match(confirmed.stdout, /WHERE slug IN \('apex', 'sub'\)/);
+	assert.match(confirmed.stdout, /UPDATE links .*slug = 'apex' .*slug = 'sub'/);
 });
