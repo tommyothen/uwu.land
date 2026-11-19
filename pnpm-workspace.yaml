@@ -5,7 +5,7 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
-  sharp: true
+  sharp: false
   workerd: true
 minimumReleaseAgeExclude:
   - '@cloudflare/vitest-pool-workers@0.18.4'
