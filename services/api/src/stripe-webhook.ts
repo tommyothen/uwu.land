@@ -513,8 +513,8 @@ async function handleCheckoutSessionCompleted(
 	// recorded at an earlier checkout overrides conflicting session metadata,
 	// and otherwise explicit metadata, then the client reference, then the
 	// mapping. A conflicting claim must not reach the batch below either: its
-	// stripe_customers insert would hit the customer_id unique index and fail
-	// the whole write into a retry loop.
+	// stripe_customers insert would hit the customer_id unique index on every
+	// redelivery, and the buyer would never be entitled.
 	const mapping =
 		customer === undefined
 			? null
@@ -680,9 +680,12 @@ async function handleCheckoutSessionCompleted(
 			"INSERT INTO users (id, tier, created_at) SELECT ?, 'free', ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"
 		).bind(userId, nowSeconds, userId),
 		c.env.DB.prepare(
-			// No conflict target: a mapping that lands for this customer between
-			// the read above and this batch must not fail the purchase either.
-			"INSERT INTO stripe_customers (user_id, customer_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT DO NOTHING"
+			// Only user_id conflicts are ignored, as on the subscription path. A
+			// customer_id conflict means another account's mapping landed after
+			// the read above, so the batch must roll back rather than entitle the
+			// stale claimant: the 500 has Stripe redeliver, and the retry reads the
+			// mapping and attributes the purchase to its owner.
+			"INSERT INTO stripe_customers (user_id, customer_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (user_id) DO NOTHING"
 		).bind(userId, customer, nowSeconds, userId),
 		c.env.DB.prepare(
 			"INSERT INTO stripe_lifetime_purchases (id, payment_intent_id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"

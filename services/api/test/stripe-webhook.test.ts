@@ -822,6 +822,41 @@ describe("Stripe lifetime checkout webhook", () => {
 		).toMatchObject([{ id: "cs_conflict", userId: "user_actual" }]);
 	});
 
+	it("rolls back a lifetime session whose customer is mapped mid-flight", async () => {
+		await drizzle(env.DB).insert(users).values([{ id: "user_actual" }, { id: "user_wrong" }]).run();
+		await drizzle(env.DB).insert(stripeCustomers).values({ userId: "user_actual", customerId: "cus_race" }).run();
+		// The mapping read misses, as if the mapping landed between it and the batch.
+		const mappingRead = "SELECT user_id FROM stripe_customers WHERE customer_id = ?";
+		const staleDb: D1Database = Object.assign(Object.create(env.DB), {
+			prepare: (query: string) =>
+				env.DB.prepare(query === mappingRead ? `${query} AND 0` : query)
+		});
+		const event = sessionPayload({
+			eventId: "evt_race",
+			metadataUserId: "user_wrong",
+			customer: "cus_race",
+			sessionId: "cs_race"
+		});
+		const stripeFetch = stripeFetchWithNoRefunds(() => Response.json({}));
+
+		const raced = await sendInjectedWebhook(event, {
+			stripeFetch,
+			envOverride: { DB: staleDb }
+		});
+		expect(raced.status).toBe(500);
+		expect(await findTier("user_wrong")).toBe("free");
+		expect(await findWebhookEvent("evt_race")).toBeUndefined();
+
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect((await sendInjectedWebhook(event, { stripeFetch })).status).toBe(200);
+		} finally {
+			warn.mockRestore();
+		}
+		expect(await findTier("user_actual")).toBe("pro");
+		expect(await findTier("user_wrong")).toBe("free");
+	});
+
 	it("short-circuits a replayed lifetime event", async () => {
 		const first = sessionPayload({
 			eventId: "evt_life_replay",
@@ -1701,7 +1736,7 @@ async function sendWebhook(
 // that need to observe the deleted-user backstop's Stripe call route through
 // a local app that injects stripeFetch.
 async function sendInjectedWebhook(
-	payloadValue: StripePayload,
+	payloadValue: WebhookPayload,
 	options: {
 		stripeFetch?: typeof fetch;
 		envOverride?: Partial<Env>;
