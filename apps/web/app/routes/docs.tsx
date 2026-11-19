@@ -82,8 +82,8 @@ const ERROR_CODES: readonly [status: string, code: string, when: ReactNode][] = 
 		"forbidden",
 		<>
 			The request is understood but not permitted: an anonymous caller sent a
-			restricted field, you are not the link owner, or an API key called a{" "}
-			<code>/keys</code> endpoint.
+			restricted field or linked to another URL shortener, you are not the
+			link owner, or an API key called a <code>/keys</code> endpoint.
 		</>
 	],
 	["403", "turnstile_failed", "The Turnstile token was rejected or expired."],
@@ -230,8 +230,13 @@ export default function DocsPage() {
 					most 2048 characters,
 					carry no embedded credentials (<code>user:pass@</code>), and not point
 					at uwu.land or any of its subdomains, so you cannot nest or loop short
-					links. Rejected URLs return 400 <code>invalid_body</code>; banned
-					destinations return 400 <code>url_banned</code>.
+					links. Its host must be a domain name with at least one dot and no
+					more than ten labels; IP addresses and single-label hosts such as{" "}
+					<code>localhost</code> are refused. Rejected URLs return 400{" "}
+					<code>invalid_body</code>; banned destinations return 400{" "}
+					<code>url_banned</code>. Anonymous callers also cannot link to other
+					URL shorteners such as bit.ly, which returns 403{" "}
+					<code>forbidden</code>; sign in to use them.
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					A custom <code>slug</code> is 3 to 16 characters of letters, numbers,
