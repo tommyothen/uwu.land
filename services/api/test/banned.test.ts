@@ -35,6 +35,15 @@ describe("isBannedHostname", () => {
 		expect(await isBannedHostname(env.UWU, "com")).toBe(false);
 	});
 
+	it("only walks the last five labels of a deep host", async () => {
+		await env.UWU.put("banned:d.c.b.example.com", "1");
+		await env.UWU.put("banned:e.d.c.b.example.com", "1");
+
+		expect(await isBannedHostname(env.UWU, "x.y.z.d.c.b.example.com")).toBe(true);
+		await env.UWU.delete("banned:d.c.b.example.com");
+		expect(await isBannedHostname(env.UWU, "e.d.c.b.example.com")).toBe(false);
+	});
+
 	it("still matches a banned literal IP address", async () => {
 		await env.UWU.put("banned:198.51.100.7", "1");
 
