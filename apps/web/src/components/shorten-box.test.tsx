@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLink, UwuApiError } from "@/lib/api";
 import { getGsap, loadGsap, prefersReducedMotion } from "@/lib/motion";
 import { ClerkAuthProvider } from "@/lib/session";
+import { useTurnstile } from "@/lib/turnstile";
 import { ShortenBox } from "./shorten-box";
 
 type Gsap = (typeof import("gsap"))["gsap"];
@@ -62,7 +63,21 @@ vi.mock("@/lib/motion", async (importOriginal) => {
 	return { ...actual, loadGsap: vi.fn(), getGsap: vi.fn() };
 });
 
+// The widget itself is covered in turnstile.test.ts; here it just hands over a
+// token, and tests can watch whether the box asked for one.
+const { takeToken } = vi.hoisted(() => ({
+	takeToken: vi.fn(async () => "tok_turnstile")
+}));
+vi.mock("@/lib/turnstile", () => ({
+	useTurnstile: vi.fn(() => ({
+		containerRef: { current: null },
+		interactive: false,
+		takeToken
+	}))
+}));
+
 const createLinkMock = vi.mocked(createLink);
+const useTurnstileMock = vi.mocked(useTurnstile);
 const loadGsapMock = vi.mocked(loadGsap);
 const getGsapMock = vi.mocked(getGsap);
 const writeText = vi.fn();
@@ -136,6 +151,8 @@ beforeEach(() => {
 	authState.isLoaded = true;
 	authState.isSignedIn = false;
 	authState.getToken = vi.fn(async () => null);
+	takeToken.mockReset();
+	takeToken.mockResolvedValue("tok_turnstile");
 	Object.defineProperty(navigator, "clipboard", {
 		value: { writeText },
 		configurable: true
@@ -342,10 +359,11 @@ describe("ShortenBox submit choreography", () => {
 		await advance(750);
 
 		expect(createLinkMock).toHaveBeenCalledWith(
-			{ url: "https://example.com/page" },
+			{ url: "https://example.com/page", turnstile_token: "tok_turnstile" },
 			null
 		);
 		expect(authState.getToken).not.toHaveBeenCalled();
+		expect(useTurnstileMock).toHaveBeenLastCalledWith(true);
 	});
 
 	it("creates anonymously with a null token when signed out", async () => {
@@ -355,11 +373,24 @@ describe("ShortenBox submit choreography", () => {
 		await advance(750);
 
 		expect(createLinkMock).toHaveBeenCalledWith(
-			{ url: "https://example.com/page" },
+			{ url: "https://example.com/page", turnstile_token: "tok_turnstile" },
 			null
 		);
+		expect(useTurnstileMock).toHaveBeenLastCalledWith(true);
 		expect(screen.getByText("Your link now fits anywhere.").parentElement).toHaveTextContent(
 			"Delivered. Your link now fits anywhere."
+		);
+	});
+
+	it("tells the sender to retry when the human check fails, without creating", async () => {
+		takeToken.mockRejectedValueOnce(new Error("Turnstile challenge failed"));
+		render(<ShortenBox />);
+		await submit();
+		await advance(750);
+
+		expect(createLinkMock).not.toHaveBeenCalled();
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"We couldn't check you're human. Give it another go."
 		);
 	});
 
@@ -376,6 +407,8 @@ describe("ShortenBox submit choreography", () => {
 			{ url: "https://example.com/page" },
 			"tok_123"
 		);
+		expect(useTurnstileMock).toHaveBeenLastCalledWith(false);
+		expect(takeToken).not.toHaveBeenCalled();
 		expect(screen.getByText(/Filed under your/)).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "account" })).toHaveAttribute(
 			"href",

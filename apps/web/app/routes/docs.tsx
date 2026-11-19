@@ -18,7 +18,8 @@ const ENDPOINTS = [
 		method: "POST",
 		path: "/links",
 		auth: "Optional",
-		notes: "Create a short link. Anonymous callers get random slugs only."
+		notes:
+			"Create a short link. Anonymous callers get random slugs only and must pass a human check."
 	},
 	{
 		method: "GET",
@@ -74,6 +75,7 @@ const ERROR_CODES: readonly [status: string, code: string, when: ReactNode][] = 
 	["400", "invalid_body", "Malformed JSON, URL, slug, or cursor."],
 	["400", "slug_reserved", "The requested slug is reserved (for example, api)."],
 	["400", "url_banned", "The destination is blocked by moderation."],
+	["400", "turnstile_required", "An anonymous create sent no Turnstile token."],
 	["401", "unauthorized", "Auth is missing, invalid, or revoked."],
 	[
 		"403",
@@ -84,10 +86,16 @@ const ERROR_CODES: readonly [status: string, code: string, when: ReactNode][] = 
 			<code>/keys</code> endpoint.
 		</>
 	],
+	["403", "turnstile_failed", "The Turnstile token was rejected or expired."],
 	["404", "not_found", "The link or key does not exist."],
 	["409", "slug_taken", "The requested slug already exists."],
 	["409", "key_limit", "Your account reached its API key limit."],
-	["429", "rate_limited", "You exceeded your daily link-creation quota."]
+	["429", "rate_limited", "You exceeded your daily link-creation quota."],
+	[
+		"429",
+		"domain_rate_limited",
+		"Anonymous links to this destination domain hit their daily cap."
+	]
 ];
 
 function Code({ children }: { children: ReactNode }) {
@@ -210,6 +218,12 @@ export default function DocsPage() {
 					<code>slug</code> or <code>external_ref</code> returns 403{" "}
 					<code>forbidden</code>. With a key or session you can also pick a
 					custom slug and attach an <code>external_ref</code>.
+				</p>
+				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+					Anonymous creates must also send a <code>turnstile_token</code> from
+					the Cloudflare Turnstile check on the uwu.land homepage, so they only
+					work from a browser. Scripts and bots should use an API key, which
+					needs no token.
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					The <code>url</code> must be <code>http</code> or <code>https</code>, at
@@ -354,7 +368,10 @@ console.log(data.short_url);`}</Code>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Link-creation quotas are per day. Anonymous callers are limited per
 					IP; authenticated callers are limited per account, shared across every
-					API key and the dashboard.
+					API key and the dashboard. Anonymous links are also capped at 10 new
+					links per destination domain per day across everyone, returning 429{" "}
+					<code>domain_rate_limited</code>; a URL that was already shortened
+					still comes back without counting.
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">
 					Only anonymous callers can be IP-blocked for repeated banned-URL
