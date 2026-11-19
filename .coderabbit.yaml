@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit config, read from the PR branch for same-repo PRs and by the local CLI.
+language: en-GB
+reviews:
+  # Skip generated files so each review spends its attention on real code.
+  path_filters:
+    - "!pnpm-lock.yaml"
+    - "!packages/db/migrations/meta/**"
