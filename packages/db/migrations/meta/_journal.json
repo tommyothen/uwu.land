@@ -78,6 +78,13 @@
       "when": 1795088983986,
       "tag": "0010_slug_tombstones",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1795089019972,
+      "tag": "0011_account_abuse_controls",
+      "breakpoints": true
     }
   ]
 }

@@ -70,6 +70,10 @@ export async function createLink(
 	if (auth instanceof Response) {
 		return auth;
 	}
+	// Set by hand with `pnpm suspend`; existing links are left to purge:owner.
+	if (auth.kind !== "anon" && auth.suspended) {
+		return errorResponse(403, "forbidden", "This account is suspended.");
+	}
 
 	const body = await readJson(c.req.raw);
 	const parsed = createLinkSchema.safeParse(body);

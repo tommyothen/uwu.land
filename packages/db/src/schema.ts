@@ -7,7 +7,11 @@ export const users = sqliteTable("users", {
 		.notNull()
 		.$defaultFn(() => new Date()),
 	emailHash: text("email_hash"),
-	limitedUntil: integer("limited_until", { mode: "timestamp" })
+	limitedUntil: integer("limited_until", { mode: "timestamp" }),
+	// Set by hand with `pnpm suspend`. A suspended account keeps signing in and
+	// managing its links, but every create is refused. Separate from
+	// limited_until, which throttles to the anonymous quota rather than refusing.
+	suspendedAt: integer("suspended_at", { mode: "timestamp" })
 });
 
 export const accountTombstones = sqliteTable(
@@ -149,6 +153,11 @@ export const links = sqliteTable(
 		url: text("url").notNull(),
 		ownerId: text("owner_id").references(() => users.id),
 		externalRef: text("external_ref"),
+		// Written in the same batch that nulls owner_id when the owning account
+		// is deleted (see deletedOwnerHash in clerk-webhook.ts). A one-way hash
+		// of the Clerk user id, never the id or an email, so a deleted account's
+		// links stay live yet can still be grouped and purged together.
+		deletedOwnerHash: text("deleted_owner_hash"),
 		source: text("source", {
 			enum: ["web-anon", "api", "dashboard"]
 		}).notNull(),
@@ -166,6 +175,7 @@ export const links = sqliteTable(
 	},
 	(t) => [
 		index("links_owner_idx").on(t.ownerId, t.externalRef),
+		index("links_deleted_owner_hash_idx").on(t.deletedOwnerHash),
 		index("links_lifecycle_idx").on(t.lifecycleState, t.createdAt),
 		uniqueIndex("links_url_hash_unique").on(t.urlHash),
 		index("links_owner_created_slug_idx").on(

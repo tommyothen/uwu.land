@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { TERMINAL_STATUS_SQL } from "./billing-shared";
 import { isDeletedUser } from "./deletion";
 import { emailIdentityHash } from "./identity";
+import { hashKey } from "./keys";
 import { isRecord, readJson } from "./request-utils";
 import { cancelStripeSubscription } from "./stripe-cancel";
 import type { Env } from "./worker";
@@ -269,6 +270,19 @@ export async function applyUserUpsertWrites(
 	await db.batch(statements);
 }
 
+// Fixed, public domain separator rather than a worker secret. Clerk user ids
+// are long random strings, so a key would add no resistance to guessing, and
+// keeping it public lets `pnpm purge:owner <userId>` recompute the hash offline
+// with no secret to hold or rotate. Mirrored in scripts/purge-owner.mjs; the
+// tests pin the same vector on both sides.
+const DELETED_OWNER_HASH_PREFIX = "uwu.land:deleted-owner:v1:";
+
+// One-way reference stored on a deleted account's links in place of owner_id,
+// so they stay live but can still be grouped (abuse:top --by owner) and purged.
+export async function deletedOwnerHash(userId: string): Promise<string> {
+	return hashKey(`${DELETED_OWNER_HASH_PREFIX}${userId}`);
+}
+
 async function applyUserDeletedEvent(
 	db: D1Database,
 	event: UserDeletedEvent
@@ -290,11 +304,13 @@ async function applyUserDeletedEvent(
 				"INSERT INTO clerk_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
 			)
 			.bind(event.eventId, event.eventTimestamp, nowMs),
+		// Links stay live but lose the raw owner. The hash keeps them groupable
+		// and purgeable without retaining the user id or anything identifying.
 		db
 			.prepare(
-				"UPDATE links SET owner_id = NULL, external_ref = NULL WHERE owner_id = ?"
+				"UPDATE links SET deleted_owner_hash = ?, owner_id = NULL, external_ref = NULL WHERE owner_id = ?"
 			)
-			.bind(event.userId),
+			.bind(await deletedOwnerHash(event.userId), event.userId),
 		db.prepare("DELETE FROM api_keys WHERE user_id = ?").bind(event.userId),
 		db
 			.prepare("DELETE FROM stripe_subscriptions WHERE user_id = ?")

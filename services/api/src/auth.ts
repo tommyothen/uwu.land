@@ -34,6 +34,7 @@ export type AuthPrincipal =
 			tier: UserTier;
 			emailHash: string | null;
 			limitedUntil: Date | null;
+			suspended: boolean;
 	  }
 	| {
 			kind: "session";
@@ -41,6 +42,7 @@ export type AuthPrincipal =
 			tier: UserTier;
 			emailHash: string | null;
 			limitedUntil: Date | null;
+			suspended: boolean;
 	  };
 
 export interface AuthOptions {
@@ -108,6 +110,7 @@ async function resolveApiKey(
 			keyId: apiKeys.id,
 			lastUsedAt: apiKeys.lastUsedAt,
 			limitedUntil: users.limitedUntil,
+			suspendedAt: users.suspendedAt,
 			tier: users.tier,
 			userId: users.id
 		})
@@ -137,6 +140,7 @@ async function resolveApiKey(
 		kind: "key",
 		keyId: row.keyId,
 		limitedUntil: row.limitedUntil,
+		suspended: row.suspendedAt !== null,
 		tier: row.tier,
 		userId: row.userId
 	};
@@ -192,6 +196,7 @@ async function resolveClerkSession(
 		emailHash: user.emailHash,
 		kind: "session",
 		limitedUntil: user.limitedUntil,
+		suspended: user.suspendedAt !== null,
 		tier: user.tier,
 		userId: user.id
 	};
@@ -203,6 +208,7 @@ async function selectSessionUser(db: D1Database, userId: string) {
 			emailHash: users.emailHash,
 			id: users.id,
 			limitedUntil: users.limitedUntil,
+			suspendedAt: users.suspendedAt,
 			tier: users.tier
 		})
 		.from(users)

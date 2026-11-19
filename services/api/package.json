@@ -17,7 +17,10 @@
     "banned": "node scripts/banned.mjs list",
     "abuse:top": "node scripts/abuse-top.mjs",
     "dsar": "node scripts/dsar.mjs",
-    "purge:domain": "node scripts/purge-domain.mjs"
+    "purge:domain": "node scripts/purge-domain.mjs",
+    "purge:owner": "node scripts/purge-owner.mjs",
+    "suspend": "node scripts/suspend.mjs suspend",
+    "unsuspend": "node scripts/suspend.mjs unsuspend"
   },
   "dependencies": {
     "@clerk/backend": "^3.11.2",

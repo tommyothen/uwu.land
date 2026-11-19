@@ -14,7 +14,10 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyUserUpsertWrites } from "../src/clerk-webhook";
+import {
+	applyUserUpsertWrites,
+	deletedOwnerHash
+} from "../src/clerk-webhook";
 import { emailIdentityHash } from "../src/identity";
 import { hashKey } from "../src/keys";
 import type { Env } from "../src/worker";
@@ -23,6 +26,10 @@ import { resetD1 } from "./helpers/d1";
 
 const WEBHOOK_SECRET = "whsec_dGVzdC1jbGVyay13ZWJob29rLXNlY3JldA==";
 const WEBHOOK_URL = "https://uwu.land/webhooks/clerk";
+// deletedOwnerHash("user_deleted"). scripts/maintenance.node-tests.mjs pins
+// the same value for purge-owner.mjs so the two implementations cannot drift.
+const DELETED_OWNER_HASH_VECTOR =
+	"bdf7a361d35f261bb56ef3885c415230222a127440310357e72d057cb4367e0a";
 
 interface ClerkPayload {
 	type: string;
@@ -114,6 +121,13 @@ describe("Clerk user webhook", () => {
 		expect((await findUser("user_identity"))?.emailHash).toBe(
 			await emailIdentityHash("keep@example.com")
 		);
+	});
+
+	it("derives the deleted owner hash from the user id without storing it", async () => {
+		const hash = await deletedOwnerHash("user_deleted");
+
+		expect(hash).toBe(DELETED_OWNER_HASH_VECTOR);
+		expect(hash).not.toBe(await hashKey("user_deleted"));
 	});
 
 	it("erases account data, anonymizes links, and keeps one tombstone on redelivery", async () => {
@@ -220,7 +234,8 @@ describe("Clerk user webhook", () => {
 				slug: "owned-deleted",
 				url: "https://example.com/still-works",
 				ownerId: null,
-				externalRef: null
+				externalRef: null,
+				deletedOwnerHash: DELETED_OWNER_HASH_VECTOR
 			}
 		]);
 		expect(await db.select().from(accountTombstones).all()).toMatchObject([
