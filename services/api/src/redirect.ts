@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { ipKey } from "./abuse";
 import { errorResponse } from "./errors";
 import { SLUG_RE } from "./slugs";
 import type { Env } from "./worker";
@@ -26,19 +27,21 @@ export async function redirectSlug(c: Context<{ Bindings: Env }>): Promise<Respo
 	return c.redirect(url, 302);
 }
 
+/**
+ * Analytics Engine sees every hit. The exact counter only counts the first few
+ * hits per IP per slug each minute, so hammering a link cannot inflate its
+ * total or run up Durable Object writes. All of it runs after the response.
+ */
 async function recordClick(env: Env, request: Request, slug: string): Promise<void> {
-	// writeDataPoint is synchronous and must not sit behind the KV round-trips.
+	// writeDataPoint is synchronous and must not sit behind the awaits below.
 	env.CLICK_EVENTS.writeDataPoint({
 		blobs: [slug, countryFor(request), refererHostFor(request)],
 		indexes: [slug]
 	});
-	await incrementClicks(env.CLICKS, slug);
-}
-
-async function incrementClicks(kv: KVNamespace, slug: string): Promise<void> {
-	const current = Number.parseInt((await kv.get(slug)) ?? "0", 10);
-	const next = Number.isFinite(current) ? current + 1 : 1;
-	await kv.put(slug, String(next));
+	const { success } = await env.CLICK_LIMITER.limit({ key: `${ipKey(request)}:${slug}` });
+	if (success) {
+		await env.CLICK_COUNTER.getByName(slug).increment(slug);
+	}
 }
 
 function countryFor(request: Request): string {

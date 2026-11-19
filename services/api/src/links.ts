@@ -445,10 +445,9 @@ export async function linkStats(
 		return errorResponse(404, "not_found", "Link not found.");
 	}
 
-	const clicks = Number.parseInt((await c.env.CLICKS.get(slug)) ?? "0", 10);
 	return Response.json({
 		slug,
-		clicks: Number.isFinite(clicks) ? clicks : 0
+		clicks: await c.env.CLICK_COUNTER.getByName(slug).clicks(slug)
 	});
 }
 
