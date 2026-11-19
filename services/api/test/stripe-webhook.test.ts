@@ -798,6 +798,30 @@ describe("Stripe lifetime checkout webhook", () => {
 		).toBe(env.STRIPE_PRICE_ID_LIFETIME);
 	});
 
+	it("prefers the customer mapping when lifetime session metadata conflicts", async () => {
+		await drizzle(env.DB).insert(users).values([{ id: "user_actual" }, { id: "user_wrong" }]).run();
+		await drizzle(env.DB).insert(stripeCustomers).values({ userId: "user_actual", customerId: "cus_conflict" }).run();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const response = await sendWebhook(
+				sessionPayload({
+					metadataUserId: "user_wrong",
+					customer: "cus_conflict",
+					sessionId: "cs_conflict"
+				})
+			);
+			expect(response.status).toBe(200);
+			expect(await findTier("user_actual")).toBe("pro");
+			expect(await findTier("user_wrong")).toBe("free");
+			expect(warn).toHaveBeenCalledOnce();
+		} finally {
+			warn.mockRestore();
+		}
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toMatchObject([{ id: "cs_conflict", userId: "user_actual" }]);
+	});
+
 	it("short-circuits a replayed lifetime event", async () => {
 		const first = sessionPayload({
 			eventId: "evt_life_replay",
