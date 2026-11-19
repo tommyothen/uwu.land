@@ -10,7 +10,7 @@ import {
 	clerkWebhook,
 	purgeExpiredAccountTombstones
 } from "./clerk-webhook";
-import { materializeClickCounts } from "./click-materialization";
+import { drainLegacyClickCounters } from "./click-materialization";
 import {
 	createKey,
 	deleteKey,
@@ -31,6 +31,7 @@ import { sweepDeletedUserSubscriptions } from "./stripe-sweep";
 import { stripeWebhook } from "./stripe-webhook";
 import { purgeExpiredWebhookEvents } from "./webhook-retention";
 
+export { ClickCounter } from "./click-counter";
 export { Enforcement } from "./enforcement";
 
 const DASHBOARD_ORIGINS: readonly string[] = ["https://app.uwu.land"];
@@ -126,7 +127,7 @@ export function createWorker(options: WorkerOptions = {}): ExportedHandler<Env> 
 		fetch: (request, env, ctx) => app.fetch(request, env, ctx),
 		scheduled: (event, env, ctx) => {
 			ctx.waitUntil(reconcilePendingLinks(env));
-			ctx.waitUntil(materializeClickCounts(env));
+			ctx.waitUntil(drainLegacyClickCounters(env));
 			if (event.cron === "0 6 * * *") {
 				ctx.waitUntil(syncBannedDomains(env));
 				ctx.waitUntil(purgeExpiredAccountTombstones(env.DB));

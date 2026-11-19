@@ -6,6 +6,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/worker";
 import worker from "../src/worker";
+import { resetD1 } from "./helpers/d1";
 
 type TestFetch = (
 	request: Request,
@@ -22,11 +23,12 @@ async function clearKv(namespace: KVNamespace): Promise<void> {
 
 describe("redirects", () => {
 	beforeEach(async () => {
+		await resetD1(env.DB);
 		await clearKv(env.UWU);
 		await clearKv(env.CLICKS);
 	});
 
-	it("redirects hits to the stored URL and increments clicks", async () => {
+	it("redirects hits to the stored URL and counts them on top of the legacy KV total", async () => {
 		await env.UWU.put("abcde", "https://example.com/a");
 		await env.CLICKS.put("abcde", "1");
 		const ctx = createExecutionContext();
@@ -42,7 +44,32 @@ describe("redirects", () => {
 		expect(response.status).toBe(302);
 		expect(response.headers.get("location")).toBe("https://example.com/a");
 		await waitOnExecutionContext(ctx);
-		expect(await env.CLICKS.get("abcde")).toBe("2");
+		expect(await env.CLICK_COUNTER.getByName("abcde").clicks("abcde")).toBe(2);
+		// The hot path no longer writes KV.
+		expect(await env.CLICKS.get("abcde")).toBe("1");
+	});
+
+	it("still redirects but stops counting after 10 hits per IP per slug a minute", async () => {
+		await env.UWU.put("hammer", "https://example.com/h");
+		const hit = async (ip: string) => {
+			const ctx = createExecutionContext();
+			const response = await workerFetch(
+				new Request("https://uwu.land/hammer", {
+					cf: {},
+					headers: { "CF-Connecting-IP": ip }
+				}),
+				env as Env,
+				ctx
+			);
+			await waitOnExecutionContext(ctx);
+			return response.status;
+		};
+
+		for (let i = 0; i < 12; i++) {
+			expect(await hit("198.51.100.7")).toBe(302);
+		}
+		expect(await hit("198.51.100.8")).toBe(302);
+		expect(await env.CLICK_COUNTER.getByName("hammer").clicks("hammer")).toBe(11);
 	});
 
 	it("redirects hits for IPs blocked from creating links", async () => {

@@ -5,7 +5,7 @@ import { isBannedHostname, isBannedPath } from "./banned";
 import type { Env } from "./worker";
 
 type LinkRow = typeof links.$inferSelect;
-type LinkStorage = Pick<Env, "DB" | "UWU" | "CLICKS">;
+type LinkStorage = Pick<Env, "DB" | "UWU" | "CLICKS" | "CLICK_COUNTER">;
 
 export async function reconcileLink(env: Pick<Env, "ENFORCEMENT">, row: Pick<LinkRow, "slug">): Promise<void> {
 	await env.ENFORCEMENT.getByName(`link:${row.slug}`).reconcileLink(row.slug);
@@ -56,9 +56,11 @@ async function isBannedDestination(kv: KVNamespace, url: string): Promise<boolea
 	return isBannedPath(destination.pathname) || (await isBannedHostname(kv, destination.hostname));
 }
 
-async function removeLinkKv(env: Pick<Env, "UWU" | "CLICKS">, row: LinkRow): Promise<void> {
+async function removeLinkKv(env: Pick<Env, "UWU" | "CLICKS" | "CLICK_COUNTER">, row: LinkRow): Promise<void> {
 	await env.UWU.delete(row.slug);
+	// Clear both the legacy and current counters so a reused slug starts at zero.
 	await env.CLICKS.delete(row.slug);
+	await env.CLICK_COUNTER.getByName(row.slug).reset();
 	if (row.urlHash !== null) {
 		const key = `urlmap:${row.urlHash}`;
 		if ((await env.UWU.get(key)) === row.slug) await env.UWU.delete(key);

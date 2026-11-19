@@ -1,51 +1,31 @@
+import { parseLegacyClicks } from "./click-counter";
 import type { Env } from "./worker";
 
-const CLICK_SNAPSHOT_BATCH_SIZE = 50;
-const STATE_ID = 1;
-
-interface MaterializationState {
-	cursor: string | null;
-}
-
-function numericClicks(value: string | null): number {
-	const clicks = Number.parseInt(value ?? "0", 10);
-	return Number.isFinite(clicks) && clicks >= 0 ? clicks : 0;
-}
+const LEGACY_DRAIN_BATCH_SIZE = 50;
 
 /**
- * Copies one bounded page of the KV counters into D1. Values are absolute, so
- * retrying a page is idempotent. The cursor advances in the same D1 batch as
- * the snapshots; a failed batch is retried from its previous position.
+ * One-off migration off the old CLICKS KV counters, run by the five-minute
+ * cron. Each run copies one page into `links.clicks` (never lowering it, since
+ * ClickCounter may already have flushed a higher total) and then deletes those
+ * keys, so the namespace empties itself and later runs are a single empty list.
+ * D1 is updated before the keys go; ClickCounter's seed relies on that order.
+ * Once CLICKS is empty, this, the binding and the seed's KV read can go.
  */
-export async function materializeClickCounts(
+export async function drainLegacyClickCounters(
 	env: Pick<Env, "CLICKS" | "DB">
 ): Promise<void> {
-	const state = await env.DB.prepare(
-		"SELECT cursor FROM click_materialization_state WHERE id = ?"
-	)
-		.bind(STATE_ID)
-		.first<MaterializationState>();
-	const page = await env.CLICKS.list({
-		cursor: state?.cursor ?? undefined,
-		limit: CLICK_SNAPSHOT_BATCH_SIZE
-	});
+	const page = await env.CLICKS.list({ limit: LEGACY_DRAIN_BATCH_SIZE });
+	if (page.keys.length === 0) return;
 	const values = await Promise.all(
 		page.keys.map(async ({ name }) => ({
 			slug: name,
-			clicks: numericClicks(await env.CLICKS.get(name))
+			clicks: parseLegacyClicks(await env.CLICKS.get(name))
 		}))
 	);
-	const nextCursor = page.list_complete ? null : page.cursor;
-	const statements = values.map(({ slug, clicks }) =>
-		env.DB.prepare("UPDATE links SET clicks = ? WHERE slug = ?").bind(
-			clicks,
-			slug
+	await env.DB.batch(
+		values.map(({ slug, clicks }) =>
+			env.DB.prepare("UPDATE links SET clicks = MAX(clicks, ?) WHERE slug = ?").bind(clicks, slug)
 		)
 	);
-	statements.push(
-		env.DB.prepare(
-			"INSERT INTO click_materialization_state (id, cursor, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at"
-		).bind(STATE_ID, nextCursor, Date.now())
-	);
-	await env.DB.batch(statements);
+	await Promise.all(page.keys.map(({ name }) => env.CLICKS.delete(name)));
 }

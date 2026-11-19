@@ -75,8 +75,14 @@ export default function PrivacyPage() {
 				three fields: the slug, the visitor's country (which Cloudflare derives
 				from the IP), and the hostname of the referring site. That event contains
 				no IP address and no user-agent. It runs on Cloudflare's first-party
-				Analytics Engine, which keeps these events for about three months. The
-				per-link total click count shown publicly is the sum of these events.
+				Analytics Engine, which keeps these events for about three months.
+			</P>
+			<P>
+				The click count shown for each link is a separate running total. To
+				stop one visitor inflating it, the visitor's IP address is used as a
+				rate-limit key for about a minute at the Cloudflare location that
+				served the click. It is never stored with the count or the analytics
+				event.
 			</P>
 			<P>
 				Separately, Cloudflare's platform keeps short-lived operational logs for

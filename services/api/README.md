@@ -35,17 +35,24 @@ Declared in `wrangler.jsonc`:
 | Binding | Type | Purpose |
 | --- | --- | --- |
 | `UWU` | KV | Redirect keys, reserved/dedup indexes, `banned:<domain>` blocklist |
-| `CLICKS` | KV | Per-slug click counters |
+| `CLICKS` | KV | Legacy per-slug click counters, drained into D1 by cron |
 | `CLICK_EVENTS` | Analytics Engine | Raw click events (created on first write) |
 | `DB` | D1 (`uwu-land`) | Users, links, API keys, Stripe/Clerk state |
 | `ENFORCEMENT` | Durable Object | Rate limiting, abuse enforcement and per-slug link reconciliation |
+| `CLICK_COUNTER` | Durable Object | Exact per-slug click counts, flushed to `links.clicks` |
+| `CLICK_LIMITER` | Rate limiting | Caps counted clicks per IP per slug |
 
 Link reconciliation uses one `ENFORCEMENT` object named `link:<slug>` per slug.
 Its queue serialises KV mutations and reads the current D1 row after queuing.
 Rows stay `pending_publish` or `pending_delete` until the KV work finishes, so
 cron can retry interrupted work and a slug stays reserved until cleanup completes.
 
-Cron triggers: `*/5 * * * *` reconciles links and materializes clicks;
+Each redirect sends one hit to the `CLICK_COUNTER` object for its slug (at
+most 10 per IP per slug a minute). The object writes the exact total to
+`links.clicks` five minutes after its first unflushed hit, then deletes its
+state, so only recently clicked links hold any.
+
+Cron triggers: `*/5 * * * *` reconciles links and drains legacy CLICKS counters;
 `0 6 * * *` refreshes the ban list.
 
 ## Config, vars, and secrets

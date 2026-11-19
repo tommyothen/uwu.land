@@ -142,7 +142,7 @@ describe("link reconciliation", () => {
 			const beforeFailure = async () => {
 				expect((await row(pending.slug)).lifecycleState).toBe("pending_publish");
 			};
-			await expect(reconcileLinkState({ DB: env.DB, UWU: failMutation(env.UWU, failure, beforeFailure), CLICKS: failMutation(env.CLICKS, failure, beforeFailure) }, pending.slug)).rejects.toThrow("injected KV failure");
+			await expect(reconcileLinkState({ DB: env.DB, UWU: failMutation(env.UWU, failure, beforeFailure), CLICKS: failMutation(env.CLICKS, failure, beforeFailure), CLICK_COUNTER: env.CLICK_COUNTER }, pending.slug)).rejects.toThrow("injected KV failure");
 			await reconcileLink(env as Env, pending);
 			expect((await row(pending.slug)).lifecycleState).toBe("active");
 			expect(await env.UWU.get(pending.slug)).toBe(pending.url);
@@ -157,17 +157,21 @@ describe("link reconciliation", () => {
 			await drizzle(env.DB).insert(links).values({ slug, url: "https://example.com/del", ownerId: null, externalRef: null, source: "web-anon", lifecycleState: "pending_delete", urlHash: `del-hash-${boundary}` }).run();
 			await env.UWU.put(slug, "https://example.com/del");
 			await env.CLICKS.put(slug, "4");
+			await env.CLICK_COUNTER.getByName(slug).increment(slug);
 			await env.UWU.put(`urlmap:del-hash-${boundary}`, slug);
 			const failure = { at: boundary, count: 0 };
 			const beforeFailure = async () => {
 				expect((await row(slug)).lifecycleState).toBe("pending_delete");
 			};
-			await expect(reconcileLinkState({ DB: env.DB, UWU: failMutation(env.UWU, failure, beforeFailure), CLICKS: failMutation(env.CLICKS, failure, beforeFailure) }, slug)).rejects.toThrow("injected KV failure");
+			await expect(reconcileLinkState({ DB: env.DB, UWU: failMutation(env.UWU, failure, beforeFailure), CLICKS: failMutation(env.CLICKS, failure, beforeFailure), CLICK_COUNTER: env.CLICK_COUNTER }, slug)).rejects.toThrow("injected KV failure");
 			expect((await row(slug)).lifecycleState).toBe("pending_delete");
 			await reconcileLink(env as Env, await row(slug));
 			expect(await drizzle(env.DB).select().from(links).where(eq(links.slug, slug)).get()).toBeUndefined();
 			expect(await env.UWU.get(slug)).toBeNull();
 			expect(await env.CLICKS.get(slug)).toBeNull();
+			await runInDurableObject(env.CLICK_COUNTER.getByName(slug), async (_, state) => {
+				expect(state.storage.kv.get("hits")).toBeUndefined();
+			});
 		});
 	}
 
