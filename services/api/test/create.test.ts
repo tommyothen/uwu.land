@@ -324,6 +324,35 @@ describe("anonymous link creation", () => {
 		expect(followUp.status).toBe(201);
 	});
 
+	it("does not consume quota for reserved or malformed custom slugs", async () => {
+		const secret = await seedKeyForUser({
+			userId: "user_slug_quota",
+			keyId: "key_slug_quota",
+			secret: "uwu_slug_quota000000000000000000000"
+		});
+		const quotaFetch = createWorker({ createPerDayLimit: 1 }).fetch as TestFetch;
+
+		const reserved = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/a", slug: "api" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const malformed = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/b", slug: "no spaces" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const followUp = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/c" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect((await reserved.json<{ code: string }>()).code).toBe("slug_reserved");
+		expect((await malformed.json<{ code: string }>()).code).toBe("invalid_body");
+		expect(followUp.status).toBe(201);
+	});
+
 	it("does not apply an existing IP block to authenticated callers", async () => {
 		const secret = await seedApiKey();
 		const ip = "203.0.113.71";

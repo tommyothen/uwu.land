@@ -142,6 +142,14 @@ export async function createLink(
 		);
 	}
 
+	// Before the rate limit, so a malformed or reserved slug costs no quota.
+	// Whether the slug is free needs storage reads, so that check stays after.
+	const slugError =
+		parsed.data.slug === undefined ? null : customSlugError(parsed.data.slug);
+	if (slugError !== null) {
+		return slugError;
+	}
+
 	const rateLimit = await limitCreate(c, auth, options.createPerDayLimit);
 	if (!rateLimit.allowed) {
 		return errorResponse(
@@ -174,7 +182,7 @@ export async function createLink(
 	const slug =
 		parsed.data.slug === undefined
 			? await generateAvailableSlug(c.env, db, options.generateId)
-			: await validateCustomSlug(c.env, db, parsed.data.slug);
+			: await availableCustomSlug(c.env, db, parsed.data.slug);
 	if (slug instanceof Response) {
 		return slug;
 	}
@@ -587,17 +595,21 @@ function isUniqueViolation(error: unknown): boolean {
 	return false;
 }
 
-async function validateCustomSlug(
-	env: Env,
-	db: ReturnType<typeof drizzle>,
-	slug: string
-): Promise<string | Response> {
+function customSlugError(slug: string): Response | null {
 	if (isReservedSlug(slug)) {
 		return errorResponse(400, "slug_reserved", "Slug is reserved.");
 	}
 	if (!isValidCustomSlug(slug)) {
 		return errorResponse(400, "invalid_body", "Invalid slug.");
 	}
+	return null;
+}
+
+async function availableCustomSlug(
+	env: Env,
+	db: ReturnType<typeof drizzle>,
+	slug: string
+): Promise<string | Response> {
 	if (await slugExists(env, db, slug)) {
 		return errorResponse(409, "slug_taken", "Slug is already taken.");
 	}
