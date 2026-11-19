@@ -509,17 +509,35 @@ async function handleCheckoutSessionCompleted(
 		return new Response(null, { status: 200 });
 	}
 
-	// Attribution: explicit metadata, then the client reference, then the
-	// customer mapping we recorded at an earlier checkout.
-	let userId = metadataUserId ?? clientReferenceId;
-	if (userId === undefined && customer !== undefined) {
-		const mapping = await c.env.DB.prepare(
-			"SELECT user_id FROM stripe_customers WHERE customer_id = ?"
-		)
-			.bind(customer)
-			.first<{ user_id: string }>();
-		userId = mapping?.user_id;
+	// Attribution mirrors the subscription path: the customer mapping we
+	// recorded at an earlier checkout overrides conflicting session metadata,
+	// and otherwise explicit metadata, then the client reference, then the
+	// mapping. A conflicting claim must not reach the batch below either: its
+	// stripe_customers insert would hit the customer_id unique index on every
+	// redelivery, and the buyer would never be entitled.
+	const mapping =
+		customer === undefined
+			? null
+			: await c.env.DB.prepare(
+					"SELECT user_id FROM stripe_customers WHERE customer_id = ?"
+				)
+					.bind(customer)
+					.first<{ user_id: string }>();
+	const claimedUserId = metadataUserId ?? clientReferenceId;
+	const conflictingCustomer =
+		claimedUserId !== undefined &&
+		mapping !== null &&
+		claimedUserId !== mapping.user_id;
+	if (conflictingCustomer) {
+		console.warn("Stripe checkout metadata conflicts with customer mapping.", {
+			eventId,
+			sessionId,
+			customerId: customer
+		});
 	}
+	const userId = conflictingCustomer
+		? mapping.user_id
+		: (claimedUserId ?? mapping?.user_id);
 	if (userId === undefined) {
 		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
 		return new Response(null, { status: 200 });
@@ -662,6 +680,11 @@ async function handleCheckoutSessionCompleted(
 			"INSERT INTO users (id, tier, created_at) SELECT ?, 'free', ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO NOTHING"
 		).bind(userId, nowSeconds, userId),
 		c.env.DB.prepare(
+			// Only user_id conflicts are ignored, as on the subscription path. A
+			// customer_id conflict means another account's mapping landed after
+			// the read above, so the batch must roll back rather than entitle the
+			// stale claimant: the 500 has Stripe redeliver, and the retry reads the
+			// mapping and attributes the purchase to its owner.
 			"INSERT INTO stripe_customers (user_id, customer_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (user_id) DO NOTHING"
 		).bind(userId, customer, nowSeconds, userId),
 		c.env.DB.prepare(

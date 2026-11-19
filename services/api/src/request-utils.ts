@@ -34,6 +34,7 @@ export async function requireSession(
 	return auth;
 }
 
+/** Parses a request body (or raw body text) as JSON, or null when it is not. */
 export async function readJson(input: Request | string): Promise<unknown> {
 	try {
 		return typeof input === "string" ? JSON.parse(input) : await input.json();

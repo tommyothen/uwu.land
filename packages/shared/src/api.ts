@@ -83,23 +83,34 @@ export interface LinkStatsResponse {
 
 export interface ApiError {
 	status: number;
-	code: string;
+	code: ErrorCode;
 	message: string;
 	retry_after?: number;
 }
 
-export type ErrorCode =
-	| "invalid_body"
-	| "slug_taken"
-	| "slug_reserved"
-	| "url_banned"
-	| "ip_blocked"
-	| "rate_limited"
-	| "not_found"
-	| "unauthorized"
-	| "forbidden"
-	| "key_limit"
-	| "already_subscribed"
-	| "account_deleted"
-	| "billing_unavailable"
-	| "publication_pending";
+// Every code the API sends, kept as a list so clients can check one at runtime.
+const ERROR_CODES = [
+	"invalid_body",
+	"slug_taken",
+	"slug_reserved",
+	"url_banned",
+	"ip_blocked",
+	"rate_limited",
+	"not_found",
+	"unauthorized",
+	"forbidden",
+	"key_limit",
+	"already_subscribed",
+	"account_deleted",
+	"billing_unavailable",
+	"publication_pending"
+] as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[number];
+
+const errorCodes: ReadonlySet<string> = new Set(ERROR_CODES);
+
+/** Narrows a code read off the wire to one this client knows. */
+export function isErrorCode(value: unknown): value is ErrorCode {
+	return typeof value === "string" && errorCodes.has(value);
+}

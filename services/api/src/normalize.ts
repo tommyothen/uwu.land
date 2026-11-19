@@ -9,6 +9,11 @@ export function canonicalHostname(hostname: string): string {
 	return hostname.toLowerCase().replace(/\.+$/, "");
 }
 
+/**
+ * The spelling anonymous creates dedupe on: two URLs that normalise the same
+ * share one link, so this must only fold together URLs that redirect to the
+ * same place.
+ */
 export function normalizeUrl(url: string): string {
 	const normalized = new URL(url);
 	normalized.protocol = normalized.protocol.toLowerCase();
@@ -24,9 +29,19 @@ export function normalizeUrl(url: string): string {
 	) {
 		normalized.port = "";
 	}
-	normalized.hash = "";
-	if (normalized.pathname === "/") {
-		return normalized.toString().replace(/\/(?=\?|$)/, "");
+	// The fragment stays in: redirects carry it, and single-page apps route on
+	// it, so `/app#/a` and `/app#/b` are different destinations. A bare `#` is
+	// dropped, since it points at the same place as no fragment at all.
+	if (normalized.hash === "") {
+		normalized.hash = "";
 	}
-	return normalized.toString();
+	const href = normalized.toString();
+	if (normalized.pathname === "/") {
+		// Drop the root slash only, never one in the query or fragment. Neither
+		// userinfo nor host can hold a bare slash, so the first one after the
+		// scheme's "//" is the root.
+		const root = href.indexOf("/", normalized.protocol.length + 2);
+		return href.slice(0, root) + href.slice(root + 1);
+	}
+	return href;
 }

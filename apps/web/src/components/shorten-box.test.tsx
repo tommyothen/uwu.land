@@ -187,7 +187,7 @@ describe("ShortenBox submit choreography", () => {
 
 	it("stamps RETURN TO SENDER, restores focus and keeps the value on failure", async () => {
 		createLinkMock.mockRejectedValueOnce(
-			new UwuApiError({ status: 500, code: "internal", message: "boom" })
+			new UwuApiError({ status: 500, code: "unknown", message: "boom" })
 		);
 		render(<ShortenBox />);
 		await submit();
@@ -320,7 +320,7 @@ describe("ShortenBox submit choreography", () => {
 	it("rebuilds cleanly on a resubmit after an error", async () => {
 		createLinkMock
 			.mockRejectedValueOnce(
-				new UwuApiError({ status: 500, code: "internal", message: "boom" })
+				new UwuApiError({ status: 500, code: "unknown", message: "boom" })
 			)
 			.mockResolvedValueOnce(link);
 		render(<ShortenBox />);

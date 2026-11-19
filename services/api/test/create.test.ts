@@ -324,6 +324,55 @@ describe("anonymous link creation", () => {
 		expect(followUp.status).toBe(201);
 	});
 
+	it("does not consume quota for reserved or malformed custom slugs", async () => {
+		const secret = await seedKeyForUser({
+			userId: "user_slug_quota",
+			keyId: "key_slug_quota",
+			secret: "uwu_slug_quota000000000000000000000"
+		});
+		const quotaFetch = createWorker({ createPerDayLimit: 1 }).fetch as TestFetch;
+
+		const reserved = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/a", slug: "api" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const malformed = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/b", slug: "no spaces" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		const followUp = await quotaFetch(
+			createAuthedRequest({ url: "https://example.com/c" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect((await reserved.json<{ code: string }>()).code).toBe("slug_reserved");
+		expect((await malformed.json<{ code: string }>()).code).toBe("invalid_body");
+		expect(followUp.status).toBe(201);
+	});
+
+	it("does not report a failed insert as a taken slug", async () => {
+		const secret = await seedApiKey();
+		// Every query reaches the real database except the links insert, which
+		// fails the way an outage would rather than on a constraint.
+		const outage: D1Database = Object.assign(Object.create(env.DB), {
+			prepare: (query: string) =>
+				env.DB.prepare(
+					query.startsWith('insert into "links"') ? "SELECT * FROM d1_outage" : query
+				)
+		});
+
+		const response = await workerFetch(
+			createAuthedRequest({ url: "https://example.com/outage", slug: "outage" }, secret),
+			{ ...env, DB: outage } as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(500);
+	});
+
 	it("does not apply an existing IP block to authenticated callers", async () => {
 		const secret = await seedApiKey();
 		const ip = "203.0.113.71";
@@ -904,7 +953,7 @@ describe("anonymous link creation", () => {
 			createExecutionContext()
 		);
 		await workerFetch(
-			createRequest({ url: "HTTPS://EXAMPLE.com/only-once#fragment" }, "203.0.113.49"),
+			createRequest({ url: "HTTPS://EXAMPLE.com/only-once#" }, "203.0.113.49"),
 			env as Env,
 			createExecutionContext()
 		);
@@ -915,6 +964,62 @@ describe("anonymous link creation", () => {
 			.all();
 
 		expect(rows).toHaveLength(1);
+	});
+
+	it("gives each fragment of one page its own anonymous link", async () => {
+		const first = await workerFetch(
+			createRequest({ url: "https://example.com/app#/a" }, "203.0.113.50"),
+			env as Env,
+			createExecutionContext()
+		);
+		const second = await workerFetch(
+			createRequest({ url: "https://example.com/app#/b" }, "203.0.113.51"),
+			env as Env,
+			createExecutionContext()
+		);
+		const firstBody = await first.json<{ slug: string }>();
+		const secondBody = await second.json<{ slug: string; url: string }>();
+
+		expect(secondBody.slug).not.toBe(firstBody.slug);
+		expect(secondBody.url).toBe("https://example.com/app#/b");
+		const redirect = await workerFetch(
+			new Request(`https://uwu.land/${secondBody.slug}`),
+			env as Env,
+			createExecutionContext()
+		);
+		expect(redirect.headers.get("location")).toBe("https://example.com/app#/b");
+	});
+
+	it("does not reuse a legacy link hashed without its fragment", async () => {
+		// Rows hashed before fragments joined the dedupe key share a hash with
+		// the fragment-less URL, but redirect to the fragment.
+		const legacyHash = await hashKey("https://example.com/legacy");
+		await drizzle(env.DB)
+			.insert(links)
+			.values({
+				slug: "legcy",
+				url: "https://example.com/legacy#/a",
+				ownerId: null,
+				externalRef: null,
+				source: "web-anon",
+				lifecycleState: "active",
+				urlHash: legacyHash
+			})
+			.run();
+		await env.UWU.put("legcy", "https://example.com/legacy#/a");
+		await env.UWU.put(`urlmap:${legacyHash}`, "legcy");
+
+		const response = await workerFetch(
+			createRequest({ url: "https://example.com/legacy" }, "203.0.113.52"),
+			env as Env,
+			createExecutionContext()
+		);
+		const body = await response.json<{ slug: string; url: string }>();
+
+		expect(body.slug).not.toBe("legcy");
+		expect(body.url).toBe("https://example.com/legacy");
+		expect(await env.UWU.get(body.slug)).toBe("https://example.com/legacy");
+		expect(await env.UWU.get("legcy")).toBe("https://example.com/legacy#/a");
 	});
 
 	it("keeps distinct anonymous URLs separate", async () => {

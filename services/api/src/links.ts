@@ -28,6 +28,7 @@ import { hashKey } from "./keys";
 import { reconcileLink } from "./link-reconciliation";
 import { canonicalHostname, normalizeUrl } from "./normalize";
 import { DurableObjectFixedWindow } from "./rate-limit";
+import { readJson } from "./request-utils";
 import { isUrlShortener } from "./shorteners";
 import {
 	generateSlug,
@@ -142,6 +143,14 @@ export async function createLink(
 		);
 	}
 
+	// Before the rate limit, so a malformed or reserved slug costs no quota.
+	// Whether the slug is free needs storage reads, so that check stays after.
+	const slugError =
+		parsed.data.slug === undefined ? null : customSlugError(parsed.data.slug);
+	if (slugError !== null) {
+		return slugError;
+	}
+
 	const rateLimit = await limitCreate(c, auth, options.createPerDayLimit);
 	if (!rateLimit.allowed) {
 		return errorResponse(
@@ -174,7 +183,7 @@ export async function createLink(
 	const slug =
 		parsed.data.slug === undefined
 			? await generateAvailableSlug(c.env, db, options.generateId)
-			: await validateCustomSlug(c.env, db, parsed.data.slug);
+			: await availableCustomSlug(c.env, db, parsed.data.slug);
 	if (slug instanceof Response) {
 		return slug;
 	}
@@ -191,7 +200,12 @@ export async function createLink(
 				lifecycleState: "pending_publish"
 			})
 			.run();
-	} catch {
+	} catch (error) {
+		// Only a lost race for the slug is the caller's problem; anything else
+		// (a D1 outage, say) is ours and must not read as a taken slug.
+		if (!isUniqueViolation(error)) {
+			throw error;
+		}
 		return errorResponse(409, "slug_taken", "Slug is already taken.");
 	}
 
@@ -486,10 +500,11 @@ async function anonymousLink(
 	destination: URL,
 	generateId?: IdGenerator
 ): Promise<Response> {
-	const urlHash = await hashKey(normalizeUrl(destination.toString()));
+	const normalized = normalizeUrl(destination.toString());
+	const urlHash = await hashKey(normalized);
 
 	for (let attempt = 0; attempt < ANON_CREATE_ATTEMPTS; attempt++) {
-		const deduped = await dedupeAnonymousLink(env, urlHash, destination);
+		const deduped = await dedupeAnonymousLink(env, urlHash, normalized);
 		if (deduped !== null) {
 			return deduped;
 		}
@@ -512,7 +527,7 @@ async function anonymousLink(
 			if (!isUniqueViolation(error)) {
 				throw error;
 			}
-			const winner = await dedupeAnonymousLink(env, urlHash, destination);
+			const winner = await dedupeAnonymousLink(env, urlHash, normalized);
 			if (winner !== null) {
 				return winner;
 			}
@@ -533,23 +548,35 @@ async function anonymousLink(
 	throw new Error("Unable to create an anonymous link");
 }
 
+/**
+ * Answers with the link already holding this hash, echoing the URL it stores:
+ * that is where the slug redirects. Rows hashed before fragments joined the
+ * dedupe key share a hash with the fragment-less URL but redirect elsewhere,
+ * so a link whose URL does not normalise to `normalized` is never reused. Its
+ * row gives up the hash so a fresh link can take it, and keeps redirecting.
+ */
 async function dedupeAnonymousLink(
 	env: Env,
 	urlHash: string,
-	destination: URL
+	normalized: string
 ): Promise<Response | null> {
-	const [reserved] = await drizzle(env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
+	let [reserved] = await drizzle(env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
+	if (reserved !== undefined && normalizeUrl(reserved.url) !== normalized) {
+		await drizzle(env.DB).update(linksTable).set({ urlHash: null }).where(and(eq(linksTable.slug, reserved.slug), eq(linksTable.urlHash, urlHash))).run();
+		reserved = undefined;
+	}
 	if (reserved !== undefined && reserved.lifecycleState !== "pending_delete") {
 		if (reserved.lifecycleState === "pending_publish" || (await env.UWU.get(reserved.slug)) === null) {
 			const pending = { ...reserved, lifecycleState: "pending_publish" as const };
 			if (reserved.lifecycleState === "active") await drizzle(env.DB).update(linksTable).set({ lifecycleState: "pending_publish" }).where(and(eq(linksTable.slug, reserved.slug), eq(linksTable.lifecycleState, "active"))).run();
 			try { await reconcileLink(env, pending); } catch { return publicationPending(); }
 		}
-		return createdLinkResponse(reserved.slug, destination.toString());
+		return createdLinkResponse(reserved.slug, reserved.url);
 	}
 	const mappedSlug = await env.UWU.get(`urlmap:${urlHash}`);
-	if (mappedSlug !== null && (await env.UWU.get(mappedSlug)) !== null) {
-		return createdLinkResponse(mappedSlug, destination.toString());
+	const mappedUrl = mappedSlug === null ? null : await env.UWU.get(mappedSlug);
+	if (mappedSlug !== null && mappedUrl !== null && normalizeUrl(mappedUrl) === normalized) {
+		return createdLinkResponse(mappedSlug, mappedUrl);
 	}
 	return null;
 }
@@ -581,17 +608,21 @@ function isUniqueViolation(error: unknown): boolean {
 	return false;
 }
 
-async function validateCustomSlug(
-	env: Env,
-	db: ReturnType<typeof drizzle>,
-	slug: string
-): Promise<string | Response> {
+function customSlugError(slug: string): Response | null {
 	if (isReservedSlug(slug)) {
 		return errorResponse(400, "slug_reserved", "Slug is reserved.");
 	}
 	if (!isValidCustomSlug(slug)) {
 		return errorResponse(400, "invalid_body", "Invalid slug.");
 	}
+	return null;
+}
+
+async function availableCustomSlug(
+	env: Env,
+	db: ReturnType<typeof drizzle>,
+	slug: string
+): Promise<string | Response> {
 	if (await slugExists(env, db, slug)) {
 		return errorResponse(409, "slug_taken", "Slug is already taken.");
 	}
@@ -732,14 +763,6 @@ function createdLinkResponse(slug: string, url: string): Response {
 
 function publicationPending(): Response {
 	return errorResponse(503, "publication_pending", "Link publication is pending. Retry the same request shortly.");
-}
-
-async function readJson(request: Request): Promise<unknown> {
-	try {
-		return await request.json();
-	} catch {
-		return null;
-	}
 }
 
 /**
