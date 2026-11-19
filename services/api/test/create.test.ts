@@ -990,9 +990,10 @@ describe("anonymous link creation", () => {
 		expect(redirect.headers.get("location")).toBe("https://example.com/app#/b");
 	});
 
-	it("echoes the stored URL when a dedup hit holds a different spelling", async () => {
+	it("does not reuse a legacy link hashed without its fragment", async () => {
 		// Rows hashed before fragments joined the dedupe key share a hash with
-		// the fragment-less URL, so the caller must be told where it really goes.
+		// the fragment-less URL, but redirect to the fragment.
+		const legacyHash = await hashKey("https://example.com/legacy");
 		await drizzle(env.DB)
 			.insert(links)
 			.values({
@@ -1002,21 +1003,23 @@ describe("anonymous link creation", () => {
 				externalRef: null,
 				source: "web-anon",
 				lifecycleState: "active",
-				urlHash: await hashKey("https://example.com/legacy")
+				urlHash: legacyHash
 			})
 			.run();
 		await env.UWU.put("legcy", "https://example.com/legacy#/a");
+		await env.UWU.put(`urlmap:${legacyHash}`, "legcy");
 
 		const response = await workerFetch(
 			createRequest({ url: "https://example.com/legacy" }, "203.0.113.52"),
 			env as Env,
 			createExecutionContext()
 		);
+		const body = await response.json<{ slug: string; url: string }>();
 
-		expect(await response.json()).toMatchObject({
-			slug: "legcy",
-			url: "https://example.com/legacy#/a"
-		});
+		expect(body.slug).not.toBe("legcy");
+		expect(body.url).toBe("https://example.com/legacy");
+		expect(await env.UWU.get(body.slug)).toBe("https://example.com/legacy");
+		expect(await env.UWU.get("legcy")).toBe("https://example.com/legacy#/a");
 	});
 
 	it("keeps distinct anonymous URLs separate", async () => {

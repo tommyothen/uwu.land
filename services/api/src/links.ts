@@ -500,10 +500,11 @@ async function anonymousLink(
 	destination: URL,
 	generateId?: IdGenerator
 ): Promise<Response> {
-	const urlHash = await hashKey(normalizeUrl(destination.toString()));
+	const normalized = normalizeUrl(destination.toString());
+	const urlHash = await hashKey(normalized);
 
 	for (let attempt = 0; attempt < ANON_CREATE_ATTEMPTS; attempt++) {
-		const deduped = await dedupeAnonymousLink(env, urlHash);
+		const deduped = await dedupeAnonymousLink(env, urlHash, normalized);
 		if (deduped !== null) {
 			return deduped;
 		}
@@ -526,7 +527,7 @@ async function anonymousLink(
 			if (!isUniqueViolation(error)) {
 				throw error;
 			}
-			const winner = await dedupeAnonymousLink(env, urlHash);
+			const winner = await dedupeAnonymousLink(env, urlHash, normalized);
 			if (winner !== null) {
 				return winner;
 			}
@@ -548,16 +549,22 @@ async function anonymousLink(
 }
 
 /**
- * Answers with the link already holding this hash, echoing the URL it stores
- * rather than the caller's: that is where the slug redirects. Rows hashed
- * before fragments joined the dedupe key can hold a fragment the caller did
- * not send.
+ * Answers with the link already holding this hash, echoing the URL it stores:
+ * that is where the slug redirects. Rows hashed before fragments joined the
+ * dedupe key share a hash with the fragment-less URL but redirect elsewhere,
+ * so a link whose URL does not normalise to `normalized` is never reused. Its
+ * row gives up the hash so a fresh link can take it, and keeps redirecting.
  */
 async function dedupeAnonymousLink(
 	env: Env,
-	urlHash: string
+	urlHash: string,
+	normalized: string
 ): Promise<Response | null> {
-	const [reserved] = await drizzle(env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
+	let [reserved] = await drizzle(env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
+	if (reserved !== undefined && normalizeUrl(reserved.url) !== normalized) {
+		await drizzle(env.DB).update(linksTable).set({ urlHash: null }).where(and(eq(linksTable.slug, reserved.slug), eq(linksTable.urlHash, urlHash))).run();
+		reserved = undefined;
+	}
 	if (reserved !== undefined && reserved.lifecycleState !== "pending_delete") {
 		if (reserved.lifecycleState === "pending_publish" || (await env.UWU.get(reserved.slug)) === null) {
 			const pending = { ...reserved, lifecycleState: "pending_publish" as const };
@@ -568,7 +575,7 @@ async function dedupeAnonymousLink(
 	}
 	const mappedSlug = await env.UWU.get(`urlmap:${urlHash}`);
 	const mappedUrl = mappedSlug === null ? null : await env.UWU.get(mappedSlug);
-	if (mappedSlug !== null && mappedUrl !== null) {
+	if (mappedSlug !== null && mappedUrl !== null && normalizeUrl(mappedUrl) === normalized) {
 		return createdLinkResponse(mappedSlug, mappedUrl);
 	}
 	return null;
