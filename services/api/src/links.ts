@@ -28,6 +28,7 @@ import { hashKey } from "./keys";
 import { reconcileLink } from "./link-reconciliation";
 import { canonicalHostname, normalizeUrl } from "./normalize";
 import { DurableObjectFixedWindow } from "./rate-limit";
+import { readJson } from "./request-utils";
 import { isUrlShortener } from "./shorteners";
 import {
 	generateSlug,
@@ -755,14 +756,6 @@ function createdLinkResponse(slug: string, url: string): Response {
 
 function publicationPending(): Response {
 	return errorResponse(503, "publication_pending", "Link publication is pending. Retry the same request shortly.");
-}
-
-async function readJson(request: Request): Promise<unknown> {
-	try {
-		return await request.json();
-	} catch {
-		return null;
-	}
 }
 
 /**
