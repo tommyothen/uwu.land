@@ -84,6 +84,9 @@ describe("link reconciliation", () => {
 		await drizzle(env.DB).insert(links).values({ slug: "reused", url: "https://old.example/", source: "web-anon", lifecycleState: "pending_delete" }).run();
 		const stale = { ...await row("reused"), lifecycleState: "pending_publish" as const };
 		await reconcileLink(env, await row("reused"));
+		// Deleting the row tombstones the slug; clear it so the replacement can
+		// land, as a slug deleted before migration 0010 still could.
+		await env.DB.prepare("DELETE FROM slug_tombstones WHERE slug = 'reused'").run();
 		await drizzle(env.DB).insert(links).values({ slug: "reused", url: "https://new.example/", source: "web-anon", lifecycleState: "pending_publish" }).run();
 		await reconcileLink(env, stale);
 		expect(await env.UWU.get("reused")).toBe("https://new.example/");

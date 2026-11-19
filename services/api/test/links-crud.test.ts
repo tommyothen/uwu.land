@@ -3,13 +3,14 @@ import {
 	env,
 	waitOnExecutionContext
 } from "cloudflare:test";
-import { apiKeys, links, users } from "@uwu/db/schema";
+import { apiKeys, links, slugTombstones, users } from "@uwu/db/schema";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
 import { hashKey } from "../src/keys";
+import { markDomainLinksForDeletion, reconcilePendingLinks } from "../src/link-reconciliation";
 import type { Env } from "../src/worker";
-import worker from "../src/worker";
+import worker, { createWorker } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
 
 type TestFetch = (
@@ -358,6 +359,89 @@ describe("owned links CRUD", () => {
 		expect(
 			await drizzle(env.DB).select().from(links).where(eq(links.slug, "owned")).all()
 		).toHaveLength(0);
+	});
+
+	it("tombstones deleted slugs so nobody, the owner included, can claim them again", async () => {
+		const ownerSecret = await seedApiKey();
+		const otherSecret = await seedApiKey({
+			userId: "user_other",
+			keyId: "key_other",
+			secret: "uwu_other0000000000000000000000"
+		});
+		await seedLink({ slug: "Promo", createdAt: new Date("2026-07-10T09:00:00.000Z") });
+
+		const deleted = await workerFetch(
+			authedRequest("/api/v1/links/Promo", ownerSecret, "DELETE"),
+			env as Env,
+			createExecutionContext()
+		);
+		expect(deleted.status).toBe(204);
+		expect(await drizzle(env.DB).select().from(links).all()).toHaveLength(0);
+		expect(
+			await drizzle(env.DB).select({ slug: slugTombstones.slug }).from(slugTombstones).all()
+		).toEqual([{ slug: "Promo" }]);
+
+		for (const secret of [ownerSecret, otherSecret]) {
+			const reclaim = await workerFetch(
+				jsonRequest("/api/v1/links", { url: "https://example.com/reclaim", slug: "Promo" }, secret),
+				env as Env,
+				createExecutionContext()
+			);
+			expect(reclaim.status).toBe(409);
+			await expect(reclaim.json()).resolves.toMatchObject({ code: "slug_taken" });
+		}
+		expect(await drizzle(env.DB).select().from(links).all()).toHaveLength(0);
+	});
+
+	it("tombstones slugs that a ban sweep removes", async () => {
+		const secret = await seedApiKey();
+		await seedLink({ slug: "Banned", url: "https://evil.example/x", createdAt: new Date("2026-07-10T09:00:00.000Z") });
+
+		expect(await markDomainLinksForDeletion(env.DB, ["evil.example"])).toBe(1);
+		await reconcilePendingLinks(env as Env);
+		expect(await drizzle(env.DB).select().from(links).all()).toHaveLength(0);
+
+		const reclaim = await workerFetch(
+			jsonRequest("/api/v1/links", { url: "https://example.com/reclaim", slug: "Banned" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		expect(reclaim.status).toBe(409);
+	});
+
+	it("skips tombstoned slugs when generating random ones", async () => {
+		const secret = await seedApiKey();
+		await drizzle(env.DB)
+			.insert(slugTombstones)
+			.values([
+				{ slug: "gone1", deletedAt: new Date() },
+				{ slug: "gone2", deletedAt: new Date() }
+			])
+			.run();
+		const ids = ["gone1", "fresh1", "gone2", "fresh2"];
+		const generatingFetch = createWorker({
+			generateId: () => ids.shift() ?? "spare"
+		}).fetch as TestFetch;
+
+		const owned = await generatingFetch(
+			jsonRequest("/api/v1/links", { url: "https://example.com/owned-random" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(owned.json()).resolves.toMatchObject({ slug: "fresh1" });
+
+		// The anonymous generator only checks KV, so this exercises the
+		// migration 0010 trigger and the anonymous unique-violation retry.
+		const anonymous = await generatingFetch(
+			new Request("https://uwu.land/api/v1/links", {
+				method: "POST",
+				headers: { "CF-Connecting-IP": "203.0.113.70", "content-type": "application/json" },
+				body: JSON.stringify({ url: "https://example.com/anon-random" })
+			}),
+			env as Env,
+			createExecutionContext()
+		);
+		await expect(anonymous.json()).resolves.toMatchObject({ slug: "fresh2" });
 	});
 
 	it("returns the authenticated user tier and limits from /me", async () => {

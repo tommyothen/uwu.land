@@ -1,4 +1,4 @@
-import { apiKeys, links as linksTable } from "@uwu/db/schema";
+import { apiKeys, links as linksTable, slugTombstones } from "@uwu/db/schema";
 import {
 	type CreateLinkResponse,
 	type LinkSummary,
@@ -300,6 +300,8 @@ export async function deleteLink(
 		return errorResponse(403, "forbidden", "Link belongs to another user.");
 	}
 
+	// The links_tombstone_on_delete trigger (migration 0010) tombstones the slug
+	// when reconciliation removes the row; until then the row itself holds it.
 	await drizzle(c.env.DB)
 		.update(linksTable)
 		.set({ lifecycleState: "pending_delete" })
@@ -612,6 +614,7 @@ async function generateAvailableSlug(
 	throw new Error("Unable to generate a unique slug");
 }
 
+/** Taken means KV still serves it, a D1 row holds it, or it was ever deleted. */
 async function slugExists(
 	env: Env,
 	db: ReturnType<typeof drizzle>,
@@ -620,7 +623,16 @@ async function slugExists(
 	if ((await env.UWU.get(slug)) !== null) {
 		return true;
 	}
-	return (await findLinkRow(db, slug)) !== null;
+	if ((await findLinkRow(db, slug)) !== null) {
+		return true;
+	}
+	const [tombstone] = await db
+		.select({ slug: slugTombstones.slug })
+		.from(slugTombstones)
+		.where(eq(slugTombstones.slug, slug))
+		.limit(1)
+		.all();
+	return tombstone !== undefined;
 }
 
 async function findLink(dbBinding: D1Database, slug: string): Promise<LinkRow | null> {

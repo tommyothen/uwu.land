@@ -32,6 +32,16 @@ export const deletedUsers = sqliteTable("deleted_users", {
 	deletedAt: integer("deleted_at", { mode: "timestamp" }).notNull()
 });
 
+// Every slug ever deleted. Old QR codes and printed links keep sending
+// traffic to a slug after its owner deletes it, so nobody (the original
+// owner included) may claim it again. Written in the same batch that marks
+// the link pending_delete; migration 0010 also adds a trigger that refuses
+// any links insert for a tombstoned slug. Rows are never purged.
+export const slugTombstones = sqliteTable("slug_tombstones", {
+	slug: text("slug").primaryKey(),
+	deletedAt: integer("deleted_at", { mode: "timestamp" }).notNull()
+});
+
 export const clerkWebhookEvents = sqliteTable("clerk_webhook_events", {
 	id: text("id").primaryKey(),
 	eventTimestamp: integer("event_timestamp").notNull(),
