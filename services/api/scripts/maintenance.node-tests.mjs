@@ -92,6 +92,38 @@ function runWithStub(script, args, rows = []) {
 
 const stubOptions = { skip: process.platform === "win32" };
 
+// wrangler 4 returns plain strings from `kv bulk get`; reading `.value` off
+// them made every ban look unset, so --manual and --auto both listed nothing.
+test("banned.mjs list sorts bans by value from plain bulk get output", stubOptions, () => {
+	const directory = mkdtempSync(join(tmpdir(), "uwu-banned-list-stub-"));
+	try {
+		writeFileSync(
+			join(directory, "pnpm"),
+			[
+				"#!/bin/sh",
+				'case "$*" in',
+				'  *"key list"*) printf \'[{"name":"banned:manual.example"},{"name":"banned:feed.example"}]\' ;;',
+				'  *"bulk get"*) printf \'{"banned:manual.example":"1","banned:feed.example":"auto"}\' ;;',
+				"esac",
+				""
+			].join("\n"),
+			{ mode: 0o755 }
+		);
+		const list = (flag) =>
+			spawnSync(process.execPath, [`${scriptsDirectory}banned.mjs`, "list", flag], {
+				encoding: "utf8",
+				env: { ...process.env, PATH: `${directory}:${process.env.PATH}` }
+			});
+		const manual = list("--manual");
+		assert.equal(manual.status, 0, manual.stderr);
+		assert.deepEqual(JSON.parse(manual.stdout), [{ name: "banned:manual.example", value: "1" }]);
+		const auto = list("--auto");
+		assert.deepEqual(JSON.parse(auto.stdout), [{ name: "banned:feed.example", value: "auto" }]);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 // isBannedHostname only ever looks up lowercase punycode keys, so any other
 // spelling would write a key that can never match.
 test("banned.mjs writes the hostname the worker sees", stubOptions, () => {

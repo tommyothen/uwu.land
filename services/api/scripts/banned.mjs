@@ -111,7 +111,7 @@ function getValuesInBatches(keys) {
 				"--remote"
 			]);
 			for (const [key, result] of Object.entries(parseBulkValues(output))) {
-				values.set(key, result?.value ?? null);
+				values.set(key, bulkValue(result));
 			}
 		}
 	} finally {
@@ -119,6 +119,13 @@ function getValuesInBatches(keys) {
 	}
 
 	return values;
+}
+
+// `wrangler kv bulk get` returns plain strings (`{"banned:x": "1"}`); older
+// versions wrapped each one as `{ value }`. Accepts either.
+function bulkValue(result) {
+	if (typeof result === "string") return result;
+	return typeof result?.value === "string" ? result.value : null;
 }
 
 function parseBulkValues(output) {
