@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
 import { hashKey } from "../src/keys";
+import { markDomainLinksForDeletion, reconcilePendingLinks } from "../src/link-reconciliation";
 import type { Env } from "../src/worker";
 import worker, { createWorker } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
@@ -390,6 +391,22 @@ describe("owned links CRUD", () => {
 			await expect(reclaim.json()).resolves.toMatchObject({ code: "slug_taken" });
 		}
 		expect(await drizzle(env.DB).select().from(links).all()).toHaveLength(0);
+	});
+
+	it("tombstones slugs that a ban sweep removes", async () => {
+		const secret = await seedApiKey();
+		await seedLink({ slug: "Banned", url: "https://evil.example/x", createdAt: new Date("2026-07-10T09:00:00.000Z") });
+
+		expect(await markDomainLinksForDeletion(env.DB, ["evil.example"])).toBe(1);
+		await reconcilePendingLinks(env as Env);
+		expect(await drizzle(env.DB).select().from(links).all()).toHaveLength(0);
+
+		const reclaim = await workerFetch(
+			jsonRequest("/api/v1/links", { url: "https://example.com/reclaim", slug: "Banned" }, secret),
+			env as Env,
+			createExecutionContext()
+		);
+		expect(reclaim.status).toBe(409);
 	});
 
 	it("skips tombstoned slugs when generating random ones", async () => {

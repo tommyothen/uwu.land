@@ -300,19 +300,13 @@ export async function deleteLink(
 		return errorResponse(403, "forbidden", "Link belongs to another user.");
 	}
 
-	// The tombstone lands atomically with the pending_delete mark, so it exists
-	// before reconciliation removes the row and the slug is never free to claim.
-	const db = drizzle(c.env.DB);
-	await db.batch([
-		db
-			.update(linksTable)
-			.set({ lifecycleState: "pending_delete" })
-			.where(eq(linksTable.slug, slug)),
-		db
-			.insert(slugTombstones)
-			.values({ slug, deletedAt: new Date() })
-			.onConflictDoNothing()
-	]);
+	// The links_tombstone_on_delete trigger (migration 0010) tombstones the slug
+	// when reconciliation removes the row; until then the row itself holds it.
+	await drizzle(c.env.DB)
+		.update(linksTable)
+		.set({ lifecycleState: "pending_delete" })
+		.where(eq(linksTable.slug, slug))
+		.run();
 	const pending = { ...row, lifecycleState: "pending_delete" as const };
 	try { await reconcileLink(c.env, pending); } catch { /* scheduled reconciliation owns the retry */ }
 	return new Response(null, { status: 204 });
