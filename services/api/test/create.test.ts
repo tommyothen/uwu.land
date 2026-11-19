@@ -568,7 +568,8 @@ describe("anonymous link creation", () => {
 		const ipInSlash64 = (index: number) => `2001:db8:0:7::${(index + 1).toString(16)}`;
 		for (let i = 0; i < TIERS.anon.createPerDay; i++) {
 			const response = await workerFetch(
-				createRequest({ url: `https://example.com/v6-${i}` }, ipInSlash64(i)),
+				// One domain each, so the per-domain cap stays out of the way.
+				createRequest({ url: `https://example-v6-${i}.com/` }, ipInSlash64(i)),
 				env as Env,
 				createExecutionContext()
 			);
@@ -576,12 +577,12 @@ describe("anonymous link creation", () => {
 		}
 
 		const over = await workerFetch(
-			createRequest({ url: "https://example.com/v6-over" }, "2001:db8:0:7:ffff::1"),
+			createRequest({ url: "https://example-v6-over.com/" }, "2001:db8:0:7:ffff::1"),
 			env as Env,
 			createExecutionContext()
 		);
 		const elsewhere = await workerFetch(
-			createRequest({ url: "https://example.com/v6-elsewhere" }, "2001:db8:0:8::1"),
+			createRequest({ url: "https://example-v6-elsewhere.com/" }, "2001:db8:0:8::1"),
 			env as Env,
 			createExecutionContext()
 		);
