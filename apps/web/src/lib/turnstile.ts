@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type RefCallback, useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Public Turnstile site key. Production builds use the real widget, which only
@@ -49,15 +49,16 @@ function loadTurnstile(): Promise<TurnstileApi> {
 		const script = document.createElement("script");
 		script.src = SCRIPT_URL;
 		script.async = true;
-		script.onload = () => {
-			if (window.turnstile) resolve(window.turnstile);
-			else reject(new Error("Turnstile loaded without its API"));
-		};
-		script.onerror = () => {
+		const fail = (message: string) => {
 			pending = null;
 			script.remove();
-			reject(new Error("Turnstile failed to load"));
+			reject(new Error(message));
 		};
+		script.onload = () => {
+			if (window.turnstile) resolve(window.turnstile);
+			else fail("Turnstile loaded without its API");
+		};
+		script.onerror = () => fail("Turnstile failed to load");
 		document.head.appendChild(script);
 	});
 	return pending;
@@ -94,8 +95,11 @@ function createSlot(): TokenSlot {
 }
 
 export interface Turnstile {
-	/** Where the widget renders. Empty unless Cloudflare wants a click. */
-	containerRef: RefObject<HTMLDivElement | null>;
+	/**
+	 * Callback ref for where the widget renders. Empty unless Cloudflare wants a
+	 * click. A new container (the form remounting) gets a fresh widget.
+	 */
+	containerRef: RefCallback<HTMLDivElement>;
 	/** True while the widget is showing an interactive challenge. */
 	interactive: boolean;
 	/**
@@ -111,18 +115,20 @@ export interface Turnstile {
  * script only then, so pages and visitors that never need a check never fetch it.
  */
 export function useTurnstile(enabled: boolean): Turnstile {
-	const containerRef = useRef<HTMLDivElement>(null);
+	const [container, containerRef] = useState<HTMLDivElement | null>(null);
+	// Bumped to retry after the script failed to load.
+	const [loadAttempt, setLoadAttempt] = useState(0);
 	const slot = useRef<TokenSlot>(createSlot());
 	const widget = useRef<{ api: TurnstileApi; id: string } | null>(null);
 	const [interactive, setInteractive] = useState(false);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: loadAttempt is the retry trigger, so it must rerun the effect
 	useEffect(() => {
-		if (!enabled) return;
+		if (!enabled || container === null) return;
 		let cancelled = false;
 		loadTurnstile().then(
 			(api) => {
-				const container = containerRef.current;
-				if (cancelled || container === null) return;
+				if (cancelled) return;
 				const id = api.render(container, {
 					sitekey: SITE_KEY,
 					appearance: "interaction-only",
@@ -142,7 +148,9 @@ export function useTurnstile(enabled: boolean): Turnstile {
 				});
 				if (id !== undefined) widget.current = { api, id };
 			},
-			(error: Error) => slot.current.reject(error)
+			(error: Error) => {
+				if (!cancelled) slot.current.reject(error);
+			}
 		);
 		return () => {
 			cancelled = true;
@@ -150,7 +158,7 @@ export function useTurnstile(enabled: boolean): Turnstile {
 			widget.current = null;
 			setInteractive(false);
 		};
-	}, [enabled]);
+	}, [enabled, container, loadAttempt]);
 
 	const enabledRef = useRef(enabled);
 	enabledRef.current = enabled;
@@ -160,12 +168,13 @@ export function useTurnstile(enabled: boolean): Turnstile {
 			return Promise.reject(new Error("Turnstile is not active"));
 		}
 		const current = slot.current;
-		// Without a widget (the script never loaded) nothing could fill a new
-		// slot, so keep the failure and let every send report it.
+		// A rendered widget gets reset for a fresh challenge. Without one (the
+		// script failed to load), load it again so the next send can succeed.
 		const renew = () => {
-			if (slot.current !== current || widget.current === null) return;
+			if (slot.current !== current) return;
 			slot.current = createSlot();
 			if (widget.current) widget.current.api.reset(widget.current.id);
+			else setLoadAttempt((attempt) => attempt + 1);
 		};
 		return current.promise.then(
 			(token) => {
