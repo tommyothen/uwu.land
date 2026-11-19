@@ -175,11 +175,16 @@ export async function syncBannedDomains(
 	}
 
 	// Bans only gate creation, so links made before the ban would keep
-	// redirecting. Runs after the keys are written, so nothing new can slip in
-	// behind it, and covers every listed domain rather than just the new ones:
-	// a sweep that fails today is retried tomorrow, and the cost is one
+	// redirecting. Runs after the keys are written and covers every banned
+	// domain, manual bans included, not just today's feed: a link created while
+	// a KV edge still served a stale "not banned" slips past both createLink and
+	// the reconciler's re-check, and this daily pass is what takes it down. A
+	// sweep that fails today is retried tomorrow, and the cost is one
 	// prefiltered scan of `links` a day.
-	const swept = await markDomainLinksForDeletion(env.DB, candidates);
+	const everyBan = [...new Set([...existing, ...candidates])].filter(
+		(domain) => !isPublicSuffix(domain)
+	);
+	const swept = await markDomainLinksForDeletion(env.DB, everyBan);
 
 	return { added: missing.length, scanned: parsed.length, swept, refused: false };
 }

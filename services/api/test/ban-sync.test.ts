@@ -262,4 +262,13 @@ describe("banned-domain sync", () => {
 		}
 		expect(await env.UWU.get("lookalike")).toBe(seeded.lookalike);
 	});
+
+	it("sweeps manual bans too, so a link that beat a stale KV read still comes down", async () => {
+		const db = drizzle(env.DB);
+		await env.UWU.put("banned:manual.example", "1");
+		await db.insert(links).values({ slug: "late", url: "https://manual.example/x", source: "web-anon" }).run();
+
+		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(["feed.example"]));
+		expect(result).toEqual({ added: 1, scanned: 1, swept: 1, refused: false });
+	});
 });
