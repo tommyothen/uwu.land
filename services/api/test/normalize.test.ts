@@ -12,8 +12,14 @@ describe("normalizeUrl", () => {
 		);
 	});
 
-	it("strips fragments", () => {
-		expect(normalizeUrl("https://example.com/path?q=1#fragment")).toBe(
+	it("keeps fragments, since redirects carry them", () => {
+		expect(normalizeUrl("https://example.com/app#/a")).toBe(
+			"https://example.com/app#/a"
+		);
+	});
+
+	it("drops an empty fragment", () => {
+		expect(normalizeUrl("https://example.com/path?q=1#")).toBe(
 			"https://example.com/path?q=1"
 		);
 	});

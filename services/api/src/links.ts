@@ -489,7 +489,7 @@ async function anonymousLink(
 	const urlHash = await hashKey(normalizeUrl(destination.toString()));
 
 	for (let attempt = 0; attempt < ANON_CREATE_ATTEMPTS; attempt++) {
-		const deduped = await dedupeAnonymousLink(env, urlHash, destination);
+		const deduped = await dedupeAnonymousLink(env, urlHash);
 		if (deduped !== null) {
 			return deduped;
 		}
@@ -512,7 +512,7 @@ async function anonymousLink(
 			if (!isUniqueViolation(error)) {
 				throw error;
 			}
-			const winner = await dedupeAnonymousLink(env, urlHash, destination);
+			const winner = await dedupeAnonymousLink(env, urlHash);
 			if (winner !== null) {
 				return winner;
 			}
@@ -533,10 +533,15 @@ async function anonymousLink(
 	throw new Error("Unable to create an anonymous link");
 }
 
+/**
+ * Answers with the link already holding this hash, echoing the URL it stores
+ * rather than the caller's: that is where the slug redirects. Rows hashed
+ * before fragments joined the dedupe key can hold a fragment the caller did
+ * not send.
+ */
 async function dedupeAnonymousLink(
 	env: Env,
-	urlHash: string,
-	destination: URL
+	urlHash: string
 ): Promise<Response | null> {
 	const [reserved] = await drizzle(env.DB).select().from(linksTable).where(eq(linksTable.urlHash, urlHash)).limit(1).all();
 	if (reserved !== undefined && reserved.lifecycleState !== "pending_delete") {
@@ -545,11 +550,12 @@ async function dedupeAnonymousLink(
 			if (reserved.lifecycleState === "active") await drizzle(env.DB).update(linksTable).set({ lifecycleState: "pending_publish" }).where(and(eq(linksTable.slug, reserved.slug), eq(linksTable.lifecycleState, "active"))).run();
 			try { await reconcileLink(env, pending); } catch { return publicationPending(); }
 		}
-		return createdLinkResponse(reserved.slug, destination.toString());
+		return createdLinkResponse(reserved.slug, reserved.url);
 	}
 	const mappedSlug = await env.UWU.get(`urlmap:${urlHash}`);
-	if (mappedSlug !== null && (await env.UWU.get(mappedSlug)) !== null) {
-		return createdLinkResponse(mappedSlug, destination.toString());
+	const mappedUrl = mappedSlug === null ? null : await env.UWU.get(mappedSlug);
+	if (mappedSlug !== null && mappedUrl !== null) {
+		return createdLinkResponse(mappedSlug, mappedUrl);
 	}
 	return null;
 }

@@ -904,7 +904,7 @@ describe("anonymous link creation", () => {
 			createExecutionContext()
 		);
 		await workerFetch(
-			createRequest({ url: "HTTPS://EXAMPLE.com/only-once#fragment" }, "203.0.113.49"),
+			createRequest({ url: "HTTPS://EXAMPLE.com/only-once#" }, "203.0.113.49"),
 			env as Env,
 			createExecutionContext()
 		);
@@ -915,6 +915,59 @@ describe("anonymous link creation", () => {
 			.all();
 
 		expect(rows).toHaveLength(1);
+	});
+
+	it("gives each fragment of one page its own anonymous link", async () => {
+		const first = await workerFetch(
+			createRequest({ url: "https://example.com/app#/a" }, "203.0.113.50"),
+			env as Env,
+			createExecutionContext()
+		);
+		const second = await workerFetch(
+			createRequest({ url: "https://example.com/app#/b" }, "203.0.113.51"),
+			env as Env,
+			createExecutionContext()
+		);
+		const firstBody = await first.json<{ slug: string }>();
+		const secondBody = await second.json<{ slug: string; url: string }>();
+
+		expect(secondBody.slug).not.toBe(firstBody.slug);
+		expect(secondBody.url).toBe("https://example.com/app#/b");
+		const redirect = await workerFetch(
+			new Request(`https://uwu.land/${secondBody.slug}`),
+			env as Env,
+			createExecutionContext()
+		);
+		expect(redirect.headers.get("location")).toBe("https://example.com/app#/b");
+	});
+
+	it("echoes the stored URL when a dedup hit holds a different spelling", async () => {
+		// Rows hashed before fragments joined the dedupe key share a hash with
+		// the fragment-less URL, so the caller must be told where it really goes.
+		await drizzle(env.DB)
+			.insert(links)
+			.values({
+				slug: "legcy",
+				url: "https://example.com/legacy#/a",
+				ownerId: null,
+				externalRef: null,
+				source: "web-anon",
+				lifecycleState: "active",
+				urlHash: await hashKey("https://example.com/legacy")
+			})
+			.run();
+		await env.UWU.put("legcy", "https://example.com/legacy#/a");
+
+		const response = await workerFetch(
+			createRequest({ url: "https://example.com/legacy" }, "203.0.113.52"),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(await response.json()).toMatchObject({
+			slug: "legcy",
+			url: "https://example.com/legacy#/a"
+		});
 	});
 
 	it("keeps distinct anonymous URLs separate", async () => {
