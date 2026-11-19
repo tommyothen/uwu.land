@@ -9,6 +9,11 @@ import { pathToFileURL } from "node:url";
 // the scheduled reconciler removes them from KV and D1. Dry run unless --yes.
 // Always runs against production (--remote).
 
+// Rows listed per D1 query in a dry run. URLs are capped at 2048 characters
+// on input, so a page of them stays well inside D1_MAX_BUFFER.
+const PAGE_SIZE = 200;
+const D1_MAX_BUFFER = 16 * 1024 * 1024;
+
 // Mirrors DELETED_OWNER_HASH_PREFIX and deletedOwnerHash in
 // src/clerk-webhook.ts; keep the two in sync. The tests pin the same vector on
 // both sides so drift fails CI.
@@ -44,28 +49,55 @@ function main() {
 	}
 
 	const where = `${condition} AND lifecycle_state != 'pending_delete'`;
-	const rows = d1Rows(`SELECT slug, url FROM links WHERE ${where} ORDER BY created_at`);
-	if (rows.length === 0) {
-		console.log(`No live links found for ${owners[0]}.`);
+	if (confirmed) {
+		// One UPDATE returns no rows, so it stays bounded however many links the
+		// owner has, and meta.changes is the exact count it marked.
+		const marked = d1Changes(`UPDATE links SET lifecycle_state = 'pending_delete' WHERE ${where}`);
+		if (marked === 0) {
+			console.log(`No live links found for ${owners[0]}.`);
+			return;
+		}
+		// The five-minute cron reconciles up to 100 pending rows per run.
+		console.log(
+			`Marked ${marked} link(s) for deletion. The scheduled reconciler removes about 100 every five minutes.`
+		);
 		return;
 	}
-	if (!confirmed) {
-		for (const row of rows) console.log(`Would delete ${row.slug} (${row.url})`);
-		console.log(`${rows.length} link(s). Run again with --yes to delete them.`);
-		return;
+
+	// Dry run: list a page at a time, keyset paginated on slug, so a large
+	// owner never has to fit in one Wrangler response.
+	let found = 0;
+	let after = "";
+	for (;;) {
+		const page = d1Rows(
+			`SELECT slug, url FROM links WHERE ${where} AND slug > '${after.replaceAll("'", "''")}' ORDER BY slug LIMIT ${PAGE_SIZE}`
+		);
+		for (const row of page) console.log(`Would delete ${row.slug} (${row.url})`);
+		found += page.length;
+		const last = page.at(-1)?.slug;
+		if (page.length < PAGE_SIZE || typeof last !== "string") break;
+		after = last;
 	}
-	d1Rows(`UPDATE links SET lifecycle_state = 'pending_delete' WHERE ${where}`);
-	// The five-minute cron reconciles up to 100 pending rows per run.
 	console.log(
-		`Marked ${rows.length} link(s) for deletion. The scheduled reconciler removes about 100 every five minutes.`
+		found === 0
+			? `No live links found for ${owners[0]}.`
+			: `${found} link(s). Run again with --yes to delete them.`
 	);
 }
 
 function d1Rows(sql) {
+	return d1Execute(sql).flatMap((entry) => (Array.isArray(entry.results) ? entry.results : []));
+}
+
+function d1Changes(sql) {
+	return d1Execute(sql).reduce((total, entry) => total + Number(entry?.meta?.changes ?? 0), 0);
+}
+
+function d1Execute(sql) {
 	const result = spawnSync(
 		"pnpm",
 		["exec", "wrangler", "d1", "execute", "uwu-land", "--remote", "--json", "--command", sql],
-		{ encoding: "utf8", shell: process.platform === "win32" }
+		{ encoding: "utf8", maxBuffer: D1_MAX_BUFFER, shell: process.platform === "win32" }
 	);
 	if (result.error !== undefined) throw result.error;
 	if (result.status !== 0) {
@@ -75,7 +107,7 @@ function d1Rows(sql) {
 	try {
 		const payload = JSON.parse(result.stdout);
 		if (!Array.isArray(payload)) throw new Error("expected an array");
-		return payload.flatMap((entry) => (Array.isArray(entry.results) ? entry.results : []));
+		return payload;
 	} catch (error) {
 		throw new Error(`Wrangler returned invalid D1 JSON: ${error.message}`);
 	}

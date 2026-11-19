@@ -169,9 +169,9 @@ export default function PrivacyPage() {
 				identifier permanently. It contains no email address and no content,
 				and we keep it only so a closed account cannot be recreated or
 				reopened. When you close your account your short links stay up. The
-				only thing left connecting them to the account is a one-way
-				fingerprint that can't be turned back into your ID or email, and it
-				exists for one reason: so abusive links can still be taken down.
+				only thing left connecting them to the account is a one-way reference
+				that holds no email, name or other account details, and it exists for
+				one reason: so abusive links can still be taken down.
 				Delete any links you want gone before closing. Abuse and rate-limit
 				state is cleared after its window (about 24 hours), and
 				analytics events roll off at about three months.

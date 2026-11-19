@@ -153,3 +153,34 @@ test("purge-domain.mjs only reports without --yes", stubOptions, () => {
 	assert.equal(confirmed.status, 0);
 	assert.match(confirmed.stdout, /UPDATE links .*slug = 'apex' .*slug = 'sub'/);
 });
+
+// --yes must not read the owner's links back (a large owner overflows the
+// Wrangler output buffer), so it reports the UPDATE's own change count. Runs
+// against a stub on PATH: the real command would write to production D1.
+test(
+	"purge-owner.mjs --yes reports the UPDATE's change count without listing rows",
+	{ skip: process.platform === "win32" },
+	() => {
+		const directory = mkdtempSync(join(tmpdir(), "uwu-purge-owner-stub-"));
+		try {
+			writeFileSync(
+				join(directory, "pnpm"),
+				'#!/bin/sh\ncase "$*" in *UPDATE*) echo \'[{"results":[],"meta":{"changes":3}}]\' ;; *) exit 9 ;; esac\n',
+				{ mode: 0o755 }
+			);
+			const result = spawnSync(
+				process.execPath,
+				[`${scriptsDirectory}purge-owner.mjs`, "user_abc", "--yes"],
+				{
+					encoding: "utf8",
+					env: { ...process.env, PATH: `${directory}:${process.env.PATH}` }
+				}
+			);
+
+			assert.equal(result.status, 0);
+			assert.match(result.stdout, /Marked 3 link\(s\) for deletion/);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	}
+);
