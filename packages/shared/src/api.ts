@@ -4,6 +4,8 @@ export interface CreateLinkRequest {
 	url: string;
 	slug?: string;
 	external_ref?: string;
+	/** Required for anonymous creates once the API has a Turnstile secret. */
+	turnstile_token?: string;
 }
 
 export interface CreateLinkResponse {
@@ -96,6 +98,9 @@ const ERROR_CODES = [
 	"url_banned",
 	"ip_blocked",
 	"rate_limited",
+	"domain_rate_limited",
+	"turnstile_required",
+	"turnstile_failed",
 	"not_found",
 	"unauthorized",
 	"forbidden",

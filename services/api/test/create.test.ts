@@ -129,6 +129,9 @@ describe("anonymous link creation", () => {
 		await clearKv(env.UWU);
 		await clearKv(env.CLICKS);
 		await resetD1(env.DB);
+		// Durable Object state outlives each test, and most tests here create
+		// under example.com, so reset its per-domain anonymous cap.
+		await env.ENFORCEMENT.getByName("anon-domain:example.com").clearStoredState();
 	});
 
 	it("creates a random slug and the created slug redirects", async () => {
@@ -707,7 +710,8 @@ describe("anonymous link creation", () => {
 	it("rate limits the create after the anon daily limit from one IP", async () => {
 		for (let i = 0; i < TIERS.anon.createPerDay; i++) {
 			const response = await workerFetch(
-				createRequest({ url: `https://example.com/${i}` }, "203.0.113.31"),
+				// One domain each, so the per-domain cap stays out of the way.
+				createRequest({ url: `https://example-${i}.com/` }, "203.0.113.31"),
 				env as Env,
 				createExecutionContext()
 			);
@@ -715,7 +719,7 @@ describe("anonymous link creation", () => {
 		}
 
 		const response = await workerFetch(
-			createRequest({ url: "https://example.com/over" }, "203.0.113.31"),
+			createRequest({ url: "https://example-over.com/" }, "203.0.113.31"),
 			env as Env,
 			createExecutionContext()
 		);

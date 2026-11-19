@@ -45,6 +45,11 @@ export type Env = Cloudflare.Env & {
 	STRIPE_WEBHOOK_SECRET?: string;
 	STRIPE_SECRET_KEY?: string;
 	/**
+	 * Turnstile siteverify secret for anonymous creates. Unset skips the check
+	 * (with a warning) so the code can ship before the secret; see turnstile.ts.
+	 */
+	TURNSTILE_SECRET_KEY?: string;
+	/**
 	 * Extra browser origin allowed through CORS on /api/v1. Set to
 	 * `http://localhost:3000` in services/api/.dev.vars; absent in production,
 	 * which is what keeps the dev origin out of the deployed allowlist.
