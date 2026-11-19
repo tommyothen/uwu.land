@@ -34,18 +34,21 @@ export const deletedUsers = sqliteTable("deleted_users", {
 
 // Every slug ever deleted. Old QR codes and printed links keep sending
 // traffic to a slug after its owner deletes it, so nobody (the original
-// owner included) may claim it again. Written in the same batch that marks
-// the link pending_delete; migration 0010 also adds a trigger that refuses
-// any links insert for a tombstoned slug. Rows are never purged.
+// owner included) may claim it again. Written by an AFTER DELETE trigger on
+// links (migration 0010), which also adds a trigger that refuses any links
+// insert for a tombstoned slug. Rows are never purged.
 export const slugTombstones = sqliteTable("slug_tombstones", {
 	slug: text("slug").primaryKey(),
 	deletedAt: integer("deleted_at", { mode: "timestamp" }).notNull()
 });
 
+// Replay records for processed webhook ids, here and in stripe_webhook_events.
+// processed_at is epoch milliseconds (the handlers write Date.now()), and the
+// daily cron prunes rows older than 30 days (see webhook-retention.ts).
 export const clerkWebhookEvents = sqliteTable("clerk_webhook_events", {
 	id: text("id").primaryKey(),
 	eventTimestamp: integer("event_timestamp").notNull(),
-	processedAt: integer("processed_at", { mode: "timestamp" })
+	processedAt: integer("processed_at", { mode: "timestamp_ms" })
 		.notNull()
 		.$defaultFn(() => new Date())
 });
@@ -53,7 +56,7 @@ export const clerkWebhookEvents = sqliteTable("clerk_webhook_events", {
 export const stripeWebhookEvents = sqliteTable("stripe_webhook_events", {
 	id: text("id").primaryKey(),
 	eventTimestamp: integer("event_timestamp").notNull(),
-	processedAt: integer("processed_at", { mode: "timestamp" })
+	processedAt: integer("processed_at", { mode: "timestamp_ms" })
 		.notNull()
 		.$defaultFn(() => new Date())
 });

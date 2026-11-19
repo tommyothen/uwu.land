@@ -267,8 +267,14 @@ function tryFindJwk(token: string, jwks: TestJwks): JsonWebKey | null {
 	return jwks.keys.find((candidate) => candidate.kid === kid) ?? null;
 }
 
-// Cached per isolate; a kid miss triggers one refetch so key rotation works.
-const jwksCache = new Map<string, TestJwks>();
+// Cached per isolate. A kid miss refetches so key rotation works, but at most
+// once per JWKS_REFETCH_INTERVAL_MS: otherwise a stream of tokens with made-up
+// kids would make every request call Clerk, and a Clerk rate limit would then
+// break real sign-ins straight after a rotation. A valid new kid seen inside
+// the interval is rejected until it passes, which Clerk's practice of
+// publishing keys before signing with them makes rare.
+const JWKS_REFETCH_INTERVAL_MS = 60 * 1000;
+const jwksCache = new Map<string, { jwks: TestJwks; fetchedAt: number }>();
 
 async function findRemoteJwk(
 	token: string,
@@ -276,12 +282,18 @@ async function findRemoteJwk(
 	options: AuthOptions
 ): Promise<JsonWebKey> {
 	const url = `${issuer}/.well-known/jwks.json`;
+	const now = (options.now?.() ?? new Date()).getTime();
 	const cached = jwksCache.get(url);
 	if (cached !== undefined) {
-		const key = tryFindJwk(token, cached);
+		const key = tryFindJwk(token, cached.jwks);
 		if (key !== null) {
 			return key;
 		}
+		if (now - cached.fetchedAt < JWKS_REFETCH_INTERVAL_MS) {
+			throw new AuthError();
+		}
+		// Stamp before awaiting so concurrent misses share this one refetch.
+		cached.fetchedAt = now;
 	}
 
 	const fetchJwks = options.fetchJwks ?? defaultFetchJwks;
@@ -291,7 +303,7 @@ async function findRemoteJwk(
 	} catch {
 		throw new AuthError();
 	}
-	jwksCache.set(url, fresh);
+	jwksCache.set(url, { jwks: fresh, fetchedAt: now });
 	return findJwk(token, fresh);
 }
 

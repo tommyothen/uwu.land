@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as reconciliation from "../src/link-reconciliation";
-import { reconcileLink, reconcileLinkState } from "../src/link-reconciliation";
+import { reconcileLink, reconcileLinkState, reconcilePendingLinks, STUCK_RECONCILE_ATTEMPTS } from "../src/link-reconciliation";
 import type { Env } from "../src/worker";
 import { resetD1 } from "./helpers/d1";
 
@@ -170,4 +170,36 @@ describe("link reconciliation", () => {
 			expect(await env.CLICKS.get(slug)).toBeNull();
 		});
 	}
+
+	it("lets healthy rows past permanently failing ones and flags the stuck rows", async () => {
+		// A full batch of rows that have failed for hours, ahead of a fresh publish
+		// in the index's natural (pending_delete first) order.
+		await env.DB.prepare(
+			`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100)
+			 INSERT INTO links (slug, url, source, lifecycle_state, reconcile_attempts, last_reconcile_at, created_at)
+			 SELECT 'stuck-' || i, 'https://example.com/', 'web-anon', 'pending_delete', ?, ?, 0 FROM n`
+		).bind(STUCK_RECONCILE_ATTEMPTS, Math.floor(Date.now() / 1000)).run();
+		await drizzle(env.DB).insert(links).values({ slug: "fresh", url: "https://example.com/fresh", source: "web-anon", lifecycleState: "pending_publish" }).run();
+		const attempted: string[] = [];
+		const ENFORCEMENT = {
+			getByName: () => ({
+				reconcileLink: async (slug: string) => {
+					attempted.push(slug);
+					if (slug.startsWith("stuck-")) throw new Error("permanent failure");
+				}
+			})
+		} as unknown as Env["ENFORCEMENT"];
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await reconcilePendingLinks({ DB: env.DB, ENFORCEMENT });
+			expect(attempted).toHaveLength(100);
+			expect(attempted).toContain("fresh");
+			const warning = JSON.parse(String(warn.mock.calls[0]?.[0]));
+			expect(warning).toMatchObject({ event: "link_reconciliation_stuck", count: 99 });
+		} finally {
+			warn.mockRestore();
+			error.mockRestore();
+		}
+	});
 });

@@ -393,13 +393,15 @@ describe("auth middleware", () => {
 		expect(fetchCount).toBe(1);
 	});
 
-	it("refetches the JWKS when the kid is unknown, then rejects if still missing", async () => {
+	it("refetches the JWKS for an unknown kid at most once a minute", async () => {
 		const iss = "https://rotate.clerk.test";
 		const oldKey = await createJwt("user_old", iss, "kid-old");
 		const newKey = await createJwt("user_new", iss, "kid-new");
+		const unknownKey = await createJwt("user_unknown", iss, "kid-never");
 		// The issuer serves the old key first, then rotates to the new key.
 		const served = [oldKey.jwks, newKey.jwks, newKey.jwks];
 		let fetchCount = 0;
+		let now = new Date("2026-07-10T10:00:00.000Z");
 		const options = {
 			clerkIssuer: iss,
 			fetchJwks: async () => {
@@ -409,38 +411,35 @@ describe("auth middleware", () => {
 					throw new Error("unexpected extra fetch");
 				}
 				return next;
-			}
+			},
+			now: () => now
 		};
+		const resolve = (jwt: string) =>
+			resolveAuth(bearer(jwt), env as Env, createExecutionContext(), options);
 
 		// Primes the cache with the old JWKS.
-		await resolveAuth(
-			bearer(oldKey.jwt),
-			env as Env,
-			createExecutionContext(),
-			options
-		);
+		await resolve(oldKey.jwt);
 		expect(fetchCount).toBe(1);
 
-		// New kid misses the cache, triggering one refetch that finds it.
-		const auth = await resolveAuth(
-			bearer(newKey.jwt),
-			env as Env,
-			createExecutionContext(),
-			options
-		);
-		expect(auth).toMatchObject({ kind: "session", userId: "user_new" });
+		// Inside the interval an unknown kid is rejected from the cache alone.
+		await expect(resolve(newKey.jwt)).rejects.toThrow("Unauthorized");
+		expect(fetchCount).toBe(1);
+
+		// Once the interval passes, the miss refetches and finds the rotated key.
+		now = new Date("2026-07-10T10:01:00.000Z");
+		expect(await resolve(newKey.jwt)).toMatchObject({
+			kind: "session",
+			userId: "user_new"
+		});
 		expect(fetchCount).toBe(2);
 
-		// A kid the issuer never serves fails after exactly one more refetch.
-		const unknownKey = await createJwt("user_unknown", iss, "kid-never");
-		await expect(
-			resolveAuth(
-				bearer(unknownKey.jwt),
-				env as Env,
-				createExecutionContext(),
-				options
-			)
-		).rejects.toThrow("Unauthorized");
+		// A flood of made-up kids costs no further fetches until the next minute.
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await expect(resolve(unknownKey.jwt)).rejects.toThrow("Unauthorized");
+		}
+		expect(fetchCount).toBe(2);
+		now = new Date("2026-07-10T10:02:00.000Z");
+		await expect(resolve(unknownKey.jwt)).rejects.toThrow("Unauthorized");
 		expect(fetchCount).toBe(3);
 	});
 

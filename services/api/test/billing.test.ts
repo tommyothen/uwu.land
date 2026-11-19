@@ -1,4 +1,4 @@
-import { createExecutionContext, env, runInDurableObject } from "cloudflare:test";
+import { createExecutionContext, env } from "cloudflare:test";
 import {
 	apiKeys,
 	deletedUsers,
@@ -38,10 +38,7 @@ beforeAll(async () => {
 beforeEach(async () => {
 	await resetD1(env.DB);
 	for (const endpoint of ["checkout", "portal"]) {
-		const stub = env.ENFORCEMENT.getByName(`billing:${endpoint}:user:user_billing`);
-		await runInDurableObject(stub, async (_instance, state) => {
-			state.storage.sql.exec("DELETE FROM fixed_window");
-		});
+		await env.ENFORCEMENT.getByName(`billing:${endpoint}:user:user_billing`).clearStoredState();
 	}
 });
 
