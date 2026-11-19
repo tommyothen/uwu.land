@@ -19,6 +19,14 @@ export default function PrivacyPage() {
 				on, and how long we keep it. We collect little, and we track no one.
 			</P>
 
+			<H2 id="what-we-never-do">What we never do</H2>
+			<P>
+				We don't sell your data, to anyone, ever. We don't run ads, use
+				tracking cookies, load third-party analytics or trackers, or build
+				profiles of you. Paying for First-Class buys features, not your data.
+				The code is open source, so you can check every one of these claims.
+			</P>
+
 			<H2 id="who-runs-this">Who runs this</H2>
 			<P>
 				uwu.land is operated by Tommy Othen, an individual based in the United
@@ -160,11 +168,12 @@ export default function PrivacyPage() {
 				free-tier limits. We also keep the closed account's internal
 				identifier permanently. It contains no email address and no content,
 				and we keep it only so a closed account cannot be recreated or
-				reopened. When an account is deleted its short links stay active, and
-				we keep a one-way, non-identifying reference to the closed account on
-				them so abusive links can still be removed. Delete any links you want
-				gone before closing. Abuse and
-				rate-limit state is cleared after its window (about 24 hours), and
+				reopened. When you close your account your short links stay up. The
+				only thing left connecting them to the account is a one-way
+				fingerprint that can't be turned back into your ID or email, and it
+				exists for one reason: so abusive links can still be taken down.
+				Delete any links you want gone before closing. Abuse and rate-limit
+				state is cleared after its window (about 24 hours), and
 				analytics events roll off at about three months.
 			</P>
 
