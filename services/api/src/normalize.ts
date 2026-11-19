@@ -35,8 +35,13 @@ export function normalizeUrl(url: string): string {
 	if (normalized.hash === "") {
 		normalized.hash = "";
 	}
+	const href = normalized.toString();
 	if (normalized.pathname === "/") {
-		return normalized.toString().replace(/\/(?=\?|$)/, "");
+		// Drop the root slash only, never one in the query or fragment. Neither
+		// userinfo nor host can hold a bare slash, so the first one after the
+		// scheme's "//" is the root.
+		const root = href.indexOf("/", normalized.protocol.length + 2);
+		return href.slice(0, root) + href.slice(root + 1);
 	}
-	return normalized.toString();
+	return href;
 }

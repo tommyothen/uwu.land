@@ -18,6 +18,15 @@ describe("normalizeUrl", () => {
 		);
 	});
 
+	it("strips the root slash but not one inside a fragment", () => {
+		expect(normalizeUrl("https://example.com/#/a/")).toBe(
+			"https://example.com#/a/"
+		);
+		expect(normalizeUrl("https://example.com/#/a")).toBe(
+			"https://example.com#/a"
+		);
+	});
+
 	it("drops an empty fragment", () => {
 		expect(normalizeUrl("https://example.com/path?q=1#")).toBe(
 			"https://example.com/path?q=1"
