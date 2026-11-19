@@ -71,26 +71,53 @@ export interface BanSyncResult {
 	refused: boolean;
 }
 
+/**
+ * Daily cron entry. Adds new feed domains, then sweeps links on every banned
+ * domain whatever the feed did: a failed, empty or refused feed must not skip
+ * the sweep, because it is the backstop for links created while a KV edge still
+ * served a stale "not banned" (manual bans included).
+ */
 export async function syncBannedDomains(
 	env: Pick<Env, "UWU" | "DB">,
 	fetchImpl: typeof fetch = fetch
 ): Promise<BanSyncResult> {
+	const feed = await addFeedBans(env, fetchImpl);
+	// KV list can lag a put, so today's writes are added explicitly.
+	const listed = await existingBannedDomains(env.UWU);
+	const everyBan = [...new Set([...listed, ...feed.written])].filter(
+		(domain) => !isPublicSuffix(domain)
+	);
+	const swept = await markDomainLinksForDeletion(env.DB, everyBan);
+	return { added: feed.written.length, scanned: feed.scanned, swept, refused: feed.refused };
+}
+
+interface FeedResult {
+	/** Domains written as new `banned:` keys this run. */
+	written: string[];
+	scanned: number;
+	refused: boolean;
+}
+
+async function addFeedBans(
+	env: Pick<Env, "UWU">,
+	fetchImpl: typeof fetch
+): Promise<FeedResult> {
 	let response: Response;
 	try {
 		response = await fetchImpl(SOURCE_URL);
 	} catch {
-		return { added: 0, scanned: 0, swept: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	if (!response.ok) {
-		return { added: 0, scanned: 0, swept: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	let source: string;
 	try {
 		source = await response.text();
 	} catch {
-		return { added: 0, scanned: 0, swept: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	const candidateLines = source
@@ -118,7 +145,7 @@ export async function syncBannedDomains(
 				sample: candidateLines.slice(0, 3).map((line) => line.slice(0, 120))
 			});
 		}
-		return { added: 0, scanned: 0, swept: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	const candidates: string[] = [];
@@ -163,7 +190,7 @@ export async function syncBannedDomains(
 				sample: missing.slice(0, 20)
 			}
 		);
-		return { added: 0, scanned: parsed.length, swept: 0, refused: true };
+		return { written: [], scanned: parsed.length, refused: true };
 	}
 
 	for (let index = 0; index < missing.length; index += WRITE_BATCH_SIZE) {
@@ -174,19 +201,7 @@ export async function syncBannedDomains(
 		);
 	}
 
-	// Bans only gate creation, so links made before the ban would keep
-	// redirecting. Runs after the keys are written and covers every banned
-	// domain, manual bans included, not just today's feed: a link created while
-	// a KV edge still served a stale "not banned" slips past both createLink and
-	// the reconciler's re-check, and this daily pass is what takes it down. A
-	// sweep that fails today is retried tomorrow, and the cost is one
-	// prefiltered scan of `links` a day.
-	const everyBan = [...new Set([...existing, ...candidates])].filter(
-		(domain) => !isPublicSuffix(domain)
-	);
-	const swept = await markDomainLinksForDeletion(env.DB, everyBan);
-
-	return { added: missing.length, scanned: parsed.length, swept, refused: false };
+	return { written: missing, scanned: parsed.length, refused: false };
 }
 
 // True for a registry or hosting suffix (`co.ke`, `github.io`) whose subdomains

@@ -271,4 +271,20 @@ describe("banned-domain sync", () => {
 		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(["feed.example"]));
 		expect(result).toEqual({ added: 1, scanned: 1, swept: 1, refused: false });
 	});
+
+	it("still sweeps existing bans when the feed fails or is refused", async () => {
+		const db = drizzle(env.DB);
+		await seedBans(150);
+		await env.UWU.put("banned:manual.example", "1");
+		await db.insert(links).values({ slug: "late-a", url: "https://manual.example/a", source: "web-anon" }).run();
+
+		const failed = (async () => new Response("", { status: 503 })) as typeof fetch;
+		const afterFailure = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, failed);
+		expect(afterFailure).toEqual({ added: 0, scanned: 0, swept: 1, refused: false });
+
+		await db.insert(links).values({ slug: "late-b", url: "https://manual.example/b", source: "web-anon" }).run();
+		const flood = Array.from({ length: 400 }, (_, index) => `flood${index}.example`);
+		const afterRefusal = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(flood));
+		expect(afterRefusal).toEqual({ added: 0, scanned: 400, swept: 1, refused: true });
+	});
 });
