@@ -1,8 +1,12 @@
+import { getDomain } from "tldts";
+import { markDomainLinksForDeletion } from "./link-reconciliation";
 import type { Env } from "./worker";
 
 const SOURCE_URL =
 	"https://raw.githubusercontent.com/mayzelf/grabify-domains/main/domains.txt";
-const DOMAIN_RE = /^[a-z0-9.-]+\.[a-z]{2,}$/;
+// The final label is letters or an IDN TLD in punycode (`xn--p1ai`), which a
+// letters-only TLD rule would drop without a word.
+const DOMAIN_RE = /^(?:[a-z0-9-]+\.)+(?:[a-z]{2,}|xn--[a-z0-9-]+)$/;
 const MAX_DOMAINS = 5_000;
 const WRITE_BATCH_SIZE = 100;
 
@@ -61,30 +65,59 @@ const MAX_GROWTH_RATIO = 0.5;
 export interface BanSyncResult {
 	added: number;
 	scanned: number;
+	/** Live links on a listed domain handed to the reconciler for deletion. */
+	swept: number;
 	/** True when the delta guard rejected the run and nothing was written. */
 	refused: boolean;
 }
 
+/**
+ * Daily cron entry. Adds new feed domains, then sweeps links on every banned
+ * domain whatever the feed did: a failed, empty or refused feed must not skip
+ * the sweep, because it is the backstop for links created while a KV edge still
+ * served a stale "not banned" (manual bans included).
+ */
 export async function syncBannedDomains(
-	env: Pick<Env, "UWU">,
+	env: Pick<Env, "UWU" | "DB">,
 	fetchImpl: typeof fetch = fetch
 ): Promise<BanSyncResult> {
+	const feed = await addFeedBans(env, fetchImpl);
+	// KV list can lag a put, so today's writes are added explicitly.
+	const listed = await existingBannedDomains(env.UWU);
+	const everyBan = [...new Set([...listed, ...feed.written])].filter(
+		(domain) => !isPublicSuffix(domain)
+	);
+	const swept = await markDomainLinksForDeletion(env.DB, everyBan);
+	return { added: feed.written.length, scanned: feed.scanned, swept, refused: feed.refused };
+}
+
+interface FeedResult {
+	/** Domains written as new `banned:` keys this run. */
+	written: string[];
+	scanned: number;
+	refused: boolean;
+}
+
+async function addFeedBans(
+	env: Pick<Env, "UWU">,
+	fetchImpl: typeof fetch
+): Promise<FeedResult> {
 	let response: Response;
 	try {
 		response = await fetchImpl(SOURCE_URL);
 	} catch {
-		return { added: 0, scanned: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	if (!response.ok) {
-		return { added: 0, scanned: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	let source: string;
 	try {
 		source = await response.text();
 	} catch {
-		return { added: 0, scanned: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	const candidateLines = source
@@ -112,13 +145,13 @@ export async function syncBannedDomains(
 				sample: candidateLines.slice(0, 3).map((line) => line.slice(0, 120))
 			});
 		}
-		return { added: 0, scanned: 0, refused: false };
+		return { written: [], scanned: 0, refused: false };
 	}
 
 	const candidates: string[] = [];
 	const rejected: string[] = [];
 	for (const domain of new Set(parsed)) {
-		if (isNeverAutoBanned(domain)) {
+		if (isNeverAutoBanned(domain) || isPublicSuffix(domain)) {
 			rejected.push(domain);
 		} else {
 			candidates.push(domain);
@@ -130,7 +163,7 @@ export async function syncBannedDomains(
 		// feed is compromised, squatted, or broken — investigate before
 		// trusting anything else it published.
 		console.error(
-			"Blocklist source published allowlisted domains; they were ignored. Review the upstream feed.",
+			"Blocklist source published allowlisted domains or public suffixes; they were ignored. Review the upstream feed.",
 			{ domains: rejected.slice(0, 20), total: rejected.length }
 		);
 	}
@@ -157,7 +190,7 @@ export async function syncBannedDomains(
 				sample: missing.slice(0, 20)
 			}
 		);
-		return { added: 0, scanned: parsed.length, refused: true };
+		return { written: [], scanned: parsed.length, refused: true };
 	}
 
 	for (let index = 0; index < missing.length; index += WRITE_BATCH_SIZE) {
@@ -168,7 +201,15 @@ export async function syncBannedDomains(
 		);
 	}
 
-	return { added: missing.length, scanned: parsed.length, refused: false };
+	return { written: missing, scanned: parsed.length, refused: false };
+}
+
+// True for a registry or hosting suffix (`co.ke`, `github.io`) whose subdomains
+// belong to unrelated owners. A ban on one would sweep every link under it, so
+// it is always a mistake; banning one site on github.io is fine. Matches
+// scripts/domain-sweep.mjs. Private suffixes are included on purpose.
+function isPublicSuffix(domain: string): boolean {
+	return getDomain(domain, { allowPrivateDomains: true }) === null;
 }
 
 // Walks the domain's own suffixes, stopping before the bare final label so a

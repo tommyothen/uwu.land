@@ -1,6 +1,11 @@
 import { env } from "cloudflare:test";
+import { links } from "@uwu/db/schema";
+import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { syncBannedDomains } from "../src/ban-sync";
+import { reconcilePendingLinks } from "../src/link-reconciliation";
+import type { Env } from "../src/worker";
+import { resetD1 } from "./helpers/d1";
 
 async function clearKv(namespace: KVNamespace): Promise<void> {
 	const list = await namespace.list();
@@ -20,20 +25,21 @@ function sourceOf(domains: string[]): typeof fetch {
 describe("banned-domain sync", () => {
 	beforeEach(async () => {
 		await clearKv(env.UWU);
+		await resetD1(env.DB);
 	});
 
 	it("adds new valid domains as auto while preserving manual entries", async () => {
 		await env.UWU.put("banned:manual.example", "1");
 
 		const result = await syncBannedDomains(
-			{ UWU: env.UWU },
+			{ UWU: env.UWU, DB: env.DB },
 			async () =>
 				new Response(
 					"# comment\nmanual.example\nNew.Example\ninvalid\nother.example\n"
 				)
 		);
 
-		expect(result).toEqual({ added: 2, scanned: 3, refused: false });
+		expect(result).toEqual({ added: 2, scanned: 3, swept: 0, refused: false });
 		expect(await env.UWU.get("banned:manual.example")).toBe("1");
 		expect(await env.UWU.get("banned:new.example")).toBe("auto");
 		expect(await env.UWU.get("banned:other.example")).toBe("auto");
@@ -43,16 +49,16 @@ describe("banned-domain sync", () => {
 		await env.UWU.put("banned:manual.example", "1");
 
 		await expect(
-			syncBannedDomains({ UWU: env.UWU }, async () => {
+			syncBannedDomains({ UWU: env.UWU, DB: env.DB }, async () => {
 				throw new Error("network failure");
 			})
-		).resolves.toEqual({ added: 0, scanned: 0, refused: false });
+		).resolves.toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
 		await expect(
 			syncBannedDomains(
-				{ UWU: env.UWU },
+				{ UWU: env.UWU, DB: env.DB },
 				async () => new Response("# only a comment\nnot-a-domain")
 			)
-		).resolves.toEqual({ added: 0, scanned: 0, refused: false });
+		).resolves.toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
 		expect(await env.UWU.get("banned:manual.example")).toBe("1");
 	});
 
@@ -62,7 +68,7 @@ describe("banned-domain sync", () => {
 			.mockImplementation(() => {});
 
 		const result = await syncBannedDomains(
-			{ UWU: env.UWU },
+			{ UWU: env.UWU, DB: env.DB },
 			sourceOf([
 				"google.com",
 				"sites.google.com",
@@ -71,7 +77,7 @@ describe("banned-domain sync", () => {
 			])
 		);
 
-		expect(result).toEqual({ added: 1, scanned: 4, refused: false });
+		expect(result).toEqual({ added: 1, scanned: 4, swept: 0, refused: false });
 		expect(await env.UWU.get("banned:google.com")).toBeNull();
 		expect(await env.UWU.get("banned:sites.google.com")).toBeNull();
 		expect(await env.UWU.get("banned:github.com")).toBeNull();
@@ -90,7 +96,7 @@ describe("banned-domain sync", () => {
 			.spyOn(console, "error")
 			.mockImplementation(() => {});
 
-		await syncBannedDomains({ UWU: env.UWU }, sourceOf(["google.com"]));
+		await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(["google.com"]));
 
 		expect(await env.UWU.get("banned:google.com")).toBe("1");
 		consoleError.mockRestore();
@@ -106,9 +112,9 @@ describe("banned-domain sync", () => {
 			.spyOn(console, "error")
 			.mockImplementation(() => {});
 
-		const result = await syncBannedDomains({ UWU: env.UWU }, sourceOf(flood));
+		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(flood));
 
-		expect(result).toEqual({ added: 0, scanned: 400, refused: true });
+		expect(result).toEqual({ added: 0, scanned: 400, swept: 0, refused: true });
 		expect(await env.UWU.get("banned:flood0.example")).toBeNull();
 		expect(consoleError).toHaveBeenCalled();
 		consoleError.mockRestore();
@@ -123,9 +129,9 @@ describe("banned-domain sync", () => {
 			(_, index) => `new${index}.example`
 		);
 
-		const result = await syncBannedDomains({ UWU: env.UWU }, sourceOf(batch));
+		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(batch));
 
-		expect(result).toEqual({ added: 60, scanned: 60, refused: false });
+		expect(result).toEqual({ added: 60, scanned: 60, swept: 0, refused: false });
 		expect(await env.UWU.get("banned:new0.example")).toBe("auto");
 	});
 
@@ -134,14 +140,14 @@ describe("banned-domain sync", () => {
 		// `domain - (Domain expires: YYYY-MM-DD)`. The parser takes the first
 		// whitespace-separated token, so the annotation must not sink the entry.
 		const result = await syncBannedDomains(
-			{ UWU: env.UWU },
+			{ UWU: env.UWU, DB: env.DB },
 			sourceOf([
 				"location.cyou - (Domain expires: 2025-04-12)",
 				"stopify.co - (Domain expires: 2024-08-11)"
 			])
 		);
 
-		expect(result).toEqual({ added: 2, scanned: 2, refused: false });
+		expect(result).toEqual({ added: 2, scanned: 2, swept: 0, refused: false });
 		expect(await env.UWU.get("banned:location.cyou")).toBe("auto");
 		expect(await env.UWU.get("banned:stopify.co")).toBe("auto");
 	});
@@ -155,14 +161,14 @@ describe("banned-domain sync", () => {
 			.mockImplementation(() => {});
 
 		const result = await syncBannedDomains(
-			{ UWU: env.UWU },
+			{ UWU: env.UWU, DB: env.DB },
 			sourceOf([
 				"2025-04-12 | location.cyou | expired",
 				"2025-04-12 | mymap.icu | expired"
 			])
 		);
 
-		expect(result).toEqual({ added: 0, scanned: 0, refused: false });
+		expect(result).toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
 		expect(consoleError).toHaveBeenCalledWith(
 			"Blocklist source published no parseable domains.",
 			expect.objectContaining({ candidateLines: 2 })
@@ -178,11 +184,11 @@ describe("banned-domain sync", () => {
 			.mockImplementation(() => {});
 
 		const result = await syncBannedDomains(
-			{ UWU: env.UWU },
+			{ UWU: env.UWU, DB: env.DB },
 			sourceOf(["# nothing to publish today", "", "   "])
 		);
 
-		expect(result).toEqual({ added: 0, scanned: 0, refused: false });
+		expect(result).toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
 		expect(consoleError).not.toHaveBeenCalled();
 		consoleError.mockRestore();
 	});
@@ -197,12 +203,88 @@ describe("banned-domain sync", () => {
 		// brackets the closing paren fails DOMAIN_RE on its own and the test
 		// would pass no matter how the parser were written.
 		const result = await syncBannedDomains(
-			{ UWU: env.UWU },
+			{ UWU: env.UWU, DB: env.DB },
 			sourceOf(["evil.example - see also innocent.example"])
 		);
 
-		expect(result).toEqual({ added: 1, scanned: 1, refused: false });
+		expect(result).toEqual({ added: 1, scanned: 1, swept: 0, refused: false });
 		expect(await env.UWU.get("banned:evil.example")).toBe("auto");
 		expect(await env.UWU.get("banned:innocent.example")).toBeNull();
+	});
+
+	it("accepts punycode TLDs and refuses bare public suffixes", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU, DB: env.DB },
+			// co.ke and *.ck come from the full Public Suffix List; github.io is a
+			// private suffix, refused all the same.
+			sourceOf(["xn--e1afmkfd.xn--p1ai", "co.uk", "co.ke", "customer.co.ke", "anything.ck", "github.io", "evil.github.io"])
+		);
+
+		expect(result).toEqual({ added: 3, scanned: 7, swept: 0, refused: false });
+		expect(await env.UWU.get("banned:xn--e1afmkfd.xn--p1ai")).toBe("auto");
+		expect(await env.UWU.get("banned:customer.co.ke")).toBe("auto");
+		expect(await env.UWU.get("banned:evil.github.io")).toBe("auto");
+		for (const suffix of ["co.uk", "co.ke", "anything.ck", "github.io"]) {
+			expect(await env.UWU.get(`banned:${suffix}`)).toBeNull();
+		}
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
+	it("takes down existing links on a banned domain and its subdomains", async () => {
+		const db = drizzle(env.DB);
+		const seeded = {
+			apex: "https://evil.example/a",
+			sub: "https://www.evil.example/b?x=1",
+			lookalike: "https://notevil.example/c",
+			mention: "https://safe.example/?next=evil.example",
+			suffix: "https://evil.example.org/d"
+		};
+		for (const [slug, url] of Object.entries(seeded)) {
+			await db.insert(links).values({ slug, url, source: "web-anon", urlHash: `hash-${slug}` }).run();
+			await env.UWU.put(slug, url);
+			await env.UWU.put(`urlmap:hash-${slug}`, slug);
+		}
+
+		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(["evil.example"]));
+		expect(result).toEqual({ added: 1, scanned: 1, swept: 2, refused: false });
+
+		await reconcilePendingLinks(env as Env);
+		const remaining = await db.select({ slug: links.slug }).from(links).all();
+		expect(remaining.map((row) => row.slug).sort()).toEqual(["lookalike", "mention", "suffix"]);
+		for (const slug of ["apex", "sub"]) {
+			expect(await env.UWU.get(slug)).toBeNull();
+			expect(await env.UWU.get(`urlmap:hash-${slug}`)).toBeNull();
+		}
+		expect(await env.UWU.get("lookalike")).toBe(seeded.lookalike);
+	});
+
+	it("sweeps manual bans too, so a link that beat a stale KV read still comes down", async () => {
+		const db = drizzle(env.DB);
+		await env.UWU.put("banned:manual.example", "1");
+		await db.insert(links).values({ slug: "late", url: "https://manual.example/x", source: "web-anon" }).run();
+
+		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(["feed.example"]));
+		expect(result).toEqual({ added: 1, scanned: 1, swept: 1, refused: false });
+	});
+
+	it("still sweeps existing bans when the feed fails or is refused", async () => {
+		const db = drizzle(env.DB);
+		await seedBans(150);
+		await env.UWU.put("banned:manual.example", "1");
+		await db.insert(links).values({ slug: "late-a", url: "https://manual.example/a", source: "web-anon" }).run();
+
+		const failed = (async () => new Response("", { status: 503 })) as typeof fetch;
+		const afterFailure = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, failed);
+		expect(afterFailure).toEqual({ added: 0, scanned: 0, swept: 1, refused: false });
+
+		await db.insert(links).values({ slug: "late-b", url: "https://manual.example/b", source: "web-anon" }).run();
+		const flood = Array.from({ length: 400 }, (_, index) => `flood${index}.example`);
+		const afterRefusal = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(flood));
+		expect(afterRefusal).toEqual({ added: 0, scanned: 400, swept: 1, refused: true });
 	});
 });
