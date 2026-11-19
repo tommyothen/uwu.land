@@ -28,12 +28,19 @@ async function seedClicks(env: Cloudflare.Env, slug: string): Promise<number> {
 /**
  * One object per slug (`getByName(slug)`). It only exists while a link is
  * being clicked: each hit is one synchronous storage write, and an alarm
- * flushes the absolute total to `links.clicks` then deletes all state once no
- * new hits have arrived. D1 is therefore the durable total and this object is
- * a short-lived buffer on top of it, so storage never grows for dead links.
+ * flushes the absolute total to `links.clicks` then deletes all state. D1 is
+ * therefore the durable total and this object is a short-lived buffer of
+ * `hits` on top of it, so storage never grows for dead links.
+ *
+ * Input gates do not hold across the D1 and KV reads in `seedClicks`, so
+ * anything that seeds runs inside blockConcurrencyWhile. Without it a reset,
+ * hit or second read could land between the seed and its use, mixing totals
+ * from before and after a flush. Hits queue for those few milliseconds rather
+ * than being dropped.
  *
  * Storage keys: `slug`, `hits` (clicks recorded since state was created) and
- * `base` (the seeded total, set on first flush).
+ * `base` (the seeded total, kept from a flush's first attempt so a retry after
+ * a write that landed but reported failure cannot count `hits` twice).
  */
 export class ClickCounter extends DurableObject<Cloudflare.Env> {
 	// Avoids a getAlarm() round trip on every hit once a flush is scheduled.
@@ -52,8 +59,10 @@ export class ClickCounter extends DurableObject<Cloudflare.Env> {
 
 	/** The exact total, including hits not yet flushed to D1. Never writes. */
 	async clicks(slug: string): Promise<number> {
-		const base = this.ctx.storage.kv.get<number>("base") ?? (await seedClicks(this.env, slug));
-		return base + (this.ctx.storage.kv.get<number>("hits") ?? 0);
+		return this.ctx.blockConcurrencyWhile(async () => {
+			const base = this.ctx.storage.kv.get<number>("base") ?? (await seedClicks(this.env, slug));
+			return base + (this.ctx.storage.kv.get<number>("hits") ?? 0);
+		});
 	}
 
 	/** Drops all state. Called when a link is deleted so a reused slug starts at zero. */
@@ -64,35 +73,30 @@ export class ClickCounter extends DurableObject<Cloudflare.Env> {
 	}
 
 	async alarm(): Promise<void> {
-		this.#flushScheduled = false;
-		const kv = this.ctx.storage.kv;
-		const slug = kv.get<string>("slug");
-		if (slug === undefined) {
-			await this.reset();
-			return;
-		}
-		try {
-			const base = kv.get<number>("base") ?? (await seedClicks(this.env, slug));
-			kv.put("base", base);
-			const hits = kv.get<number>("hits") ?? 0;
-			// Absolute, so a retried flush cannot double count.
-			const result = await this.env.DB.prepare("UPDATE links SET clicks = ? WHERE slug = ?")
-				.bind(base + hits, slug)
-				.run();
-			// Hits can land while the write is in flight; keep them for the next flush.
-			if (result.meta.changes === 0 || kv.get<number>("hits") === hits) {
-				await this.reset();
-				return;
+		await this.ctx.blockConcurrencyWhile(async () => {
+			const kv = this.ctx.storage.kv;
+			const slug = kv.get<string>("slug");
+			if (slug !== undefined) {
+				try {
+					const base = kv.get<number>("base") ?? (await seedClicks(this.env, slug));
+					kv.put("base", base);
+					// Absolute, so a retried flush cannot double count. A missing row
+					// means the link is gone, and the reset below is all that is left.
+					await this.env.DB.prepare("UPDATE links SET clicks = ? WHERE slug = ?")
+						.bind(base + (kv.get<number>("hits") ?? 0), slug)
+						.run();
+				} catch (error) {
+					// Reschedule ourselves rather than lean on the runtime's capped retries.
+					console.error(JSON.stringify({
+						event: "click_flush_failed",
+						error: error instanceof Error ? error.message : String(error)
+					}));
+					await this.ctx.storage.setAlarm(Date.now() + CLICK_FLUSH_RETRY_MS);
+					this.#flushScheduled = true;
+					return;
+				}
 			}
-			await this.ctx.storage.setAlarm(Date.now() + CLICK_FLUSH_DELAY_MS);
-		} catch (error) {
-			// Reschedule ourselves rather than lean on the runtime's capped retries.
-			console.error(JSON.stringify({
-				event: "click_flush_failed",
-				error: error instanceof Error ? error.message : String(error)
-			}));
-			await this.ctx.storage.setAlarm(Date.now() + CLICK_FLUSH_RETRY_MS);
-		}
-		this.#flushScheduled = true;
+			await this.reset();
+		});
 	}
 }

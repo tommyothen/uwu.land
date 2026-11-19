@@ -45,6 +45,16 @@ describe("ClickCounter", () => {
 		expect(await storedClicks("flush")).toBe(15);
 	});
 
+	it("leaves no state behind when a reset races a flush", async () => {
+		await seedLink("racing-reset", 3);
+		const counter = env.CLICK_COUNTER.getByName("racing-reset");
+		await counter.increment("racing-reset");
+
+		await Promise.all([runDurableObjectAlarm(counter), counter.reset()]);
+		expect(await storageKeys("racing-reset")).toEqual([]);
+		expect(await runDurableObjectAlarm(counter)).toBe(false);
+	});
+
 	it("drops state for a link that no longer exists", async () => {
 		const counter = env.CLICK_COUNTER.getByName("gone");
 		await counter.increment("gone");
