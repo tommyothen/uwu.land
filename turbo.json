@@ -13,6 +13,7 @@
       "env": [
         "VITE_CLERK_PUBLISHABLE_KEY",
         "VITE_UWU_API_URL",
+        "VITE_TURNSTILE_SITE_KEY",
         "CLERK_SECRET_KEY"
       ],
       "outputs": [

@@ -28,6 +28,11 @@ export const TIERS = {
 	}
 } as const satisfies Record<TierKey, TierLimits>;
 
+// Anonymous API calls that send no Turnstile token (a plain curl) get this many
+// links a day per IP, on top of counting toward TIERS.anon.createPerDay. The
+// homepage always sends a token, so it gets the full anonymous quota.
+export const ANON_KEYLESS_CREATE_PER_DAY = 3;
+
 export function limitsFor(tier: TierKey): (typeof TIERS)[TierKey] {
 	return TIERS[tier];
 }

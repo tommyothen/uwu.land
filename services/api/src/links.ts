@@ -1,5 +1,6 @@
 import { apiKeys, links as linksTable, slugTombstones } from "@uwu/db/schema";
 import {
+	ANON_KEYLESS_CREATE_PER_DAY,
 	type CreateLinkResponse,
 	type LinkSummary,
 	type ListLinksResponse,
@@ -9,6 +10,7 @@ import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { nanoid } from "nanoid";
+import { getDomain } from "tldts";
 import { z } from "zod";
 import { ipKey, isIpBlocked, recordBannedAttempt } from "./abuse";
 import {
@@ -37,18 +39,21 @@ import {
 	isValidCustomSlug,
 	SLUG_RE
 } from "./slugs";
+import { anonymousTier } from "./turnstile";
 import type { Env } from "./worker";
 
 const createLinkSchema = z.object({
 	url: z.string().max(2048).url(),
 	slug: z.string().optional(),
-	external_ref: z.string().max(64).optional()
+	external_ref: z.string().max(64).optional(),
+	turnstile_token: z.string().max(2048).optional()
 });
 
 const CREATE_WINDOW_SECONDS = 86_400;
 const LIST_PAGE_SIZE = 25;
 const ANON_CREATE_ATTEMPTS = 3;
 const MAX_HOST_LABELS = 10;
+const ANON_DOMAIN_CREATES_PER_DAY = 10;
 
 type AuthenticatedPrincipal = Extract<
 	AuthPrincipal,
@@ -93,6 +98,13 @@ export async function createLink(
 			"ip_blocked",
 			"This address is temporarily blocked for abuse."
 		);
+	}
+	const tier =
+		auth.kind === "anon"
+			? await anonymousTier(c.env, parsed.data.turnstile_token, ip)
+			: null;
+	if (tier instanceof Response) {
+		return tier;
 	}
 
 	if (parsed.data.slug !== undefined || parsed.data.external_ref !== undefined) {
@@ -153,6 +165,25 @@ export async function createLink(
 		parsed.data.slug === undefined ? null : customSlugError(parsed.data.slug);
 	if (slugError !== null) {
 		return slugError;
+	}
+
+	// Keyless calls draw on their own small bucket first, then on the usual
+	// anonymous quota as well. Checking the keyless bucket first means a caller
+	// stuck on it does not also burn the quota their homepage creates share.
+	if (tier === "keyless") {
+		const keylessLimit = await new DurableObjectFixedWindow(
+			c.env.ENFORCEMENT,
+			ANON_KEYLESS_CREATE_PER_DAY,
+			CREATE_WINDOW_SECONDS
+		).limit(`anon-keyless:${ip}`);
+		if (!keylessLimit.allowed) {
+			return errorResponse(
+				429,
+				"keyless_rate_limited",
+				`Keyless API calls are limited to ${ANON_KEYLESS_CREATE_PER_DAY} links a day. Use the uwu.land homepage or a free API key for more.`,
+				keylessLimit.retryAfterSeconds
+			);
+		}
 	}
 
 	const rateLimit = await limitCreate(c, auth, options.createPerDayLimit);
@@ -492,6 +523,25 @@ function scopeKey(c: Context<{ Bindings: Env }>, auth: AuthPrincipal): string {
 }
 
 /**
+ * Caps fresh anonymous links per registrable domain, so a spam run cannot
+ * rotate subdomains of one throwaway domain past the per-IP limit. Private
+ * suffixes count as registrable, so one github.io site does not use up every
+ * other's allowance. IP literals and bare hosts key on themselves. Dedupe hits
+ * hand back an existing link, so only fresh creates count.
+ */
+async function limitAnonymousDomain(
+	env: Env,
+	hostname: string
+): ReturnType<DurableObjectFixedWindow["limit"]> {
+	const domain = getDomain(hostname, { allowPrivateDomains: true }) ?? hostname;
+	return new DurableObjectFixedWindow(
+		env.ENFORCEMENT,
+		ANON_DOMAIN_CREATES_PER_DAY,
+		CREATE_WINDOW_SECONDS
+	).limit(`anon-domain:${domain}`);
+}
+
+/**
  * Anonymous creates share one link per destination, and links_url_hash_unique
  * is what actually enforces that — the dedupe read cannot, because a concurrent
  * create can insert between the read and this one. That loser, and a create
@@ -511,6 +561,17 @@ async function anonymousLink(
 		const deduped = await dedupeAnonymousLink(env, urlHash, normalized);
 		if (deduped !== null) {
 			return deduped;
+		}
+		if (attempt === 0) {
+			const domainLimit = await limitAnonymousDomain(env, destination.hostname);
+			if (!domainLimit.allowed) {
+				return errorResponse(
+					429,
+					"domain_rate_limited",
+					"Too many anonymous links to this domain today.",
+					domainLimit.retryAfterSeconds
+				);
+			}
 		}
 
 		const slug = await generateSlug(env.UWU, generateId);

@@ -9,6 +9,7 @@ import { RubberStamp } from "@/components/postal/rubber-stamp";
 import { createLink, UwuApiError } from "@/lib/api";
 import { getGsap, loadGsap, prefersReducedMotion } from "@/lib/motion";
 import { useClerkAuth } from "@/lib/session";
+import { useTurnstile } from "@/lib/turnstile";
 
 type Gsap = (typeof import("gsap"))["gsap"];
 type GsapContext = ReturnType<Gsap["context"]>;
@@ -24,7 +25,10 @@ const COPY = {
 	server: "Something broke on our end. Not your fault. Give it another go.",
 	rateLimited:
 		"You've mailed a lot just now. The counter needs a minute, then we'll take the next one.",
-	banned: "That destination isn't allowed on uwu.land."
+	banned: "That destination isn't allowed on uwu.land.",
+	human: "We couldn't check you're human. Give it another go.",
+	domainLimited:
+		"That site has had its fill of anonymous links today. Sign in to send more."
 };
 
 type Phase =
@@ -56,6 +60,9 @@ function retryAfterFrom(error: UwuApiError): number | null {
 	return typeof raw === "number" && raw > 0 ? Math.floor(raw) : null;
 }
 
+/** The Turnstile widget failed before the create was sent. */
+class HumanCheckError extends Error {}
+
 function toPostalError(error: unknown): PostalError {
 	if (error instanceof UwuApiError) {
 		if (error.code === "rate_limited") {
@@ -72,6 +79,16 @@ function toPostalError(error: unknown): PostalError {
 		if (error.code === "url_banned") {
 			return { stamp: "RETURN TO SENDER", tone: "red", message: COPY.banned, retryAfter: null };
 		}
+		if (error.code === "turnstile_failed") {
+			return { stamp: "RETURN TO SENDER", tone: "red", message: COPY.human, retryAfter: null };
+		}
+		// Its retry_after can run to most of a day, too long for a live countdown.
+		if (error.code === "domain_rate_limited") {
+			return { stamp: "MAILBOX FULL", tone: "ink", message: COPY.domainLimited, retryAfter: null };
+		}
+	}
+	if (error instanceof HumanCheckError) {
+		return { stamp: "RETURN TO SENDER", tone: "red", message: COPY.human, retryAfter: null };
 	}
 	return { stamp: "RETURN TO SENDER", tone: "red", message: COPY.server, retryAfter: null };
 }
@@ -91,6 +108,9 @@ export function ShortenBox() {
 	// root only omits the provider when the server saw no session, so a signed-in
 	// sender always has this and always gets the token path below.
 	const auth = useClerkAuth();
+	const signedIn = auth?.isLoaded === true && auth.isSignedIn;
+	// Only senders known to be signed out get the widget (and its script).
+	const turnstile = useTurnstile(auth === null || (auth.isLoaded && !auth.isSignedIn));
 
 	const scope = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -286,18 +306,28 @@ export function ShortenBox() {
 		const motion = !prefersReducedMotion() && gsapRef.current !== null;
 		setPhase("departing");
 
-		// Signed-in senders file the link under their account; a missing token
-		// (unexpected) quietly falls back to an anonymous create.
-		const tokenPromise: Promise<string | null> =
-			auth?.isLoaded && auth.isSignedIn
-				? auth.getToken().catch(() => null)
-				: Promise.resolve(null);
+		// Signed-in senders file the link under their account. A missing token
+		// (unexpected) falls back to an anonymous create with no Turnstile token,
+		// which the API serves from its small keyless quota. Everyone else proves
+		// they're human with the Turnstile widget instead.
+		const request: Promise<CreateLinkResponse> =
+			signedIn
+				? auth
+						.getToken()
+						.catch(() => null)
+						.then((token) => {
+							authedRef.current = token !== null;
+							return createLink({ url: value }, token);
+						})
+				: turnstile.takeToken().then(
+						(turnstileToken) =>
+							createLink({ url: value, turnstile_token: turnstileToken }, null),
+						() => {
+							throw new HumanCheckError();
+						}
+					);
 
-		tokenPromise
-			.then((token) => {
-				authedRef.current = token !== null;
-				return createLink({ url: value }, token);
-			})
+		request
 			.then((created) => {
 				apiResult.current = { ok: true, link: created };
 				tryProceed(motion);
@@ -422,6 +452,11 @@ export function ShortenBox() {
 							/>
 						)}
 					</div>
+
+					<div
+						ref={turnstile.containerRef}
+						className={turnstile.interactive ? "mt-3" : undefined}
+					/>
 
 					{phase === "awaiting" && (
 						<p className="mt-3 text-center font-mono text-xs text-muted-foreground">

@@ -55,6 +55,7 @@ Copy `.env.local.example`:
 | `VITE_CLERK_PUBLISHABLE_KEY` | `pk_test_…` (public). Baked at build time. |
 | `CLERK_SECRET_KEY` | `sk_test_…`. Server-side only. |
 | `VITE_UWU_API_URL` | Defaults to `https://uwu.land`; set `http://localhost:8787` to hit a local API worker. |
+| `VITE_TURNSTILE_SITE_KEY` | Optional. Production builds default to the real uwu.land widget key, dev and tests to Cloudflare's always-pass test key (`1x00000000000000000000AA`). See `src/lib/turnstile.ts`. |
 
 `VITE_` vars are inlined at build time, so a production build needs the production
 publishable key present when `build` runs.

@@ -29,8 +29,11 @@
   "triggers": {
 	"crons": ["*/5 * * * *", "0 6 * * *"]
   },
-  // Set CLERK_WEBHOOK_SIGNING_SECRET, STRIPE_SECRET_KEY, and STRIPE_WEBHOOK_SECRET
-  // with `wrangler secret put`; do not add them to vars.
+  // Set CLERK_WEBHOOK_SIGNING_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+  // and TURNSTILE_SECRET_KEY with `wrangler secret put`; do not add them to vars.
+  // TURNSTILE_SECRET_KEY is inert when unset: anonymous creates skip the human
+  // check and log a warning. Use Cloudflare's always-pass test secret
+  // (1x0000000000000000000000000000000AA) in .dev.vars.
   // CORS_DEV_ORIGIN and CLERK_AUTHORIZED_PARTIES are deliberately absent: both
   // are optional and inert when unset, which is the production default. See the
   // Env type in src/worker.ts.

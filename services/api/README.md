@@ -60,6 +60,7 @@ Secrets never go in `vars`. Set them with `wrangler secret put`:
 | `CLERK_WEBHOOK_SIGNING_SECRET` | `/webhooks/clerk` signature verification |
 | `STRIPE_SECRET_KEY` | Stripe API calls (Checkout, Billing Portal, customers) |
 | `STRIPE_WEBHOOK_SECRET` | `/webhooks/stripe` signature verification |
+| `TURNSTILE_SECRET_KEY` | Turnstile siteverify for anonymous creates that send a token (token-less creates get the keyless 3 a day either way). Unset skips the check with a warning; use the always-pass test secret `1x0000000000000000000000000000000AA` locally |
 
 Locally these go in `services/api/.dev.vars`, which wrangler reads and the web app
 ignores. See `.env.local.example` for the shape.

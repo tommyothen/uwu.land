@@ -59,7 +59,14 @@ export default function PrivacyPage() {
 				block abuse. It is held as a pseudonymous key in a Cloudflare Durable
 				Object and cleared after the block or rate-limit window passes (about 24
 				hours). It is never sold, never used to build a profile of you, and never
-				used for advertising. Anonymous shortening sets no cookies.
+				used for advertising. uwu.land sets no cookies for anonymous
+				shortening.
+			</P>
+			<P>
+				To keep bots out, the anonymous form runs Cloudflare Turnstile, which
+				checks that you're a person using signals from your browser. Cloudflare
+				uses them only to tell people from bots, never for advertising, and
+				uwu.land only ever sees a pass or fail.
 			</P>
 
 			<H2 id="click-analytics">Click analytics</H2>

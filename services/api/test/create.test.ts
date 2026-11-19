@@ -27,7 +27,16 @@ async function clearKv(namespace: KVNamespace): Promise<void> {
 	await Promise.all(list.keys.map((key) => namespace.delete(key.name)));
 }
 
+/**
+ * Object bodies get a Turnstile token so anonymous creates use the homepage
+ * quota rather than the keyless one (turnstile.test.ts covers that tier). The
+ * test env has no secret, so any token passes.
+ */
 function createRequest(body: unknown, ip = "203.0.113.10"): Request {
+	const withToken =
+		typeof body === "object" && body !== null
+			? { turnstile_token: "test-token", ...body }
+			: body;
 	return new Request("https://uwu.land/api/v1/links", {
 		cf: {},
 		method: "POST",
@@ -35,7 +44,7 @@ function createRequest(body: unknown, ip = "203.0.113.10"): Request {
 			"CF-Connecting-IP": ip,
 			"content-type": "application/json"
 		},
-		body: JSON.stringify(body)
+		body: JSON.stringify(withToken)
 	});
 }
 
@@ -129,6 +138,9 @@ describe("anonymous link creation", () => {
 		await clearKv(env.UWU);
 		await clearKv(env.CLICKS);
 		await resetD1(env.DB);
+		// Durable Object state outlives each test, and most tests here create
+		// under example.com, so reset its per-domain anonymous cap.
+		await env.ENFORCEMENT.getByName("anon-domain:example.com").clearStoredState();
 	});
 
 	it("creates a random slug and the created slug redirects", async () => {
@@ -565,7 +577,8 @@ describe("anonymous link creation", () => {
 		const ipInSlash64 = (index: number) => `2001:db8:0:7::${(index + 1).toString(16)}`;
 		for (let i = 0; i < TIERS.anon.createPerDay; i++) {
 			const response = await workerFetch(
-				createRequest({ url: `https://example.com/v6-${i}` }, ipInSlash64(i)),
+				// One domain each, so the per-domain cap stays out of the way.
+				createRequest({ url: `https://example-v6-${i}.com/` }, ipInSlash64(i)),
 				env as Env,
 				createExecutionContext()
 			);
@@ -573,12 +586,12 @@ describe("anonymous link creation", () => {
 		}
 
 		const over = await workerFetch(
-			createRequest({ url: "https://example.com/v6-over" }, "2001:db8:0:7:ffff::1"),
+			createRequest({ url: "https://example-v6-over.com/" }, "2001:db8:0:7:ffff::1"),
 			env as Env,
 			createExecutionContext()
 		);
 		const elsewhere = await workerFetch(
-			createRequest({ url: "https://example.com/v6-elsewhere" }, "2001:db8:0:8::1"),
+			createRequest({ url: "https://example-v6-elsewhere.com/" }, "2001:db8:0:8::1"),
 			env as Env,
 			createExecutionContext()
 		);
@@ -707,7 +720,8 @@ describe("anonymous link creation", () => {
 	it("rate limits the create after the anon daily limit from one IP", async () => {
 		for (let i = 0; i < TIERS.anon.createPerDay; i++) {
 			const response = await workerFetch(
-				createRequest({ url: `https://example.com/${i}` }, "203.0.113.31"),
+				// One domain each, so the per-domain cap stays out of the way.
+				createRequest({ url: `https://example-${i}.com/` }, "203.0.113.31"),
 				env as Env,
 				createExecutionContext()
 			);
@@ -715,7 +729,7 @@ describe("anonymous link creation", () => {
 		}
 
 		const response = await workerFetch(
-			createRequest({ url: "https://example.com/over" }, "203.0.113.31"),
+			createRequest({ url: "https://example-over.com/" }, "203.0.113.31"),
 			env as Env,
 			createExecutionContext()
 		);

@@ -16,7 +16,9 @@ export default defineConfig({
 		setupFiles: ["./vitest.setup.ts"],
 		// Pin env the suite depends on so a developer's .env.local can't leak in.
 		env: {
-			VITE_UWU_API_URL: "https://uwu.land"
+			VITE_UWU_API_URL: "https://uwu.land",
+			// Cloudflare's always-pass Turnstile test key.
+			VITE_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
 		}
 	}
 });
