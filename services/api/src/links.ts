@@ -1,4 +1,4 @@
-import { apiKeys, links as linksTable } from "@uwu/db/schema";
+import { apiKeys, links as linksTable, slugTombstones } from "@uwu/db/schema";
 import {
 	type CreateLinkResponse,
 	type LinkSummary,
@@ -300,11 +300,19 @@ export async function deleteLink(
 		return errorResponse(403, "forbidden", "Link belongs to another user.");
 	}
 
-	await drizzle(c.env.DB)
-		.update(linksTable)
-		.set({ lifecycleState: "pending_delete" })
-		.where(eq(linksTable.slug, slug))
-		.run();
+	// The tombstone lands atomically with the pending_delete mark, so it exists
+	// before reconciliation removes the row and the slug is never free to claim.
+	const db = drizzle(c.env.DB);
+	await db.batch([
+		db
+			.update(linksTable)
+			.set({ lifecycleState: "pending_delete" })
+			.where(eq(linksTable.slug, slug)),
+		db
+			.insert(slugTombstones)
+			.values({ slug, deletedAt: new Date() })
+			.onConflictDoNothing()
+	]);
 	const pending = { ...row, lifecycleState: "pending_delete" as const };
 	try { await reconcileLink(c.env, pending); } catch { /* scheduled reconciliation owns the retry */ }
 	return new Response(null, { status: 204 });
@@ -612,6 +620,7 @@ async function generateAvailableSlug(
 	throw new Error("Unable to generate a unique slug");
 }
 
+/** Taken means KV still serves it, a D1 row holds it, or it was ever deleted. */
 async function slugExists(
 	env: Env,
 	db: ReturnType<typeof drizzle>,
@@ -620,7 +629,16 @@ async function slugExists(
 	if ((await env.UWU.get(slug)) !== null) {
 		return true;
 	}
-	return (await findLinkRow(db, slug)) !== null;
+	if ((await findLinkRow(db, slug)) !== null) {
+		return true;
+	}
+	const [tombstone] = await db
+		.select({ slug: slugTombstones.slug })
+		.from(slugTombstones)
+		.where(eq(slugTombstones.slug, slug))
+		.limit(1)
+		.all();
+	return tombstone !== undefined;
 }
 
 async function findLink(dbBinding: D1Database, slug: string): Promise<LinkRow | null> {

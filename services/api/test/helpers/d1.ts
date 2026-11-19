@@ -12,6 +12,7 @@ export async function resetD1(db: D1Database): Promise<void> {
 	await db.batch([
 		db.prepare("DELETE FROM api_keys"),
 		db.prepare("DELETE FROM links"),
+		db.prepare("DELETE FROM slug_tombstones"),
 		db.prepare("DELETE FROM stripe_subscriptions"),
 		db.prepare("DELETE FROM stripe_lifetime_purchases"),
 		db.prepare("DELETE FROM stripe_customers"),

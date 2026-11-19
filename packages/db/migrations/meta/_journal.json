@@ -71,6 +71,13 @@
       "when": 1793293482484,
       "tag": "0009_lifetime_payment_intent_index",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795088983986,
+      "tag": "0010_slug_tombstones",
+      "breakpoints": true
     }
   ]
 }

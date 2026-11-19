@@ -16,4 +16,11 @@ describe("slug validation", () => {
 		expect(isValidCustomSlug("API")).toBe(false);
 		expect(isValidCustomSlug("webhooks")).toBe(false);
 	});
+
+	it("reserves site, account and apps/web paths case-insensitively", () => {
+		for (const slug of ["login", "Admin", "BILLING", "sign-in", "support"]) {
+			expect(isValidCustomSlug(slug)).toBe(false);
+		}
+		expect(isValidCustomSlug("logins")).toBe(true);
+	});
 });
