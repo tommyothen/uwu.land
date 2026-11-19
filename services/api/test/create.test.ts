@@ -353,6 +353,26 @@ describe("anonymous link creation", () => {
 		expect(followUp.status).toBe(201);
 	});
 
+	it("does not report a failed insert as a taken slug", async () => {
+		const secret = await seedApiKey();
+		// Every query reaches the real database except the links insert, which
+		// fails the way an outage would rather than on a constraint.
+		const outage: D1Database = Object.assign(Object.create(env.DB), {
+			prepare: (query: string) =>
+				env.DB.prepare(
+					query.startsWith('insert into "links"') ? "SELECT * FROM d1_outage" : query
+				)
+		});
+
+		const response = await workerFetch(
+			createAuthedRequest({ url: "https://example.com/outage", slug: "outage" }, secret),
+			{ ...env, DB: outage } as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(500);
+	});
+
 	it("does not apply an existing IP block to authenticated callers", async () => {
 		const secret = await seedApiKey();
 		const ip = "203.0.113.71";

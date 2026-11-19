@@ -199,7 +199,12 @@ export async function createLink(
 				lifecycleState: "pending_publish"
 			})
 			.run();
-	} catch {
+	} catch (error) {
+		// Only a lost race for the slug is the caller's problem; anything else
+		// (a D1 outage, say) is ours and must not read as a taken slug.
+		if (!isUniqueViolation(error)) {
+			throw error;
+		}
 		return errorResponse(409, "slug_taken", "Slug is already taken.");
 	}
 
