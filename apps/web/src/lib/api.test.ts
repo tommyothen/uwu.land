@@ -91,6 +91,20 @@ describe("createLink", () => {
 		expect((error as UwuApiError).message).toBe("Slug is already taken.");
 	});
 
+	it("keeps retry_after from a rate-limited envelope", async () => {
+		fetchMock.mockResolvedValueOnce(
+			jsonResponse(
+				{ status: 429, code: "rate_limited", message: "Slow down.", retry_after: 42 },
+				429
+			)
+		);
+
+		const error = await createLink({ url: "https://e.com" }, null).catch(
+			(e: unknown) => e
+		);
+		expect((error as UwuApiError).error.retry_after).toBe(42);
+	});
+
 	it("keeps the message but not the code of an envelope from a newer API", async () => {
 		fetchMock.mockResolvedValueOnce(
 			jsonResponse({ status: 418, code: "brand_new", message: "New thing." }, 418)

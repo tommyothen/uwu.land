@@ -71,7 +71,9 @@ async function parseErrorEnvelope(
 				status: typeof body.status === "number" ? body.status : response.status,
 				// A code newer than this build still carries a usable message.
 				code: isErrorCode(body.code) ? body.code : "unknown",
-				message: body.message
+				message: body.message,
+				// 429s carry this so the shorten box can count down.
+				...(typeof body.retry_after === "number" && { retry_after: body.retry_after })
 			};
 		}
 	} catch {
