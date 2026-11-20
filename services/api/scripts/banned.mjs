@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { linkPagesOnDomain, markForDeletion, parseBannableDomain, parseHostname } from "./domain-sweep.mjs";
+import { FEED_SOURCES } from "../src/ban-feeds.ts";
+import { linkPagesOnDomains, markForDeletion, parseBannableDomain, parseHostname } from "./domain-sweep.mjs";
 
 const [action, argument] = process.argv.slice(2);
 
@@ -41,7 +42,7 @@ if (action === "list" && argument === undefined) {
 	// can be created behind the sweep, and the reconciler re-checks bans before
 	// publishing anything that was mid-create while it ran.
 	let marked = 0;
-	for (const rows of linkPagesOnDomain(domain)) {
+	for (const rows of linkPagesOnDomains([domain])) {
 		markForDeletion(rows);
 		marked += rows.length;
 	}
@@ -59,6 +60,8 @@ if (action === "list" && argument === undefined) {
 	}
 }
 
+// `--auto` lists bans written by any feed in src/ban-feeds.ts, each value
+// naming its feed ("auto" for grabify, "urlhaus"); `--manual` lists the rest.
 function listBySource(source) {
 	const listed = runWranglerCapture([
 		"kv",
@@ -75,7 +78,7 @@ function listBySource(source) {
 	const matches = keys
 		.map((name) => ({ name, value: values.get(name) ?? null }))
 		.filter(({ value }) =>
-			source === "auto" ? value === "auto" : value !== null && value !== "auto"
+			value !== null && FEED_SOURCES.has(value) === (source === "auto")
 		);
 
 	console.log(JSON.stringify(matches, null, 2));

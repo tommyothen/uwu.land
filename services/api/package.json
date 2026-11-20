@@ -15,6 +15,7 @@
     "ban": "node scripts/banned.mjs ban",
     "unban": "node scripts/banned.mjs unban",
     "banned": "node scripts/banned.mjs list",
+    "ban:seed-urlhaus": "node scripts/seed-feed.mjs urlhaus",
     "abuse:top": "node scripts/abuse-top.mjs",
     "dsar": "node scripts/dsar.mjs",
     "purge:domain": "node scripts/purge-domain.mjs",

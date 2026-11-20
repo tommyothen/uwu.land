@@ -1,4 +1,4 @@
-import { linkPagesOnDomain, markForDeletion, parseBannableDomain } from "./domain-sweep.mjs";
+import { linkPagesOnDomains, markForDeletion, parseBannableDomain } from "./domain-sweep.mjs";
 
 const args = process.argv.slice(2);
 const confirmed = args.includes("--yes");
@@ -15,7 +15,7 @@ if (domain === null) {
 }
 
 let found = 0;
-for (const rows of linkPagesOnDomain(domain)) {
+for (const rows of linkPagesOnDomains([domain])) {
 	for (const row of rows) {
 		console.log(`${confirmed ? "Deleting" : "Would delete"} ${row.slug} (${row.url})`);
 	}

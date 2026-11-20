@@ -1,229 +1,150 @@
-import { getDomain } from "tldts";
+import {
+	applyGuards,
+	BAN_FEEDS,
+	type BanFeed,
+	type FeedSource,
+	isPublicSuffix,
+	parseFeed
+} from "./ban-feeds";
 import { markDomainLinksForDeletion } from "./link-reconciliation";
 import type { Env } from "./worker";
 
-const SOURCE_URL =
-	"https://raw.githubusercontent.com/mayzelf/grabify-domains/main/domains.txt";
-// The final label is letters or an IDN TLD in punycode (`xn--p1ai`), which a
-// letters-only TLD rule would drop without a word.
-const DOMAIN_RE = /^(?:[a-z0-9-]+\.)+(?:[a-z]{2,}|xn--[a-z0-9-]+)$/;
-const MAX_DOMAINS = 5_000;
 const WRITE_BATCH_SIZE = 100;
 
-// This sync is an unguarded trust anchor: it takes whatever a third-party repo
-// publishes on `main`, every day, forever, and only ever ADDS bans. A
-// compromise, a squat of an abandoned repo, or a plain upstream mistake would
-// land straight in KV. The two constants below are the blast-radius floor.
-
-// Apexes that can never be auto-banned. A `banned:` key blocks the domain and
-// every subdomain under it (see banned.ts), so one bad entry here would stop
-// link creation to a large slice of the web service-wide — a self-inflicted
-// outage from someone else's commit. These are destinations where that is
-// never the right call, so the answer is always "ban the specific host by
-// hand" instead. It is a floor, not a substitute for trusting the feed.
-const NEVER_AUTO_BAN = new Set([
-	"amazon.com",
-	"apple.com",
-	"bing.com",
-	"cloudflare.com",
-	"discord.com",
-	"dropbox.com",
-	"facebook.com",
-	"github.com",
-	"gitlab.com",
-	"gmail.com",
-	"google.com",
-	"instagram.com",
-	"linkedin.com",
-	"microsoft.com",
-	"netflix.com",
-	"notion.so",
-	"office.com",
-	"reddit.com",
-	"spotify.com",
-	"stackoverflow.com",
-	"tiktok.com",
-	"twitch.tv",
-	"twitter.com",
-	"uwu.land",
-	"whatsapp.com",
-	"wikipedia.org",
-	"x.com",
-	"youtube.com",
-	"zoom.us"
-]);
-
-// A single run may add at most this many domains, or half the existing set,
-// whichever is larger. Production carries ~71 `banned:` keys and the upstream
-// feed publishes ~29 entries, so 100 leaves better than 3x headroom over any
-// delta ever observed while still refusing a bulk push. There is deliberately
-// no bootstrap escape hatch: adopting a large new feed SHOULD stop and ask a
-// human, and the refusal is sticky until someone raises this number.
-const MIN_DELTA = 100;
-const MAX_GROWTH_RATIO = 0.5;
-
-export interface BanSyncResult {
+export interface FeedResult {
 	added: number;
 	scanned: number;
-	/** Live links on a listed domain handed to the reconciler for deletion. */
-	swept: number;
-	/** True when the delta guard rejected the run and nothing was written. */
+	/** True when this feed's cap rejected the run and nothing was written. */
 	refused: boolean;
 }
 
+export interface BanSyncResult {
+	feeds: Record<FeedSource, FeedResult>;
+	/** Live links on a listed domain handed to the reconciler for deletion. */
+	swept: number;
+}
+
 /**
- * Daily cron entry. Adds new feed domains, then sweeps links on every banned
- * domain whatever the feed did: a failed, empty or refused feed must not skip
- * the sweep, because it is the backstop for links created while a KV edge still
+ * Daily cron entry. Adds new domains from each feed in BAN_FEEDS, then sweeps
+ * links on every banned domain whatever the feeds did. Feeds run one after
+ * another and each is isolated: one that fails, publishes nothing parseable or
+ * trips its cap leaves the others untouched, and none of them can skip the
+ * sweep, because it is the backstop for links created while a KV edge still
  * served a stale "not banned" (manual bans included).
  */
 export async function syncBannedDomains(
 	env: Pick<Env, "UWU" | "DB">,
 	fetchImpl: typeof fetch = fetch
 ): Promise<BanSyncResult> {
-	const feed = await addFeedBans(env, fetchImpl);
-	// KV list can lag a put, so today's writes are added explicitly.
-	const listed = await existingBannedDomains(env.UWU);
-	const everyBan = [...new Set([...listed, ...feed.written])].filter(
-		(domain) => !isPublicSuffix(domain)
-	);
+	// Listed once and grown as feeds write, so a domain in two feeds keeps the
+	// value of the first. KV list can lag a put, so it could not be re-listed
+	// for the sweep anyway.
+	const existing = await existingBannedDomains(env.UWU);
+	const feeds = {} as Record<FeedSource, FeedResult>;
+	for (const feed of BAN_FEEDS) {
+		feeds[feed.source] = await syncFeed(env, feed, existing, fetchImpl);
+	}
+	const everyBan = [...existing].filter((domain) => !isPublicSuffix(domain));
 	const swept = await markDomainLinksForDeletion(env.DB, everyBan);
-	return { added: feed.written.length, scanned: feed.scanned, swept, refused: feed.refused };
+	return { feeds, swept };
 }
 
-interface FeedResult {
-	/** Domains written as new `banned:` keys this run. */
-	written: string[];
-	scanned: number;
-	refused: boolean;
-}
+const NOTHING: FeedResult = { added: 0, scanned: 0, refused: false };
 
-async function addFeedBans(
+async function syncFeed(
 	env: Pick<Env, "UWU">,
+	feed: BanFeed,
+	existing: Set<string>,
 	fetchImpl: typeof fetch
 ): Promise<FeedResult> {
-	let response: Response;
-	try {
-		response = await fetchImpl(SOURCE_URL);
-	} catch {
-		return { written: [], scanned: 0, refused: false };
-	}
-
-	if (!response.ok) {
-		return { written: [], scanned: 0, refused: false };
-	}
-
 	let source: string;
 	try {
+		const response = await fetchImpl(feed.url);
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
 		source = await response.text();
-	} catch {
-		return { written: [], scanned: 0, refused: false };
+	} catch (error) {
+		console.error("Blocklist feed could not be fetched.", {
+			feed: feed.source,
+			error: String(error)
+		});
+		return NOTHING;
 	}
 
-	const candidateLines = source
-		.split("\n")
-		.map((line) => line.trim().toLowerCase())
-		.filter((line) => line !== "" && !line.startsWith("#"));
-	const parsed = candidateLines
-		// The feed annotates entries (`domain - (Domain expires: YYYY-MM-DD)`);
-		// the domain itself is the first whitespace-separated token. Anything
-		// after it is metadata, not part of the hostname.
-		.map((line) => line.split(/\s+/, 1)[0] ?? "")
-		.filter((domain) => DOMAIN_RE.test(domain))
-		.slice(0, MAX_DOMAINS);
-	if (parsed.length === 0) {
+	const { candidateLines, domains } = parseFeed(source);
+	if (domains.length === 0) {
 		// Content in and nothing out means the feed's shape moved out from under
-		// the parser above, which is exactly how this sync sat dead for months
+		// the parser, which is exactly how this sync once sat dead for months
 		// while every run reported success. An empty or all-comment feed is a
 		// different thing and stays quiet, so this line only fires when there
 		// was something to read and we could not read it.
 		if (candidateLines.length > 0) {
 			console.error("Blocklist source published no parseable domains.", {
+				feed: feed.source,
 				candidateLines: candidateLines.length,
 				// Enough to recognise the new shape, truncated because the sample
 				// is untrusted third-party text on its way into our logs.
 				sample: candidateLines.slice(0, 3).map((line) => line.slice(0, 120))
 			});
 		}
-		return { written: [], scanned: 0, refused: false };
+		return NOTHING;
 	}
 
-	const candidates: string[] = [];
-	const rejected: string[] = [];
-	for (const domain of new Set(parsed)) {
-		if (isNeverAutoBanned(domain) || isPublicSuffix(domain)) {
-			rejected.push(domain);
-		} else {
-			candidates.push(domain);
-		}
-	}
+	const { accepted, rejected } = applyGuards(domains);
 	if (rejected.length > 0) {
-		// The highest-value signal in this file. A blocklist of IP-logger
-		// domains has no business naming these, so their presence means the
-		// feed is compromised, squatted, or broken — investigate before
+		// The highest-value signal in this file. A blocklist of IP loggers or
+		// malware hosts has no business naming these, so their presence means
+		// the feed is compromised, squatted, or broken: investigate before
 		// trusting anything else it published.
 		console.error(
 			"Blocklist source published allowlisted domains or public suffixes; they were ignored. Review the upstream feed.",
-			{ domains: rejected.slice(0, 20), total: rejected.length }
+			{ feed: feed.source, domains: rejected.slice(0, 20), total: rejected.length }
 		);
 	}
 
-	const existing = await existingBannedDomains(env.UWU);
-	const missing = candidates.filter((domain) => !existing.has(domain));
-
-	const allowedAdds = Math.max(
-		MIN_DELTA,
-		Math.ceil(existing.size * MAX_GROWTH_RATIO)
-	);
-	if (missing.length > allowedAdds) {
+	const missing = accepted.filter((domain) => !existing.has(domain));
+	if (missing.length > feed.maxAdds) {
 		// Fail closed and stay closed. Every subsequent run refuses the same
 		// way until a human looks, which is the point: a sudden bulk expansion
 		// of the ban list is either an upstream compromise or a deliberate
-		// change that deserves review. If the growth is genuine, raise
-		// MIN_DELTA and redeploy.
+		// change that deserves review. There is deliberately no bootstrap
+		// escape hatch either; a new feed is seeded by hand with
+		// scripts/seed-feed.mjs. If the growth is genuine, seed it or raise
+		// maxAdds and redeploy.
 		console.error(
-			"Blocklist sync refused: implausible number of new domains. Review the upstream feed, then raise MIN_DELTA in ban-sync.ts if the growth is genuine.",
+			"Blocklist sync refused: implausible number of new domains. Review the upstream feed, then seed it with scripts/seed-feed.mjs or raise maxAdds in ban-feeds.ts if the growth is genuine.",
 			{
+				feed: feed.source,
 				adding: missing.length,
-				existing: existing.size,
-				allowed: allowedAdds,
+				allowed: feed.maxAdds,
 				sample: missing.slice(0, 20)
 			}
 		);
-		return { written: [], scanned: parsed.length, refused: true };
+		return { added: 0, scanned: domains.length, refused: true };
 	}
 
-	for (let index = 0; index < missing.length; index += WRITE_BATCH_SIZE) {
-		await Promise.all(
-			missing
-				.slice(index, index + WRITE_BATCH_SIZE)
-				.map(async (domain) => env.UWU.put(`banned:${domain}`, "auto"))
-		);
-	}
-
-	return { written: missing, scanned: parsed.length, refused: false };
-}
-
-// True for a registry or hosting suffix (`co.ke`, `github.io`) whose subdomains
-// belong to unrelated owners. A ban on one would sweep every link under it, so
-// it is always a mistake; banning one site on github.io is fine. Matches
-// scripts/domain-sweep.mjs. Private suffixes are included on purpose.
-function isPublicSuffix(domain: string): boolean {
-	return getDomain(domain, { allowPrivateDomains: true }) === null;
-}
-
-// Walks the domain's own suffixes, stopping before the bare final label so a
-// TLD can never appear allowlisted. Mirrors the lookup in banned.ts, so an
-// allowlisted apex protects exactly the set of hostnames a `banned:` key on
-// that apex would have blocked.
-function isNeverAutoBanned(domain: string): boolean {
-	const labels = domain.split(".");
-	for (let index = 0; index < labels.length - 1; index++) {
-		if (NEVER_AUTO_BAN.has(labels.slice(index).join("."))) {
-			return true;
+	let added = 0;
+	try {
+		for (let index = 0; index < missing.length; index += WRITE_BATCH_SIZE) {
+			await Promise.all(
+				missing.slice(index, index + WRITE_BATCH_SIZE).map(async (domain) => {
+					await env.UWU.put(`banned:${domain}`, feed.source);
+					existing.add(domain);
+					added++;
+				})
+			);
 		}
+	} catch (error) {
+		// A KV failure stops this feed only. Whatever landed is already in
+		// `existing`, so today's sweep still covers it.
+		console.error("Blocklist feed could not be written.", {
+			feed: feed.source,
+			error: String(error)
+		});
 	}
-	return false;
+
+	return { added, scanned: domains.length, refused: false };
 }
 
 async function existingBannedDomains(kv: KVNamespace): Promise<Set<string>> {

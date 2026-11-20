@@ -21,7 +21,7 @@ scheduled (cron) handler, and the `Enforcement` Durable Object export.
 | Auth & identity | `auth.ts` (Clerk JWT + API-key verification), `identity.ts`, `crypto-utils.ts` |
 | Billing | `billing-routes.ts`, `billing-shared.ts`, `stripe-webhook.ts` |
 | Clerk lifecycle | `clerk-webhook.ts` |
-| Abuse control | `abuse.ts`, `banned.ts`, `ban-sync.ts`, `rate-limit.ts`, `enforcement.ts` (Durable Object) |
+| Abuse control | `abuse.ts`, `banned.ts`, `ban-sync.ts`, `ban-feeds.ts`, `rate-limit.ts`, `enforcement.ts` (Durable Object) |
 | Plumbing | `errors.ts`, `request-utils.ts`, `env.d.ts` |
 
 Redirects stay KV-only for latency, so D1 is the metadata and abuse plane. Clicks
@@ -54,6 +54,13 @@ state, so only recently clicked links hold any.
 
 Cron triggers: `*/5 * * * *` reconciles links and drains legacy CLICKS counters;
 `0 6 * * *` refreshes the ban list.
+
+The ban refresh pulls each feed in `src/ban-feeds.ts` (grabify IP loggers, and
+URLhaus malware domains via malware-filter) and only ever adds `banned:` keys,
+valued with the feed's name (`auto` or `urlhaus`). Each feed has its own cap on
+new domains per run; a feed over its cap, or one that fails to fetch, is
+skipped for that run without touching the others. Every ban's links are swept
+afterwards either way.
 
 ## Config, vars, and secrets
 
@@ -119,6 +126,16 @@ Migrations live in `packages/db/migrations` (referenced via `migrations_dir`).
 Run these from `services/api`; they operate on remote production infrastructure.
 The [root README](../../README.md#maintenance) has the full list: `pnpm ban`,
 `pnpm unban`, `pnpm banned`, `pnpm abuse:top`, `pnpm purge:domain`.
+
+Ban feeds:
+
+- `pnpm banned --auto` lists bans written by any feed (the value names it);
+  `pnpm banned --manual` lists the rest.
+- `pnpm ban:seed-urlhaus [--file PATH] [--yes]` seeds the URLhaus feed in one
+  go, since its first import is far over the daily cap. It applies the same
+  parsing and guards as the cron, skips keys that already exist, bulk-writes
+  the rest with `wrangler kv bulk put`, then sweeps their links. Dry run
+  without `--yes`. For another feed, run `node scripts/seed-feed.mjs <source>`.
 
 Account moderation:
 
