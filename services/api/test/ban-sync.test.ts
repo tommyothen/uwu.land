@@ -282,6 +282,18 @@ describe("banned-domain sync", () => {
 		expect(await env.UWU.get("lookalike")).toBe(seeded.lookalike);
 	});
 
+	it("sweeps a banned host longer than D1's 50 byte LIKE pattern limit", async () => {
+		const host = "a-very-long-malware-download-host.eastus.cloudapp.example.com";
+		await drizzle(env.DB)
+			.insert(links)
+			.values({ slug: "long", url: `https://${host}/payload`, source: "web-anon", urlHash: "hash-long" })
+			.run();
+
+		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf([host]));
+
+		expect(result.swept).toBe(1);
+	});
+
 	it("sweeps manual bans too, so a link that beat a stale KV read still comes down", async () => {
 		const db = drizzle(env.DB);
 		await env.UWU.put("banned:manual.example", "1");

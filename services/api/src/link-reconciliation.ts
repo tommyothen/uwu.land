@@ -1,5 +1,5 @@
 import { links } from "@uwu/db/schema";
-import { and, asc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { isBannedHostname, isBannedPath } from "./banned";
 import type { Env } from "./worker";
@@ -101,7 +101,8 @@ const LIVE_STATES = ["active", "pending_publish"] as const;
  * Hands every live link whose host is one of `domains`, or a subdomain of one,
  * to the reconciler by marking it `pending_delete`. Used when a domain is
  * banned, so links created before the ban stop redirecting on the next cron
- * pass. The LIKE only narrows the scan; the parsed hostname decides. Returns
+ * pass. instr() only narrows the scan; the parsed hostname decides. Not LIKE:
+ * D1 refuses LIKE patterns over 50 bytes, and feed hosts run longer. Returns
  * how many rows were marked.
  */
 export async function markDomainLinksForDeletion(db: D1Database, domains: readonly string[]): Promise<number> {
@@ -112,7 +113,7 @@ export async function markDomainLinksForDeletion(db: D1Database, domains: readon
 		const rows = await orm.select({ slug: links.slug, url: links.url }).from(links)
 			.where(and(
 				inArray(links.lifecycleState, LIVE_STATES),
-				or(...batch.map((domain) => like(sql`lower(${links.url})`, `%${domain}%`)))
+				or(...batch.map((domain) => sql`instr(lower(${links.url}), ${domain}) > 0`))
 			)).all();
 		for (const row of rows) {
 			if (batch.some((domain) => urlIsUnderDomain(row.url, domain))) matches.set(row.slug, row.url);
