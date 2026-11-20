@@ -6,3 +6,5 @@ reviews:
   path_filters:
     - "!pnpm-lock.yaml"
     - "!packages/db/migrations/meta/**"
+  # No status comments, so PRs it skips (fewer than 10 stars) stay uncluttered.
+  review_status: false
