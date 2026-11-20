@@ -125,23 +125,26 @@ async function syncFeed(
 	}
 
 	let added = 0;
-	try {
-		for (let index = 0; index < missing.length; index += WRITE_BATCH_SIZE) {
-			await Promise.all(
-				missing.slice(index, index + WRITE_BATCH_SIZE).map(async (domain) => {
-					await env.UWU.put(`banned:${domain}`, feed.source);
-					existing.add(domain);
-					added++;
-				})
-			);
+	for (let index = 0; index < missing.length; index += WRITE_BATCH_SIZE) {
+		// allSettled so every write in the batch has finished before a failure
+		// stops this feed; a late success can't then race the next feed.
+		const results = await Promise.allSettled(
+			missing.slice(index, index + WRITE_BATCH_SIZE).map(async (domain) => {
+				await env.UWU.put(`banned:${domain}`, feed.source);
+				existing.add(domain);
+				added++;
+			})
+		);
+		const failure = results.find((result) => result.status === "rejected");
+		if (failure !== undefined) {
+			// A KV failure stops this feed only. Whatever landed is already in
+			// `existing`, so today's sweep still covers it.
+			console.error("Blocklist feed could not be written.", {
+				feed: feed.source,
+				error: String(failure.reason)
+			});
+			break;
 		}
-	} catch (error) {
-		// A KV failure stops this feed only. Whatever landed is already in
-		// `existing`, so today's sweep still covers it.
-		console.error("Blocklist feed could not be written.", {
-			feed: feed.source,
-			error: String(error)
-		});
 	}
 
 	return { added, scanned: domains.length, refused: false };

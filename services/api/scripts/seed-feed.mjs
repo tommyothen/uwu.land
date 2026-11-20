@@ -60,8 +60,10 @@ if (missing.length > 0) {
 }
 
 // After the keys, as in `pnpm ban`, so nothing can be created behind the sweep.
+// Sweeps every accepted domain, not just the new ones, so re-running finishes
+// a sweep that failed after the keys were written.
 let marked = 0;
-for (const rows of linkPagesOnDomains(missing)) {
+for (const rows of linkPagesOnDomains(accepted)) {
 	markForDeletion(rows);
 	marked += rows.length;
 }

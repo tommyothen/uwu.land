@@ -393,4 +393,31 @@ describe("banned-domain sync", () => {
 		expect(result.feeds.urlhaus).toEqual({ added: 0, scanned: 1, refused: false });
 		expect(await env.UWU.get("banned:shared.example")).toBe("auto");
 	});
+	it("waits for a slow write in a failing batch before the next feed runs", async () => {
+		// One write fails while another is still in flight. The slow one must
+		// land and count before URLhaus decides the shared domain is missing.
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		const put = async (key: string, value: string) => {
+			if (key === "banned:broken.example") throw new Error("KV write failed");
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			return env.UWU.put(key, value);
+		};
+		const uwu = new Proxy(env.UWU, {
+			get: (target, property) => {
+				if (property === "put") return put;
+				const value: unknown = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			}
+		});
+
+		const result = await syncBannedDomains(
+			{ UWU: uwu, DB: env.DB },
+			feedsOf({ auto: "broken.example\nshared.example", urlhaus: "shared.example" })
+		);
+
+		expect(result.feeds.auto).toEqual({ added: 1, scanned: 2, refused: false });
+		expect(result.feeds.urlhaus).toEqual({ added: 0, scanned: 1, refused: false });
+		expect(await env.UWU.get("banned:shared.example")).toBe("auto");
+		consoleError.mockRestore();
+	});
 });

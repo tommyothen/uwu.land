@@ -210,6 +210,39 @@ test("seed-feed.mjs bulk-writes only new, guarded domains, then sweeps them", st
 	}
 });
 
+// A sweep that failed after the bulk put left the keys behind; the re-run
+// finds nothing new to write but must still sweep every accepted domain.
+test("seed-feed.mjs re-run sweeps domains whose keys already exist", stubOptions, () => {
+	const directory = mkdtempSync(join(tmpdir(), "uwu-seed-feed-stub-"));
+	try {
+		const feed = join(directory, "feed.txt");
+		writeFileSync(feed, "new.example\n");
+		writeFileSync(
+			join(directory, "pnpm"),
+			[
+				"#!/bin/sh",
+				'case "$*" in',
+				'  *"key list"*) printf \'[{"name":"banned:new.example"}]\' ;;',
+				'  *--json*) printf \'[{"results":[{"slug":"hit","url":"https://new.example/x"}]}]\' ;;',
+				'  *) echo "$@" ;;',
+				"esac",
+				""
+			].join("\n"),
+			{ mode: 0o755 }
+		);
+		const rerun = spawnSync(
+			process.execPath,
+			[`${scriptsDirectory}seed-feed.mjs`, "urlhaus", "--file", feed, "--yes"],
+			{ encoding: "utf8", env: { ...process.env, PATH: `${directory}:${process.env.PATH}` } }
+		);
+		assert.equal(rerun.status, 0, rerun.stderr);
+		assert.doesNotMatch(rerun.stdout, /bulk put/);
+		assert.match(rerun.stdout, /UPDATE links .*slug = 'hit'/);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 const domainRows = [
 	{ slug: "apex", url: "https://evil.example/a" },
 	{ slug: "sub", url: "https://www.evil.example/b" },
