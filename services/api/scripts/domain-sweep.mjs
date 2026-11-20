@@ -7,7 +7,7 @@ const PAGE_SIZE = 200;
 const D1_MAX_BUFFER = 16 * 1024 * 1024;
 // Keeps each UPDATE well under D1's 100 KB statement limit.
 const MAX_STATEMENT_LENGTH = 90_000;
-// Hostnames per sweep query; at most a few KB of LIKE clauses.
+// Hostnames per sweep query; at most a few KB of instr() clauses.
 const DOMAINS_PER_QUERY = 50;
 
 /**
@@ -46,12 +46,13 @@ export function parseBannableDomain(value) {
 export function* linkPagesOnDomains(domains) {
 	for (let index = 0; index < domains.length; index += DOMAINS_PER_QUERY) {
 		const group = domains.slice(index, index + DOMAINS_PER_QUERY);
-		// The LIKE only narrows the scan; the parsed hostname decides.
-		const likes = group.map((domain) => `lower(url) LIKE '%${sqlLiteral(domain)}%'`).join(" OR ");
+		// instr() only narrows the scan; the parsed hostname decides. Not LIKE:
+		// D1 refuses LIKE patterns over 50 bytes, and feed hosts run longer.
+		const matches = group.map((domain) => `instr(lower(url), '${sqlLiteral(domain)}') > 0`).join(" OR ");
 		let after = "";
 		for (;;) {
 			const page = d1Rows(
-				`SELECT slug, url FROM links WHERE lifecycle_state IN ('active', 'pending_publish') AND (${likes}) AND slug > '${sqlLiteral(after)}' ORDER BY slug LIMIT ${PAGE_SIZE}`
+				`SELECT slug, url FROM links WHERE lifecycle_state IN ('active', 'pending_publish') AND (${matches}) AND slug > '${sqlLiteral(after)}' ORDER BY slug LIMIT ${PAGE_SIZE}`
 			);
 			yield page.filter(
 				(row) => typeof row.slug === "string" && group.some((domain) => urlIsUnderDomain(row.url, domain))
@@ -108,7 +109,8 @@ function d1Rows(sql) {
 	);
 	if (result.error !== undefined) throw result.error;
 	if (result.status !== 0) {
-		process.stderr.write(result.stderr);
+		// With --json, Wrangler reports API errors on stdout.
+		process.stderr.write(result.stderr || result.stdout);
 		process.exit(result.status ?? 1);
 	}
 	try {
