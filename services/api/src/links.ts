@@ -13,6 +13,7 @@ import { nanoid } from "nanoid";
 import { getDomain } from "tldts";
 import { z } from "zod";
 import { ipKey, isIpBlocked, recordBannedAttempt } from "./abuse";
+import { isAccountOnlyDestination } from "./account-only";
 import {
 	AuthError,
 	type AuthOptions,
@@ -31,7 +32,6 @@ import { reconcileLink } from "./link-reconciliation";
 import { canonicalHostname, normalizeUrl } from "./normalize";
 import { DurableObjectFixedWindow } from "./rate-limit";
 import { readJson } from "./request-utils";
-import { isUrlShortener } from "./shorteners";
 import {
 	generateSlug,
 	type IdGenerator,
@@ -151,11 +151,11 @@ export async function createLink(
 		return errorResponse(400, "invalid_body", "uwu.land URLs are not allowed.");
 	}
 
-	if (auth.kind === "anon" && isUrlShortener(hostname)) {
+	if (auth.kind === "anon" && isAccountOnlyDestination(hostname)) {
 		return errorResponse(
 			403,
 			"forbidden",
-			"Links to other URL shorteners need an account."
+			"Anonymous links can't point at URL shorteners, free hosting or tunnels. Sign in to create this link."
 		);
 	}
 

@@ -550,8 +550,12 @@ describe("anonymous link creation", () => {
 		expect(limit.status).toBe(201);
 	});
 
-	it("rejects anonymous links to other URL shorteners", async () => {
-		for (const url of ["https://bit.ly/abc", "https://WWW.TinyURL.com./abc"]) {
+	it("rejects anonymous links to account-only destinations", async () => {
+		for (const url of [
+			"https://bit.ly/abc",
+			"https://WWW.TinyURL.com./abc",
+			"https://user.pages.dev/login"
+		]) {
 			const response = await workerFetch(
 				createRequest({ url }, "203.0.113.92"),
 				env as Env,
@@ -562,15 +566,26 @@ describe("anonymous link creation", () => {
 		}
 	});
 
-	it("lets authenticated callers link to URL shorteners", async () => {
-		const secret = await seedApiKey();
+	it("only matches account-only destinations as a whole-label suffix", async () => {
 		const response = await workerFetch(
-			createAuthedRequest({ url: "https://bit.ly/abc" }, secret),
+			createRequest({ url: "https://pages.dev.evil.com/" }, "203.0.113.93"),
 			env as Env,
 			createExecutionContext()
 		);
 
 		expect(response.status).toBe(201);
+	});
+
+	it("lets authenticated callers link to account-only destinations", async () => {
+		const secret = await seedApiKey();
+		for (const url of ["https://bit.ly/abc", "https://user.pages.dev/"]) {
+			const response = await workerFetch(
+				createAuthedRequest({ url }, secret),
+				env as Env,
+				createExecutionContext()
+			);
+			expect(response.status).toBe(201);
+		}
 	});
 
 	it("shares the anon daily limit across one IPv6 /64", async () => {

@@ -81,7 +81,7 @@ const ERROR_CODES: readonly [status: string, code: string, when: ReactNode][] = 
 		"forbidden",
 		<>
 			The request is understood but not permitted: an anonymous caller sent a
-			restricted field or linked to another URL shortener, you are not the
+			restricted field or linked to an account-only destination, you are not the
 			link owner, or an API key called a <code>/keys</code> endpoint.
 		</>
 	],
@@ -247,7 +247,9 @@ export default function DocsPage() {
 					<code>localhost</code> are refused. Rejected URLs return 400{" "}
 					<code>invalid_body</code>; banned destinations return 400{" "}
 					<code>url_banned</code>. Anonymous callers also cannot link to other
-					URL shorteners such as bit.ly, which returns 403{" "}
+					URL shorteners such as bit.ly, free hosting such as pages.dev or
+					github.io, or tunnels and dynamic DNS such as trycloudflare.com or
+					duckdns.org. Subdomains count too, and these return 403{" "}
 					<code>forbidden</code>; sign in to use them.
 				</p>
 				<p className="mt-3 text-sm leading-relaxed text-muted-foreground">

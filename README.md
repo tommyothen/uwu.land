@@ -14,6 +14,10 @@ allow, First-Class is cheap.
 | Free account | 250 | 2 | free |
 | First-Class | 10,000 | 10 | $4/month, or $40 once |
 
+Anonymous links can't point at other URL shorteners, free hosting such as
+pages.dev, or tunnels and dynamic DNS. Sign in for those; the list lives in
+`services/api/src/account-only.ts`.
+
 Those are the sticker prices; a launch discount is running at the moment, so
 [app.uwu.land](https://app.uwu.land) is where the current ones are. The
 authoritative limits are in `packages/shared/src/tiers.ts`, which both workers
