@@ -20,7 +20,11 @@ for (const [script, args] of [
 	["purge-owner.mjs", ["user_a", "user_b"]],
 	["suspend.mjs", ["suspend"]],
 	["suspend.mjs", ["suspend", "not-a-clerk-id"]],
-	["suspend.mjs", ["delete", "user_abc"]]
+	["suspend.mjs", ["delete", "user_abc"]],
+	["seed-feed.mjs", []],
+	["seed-feed.mjs", ["not-a-feed"]],
+	["seed-feed.mjs", ["urlhaus", "--file"]],
+	["seed-feed.mjs", ["urlhaus", "--force"]]
 ]) {
 	test(`${script} rejects invalid usage before running Wrangler`, () => {
 		const result = spawnSync(process.execPath, [scriptsDirectory + script, ...args], {
@@ -102,8 +106,8 @@ test("banned.mjs list sorts bans by value from plain bulk get output", stubOptio
 			[
 				"#!/bin/sh",
 				'case "$*" in',
-				'  *"key list"*) printf \'[{"name":"banned:manual.example"},{"name":"banned:feed.example"}]\' ;;',
-				'  *"bulk get"*) printf \'{"banned:manual.example":"1","banned:feed.example":"auto"}\' ;;',
+				'  *"key list"*) printf \'[{"name":"banned:manual.example"},{"name":"banned:feed.example"},{"name":"banned:malware.example"}]\' ;;',
+				'  *"bulk get"*) printf \'{"banned:manual.example":"1","banned:feed.example":"auto","banned:malware.example":"urlhaus"}\' ;;',
 				"esac",
 				""
 			].join("\n"),
@@ -118,7 +122,11 @@ test("banned.mjs list sorts bans by value from plain bulk get output", stubOptio
 		assert.equal(manual.status, 0, manual.stderr);
 		assert.deepEqual(JSON.parse(manual.stdout), [{ name: "banned:manual.example", value: "1" }]);
 		const auto = list("--auto");
-		assert.deepEqual(JSON.parse(auto.stdout), [{ name: "banned:feed.example", value: "auto" }]);
+		// Every feed's bans count as auto, each value naming its feed.
+		assert.deepEqual(JSON.parse(auto.stdout), [
+			{ name: "banned:feed.example", value: "auto" },
+			{ name: "banned:malware.example", value: "urlhaus" }
+		]);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
@@ -154,6 +162,85 @@ test("banned.mjs unban deletes the key ban wrote and the raw legacy key", stubOp
 	const suffix = runWithStub("banned.mjs", ["unban", "co.ke"]);
 	assert.equal(suffix.status, 0);
 	assert.equal(suffix.stdout.match(/key delete/g)?.length, 1);
+});
+
+// Seeds from a local copy against a stub `pnpm`: the real command writes to
+// production KV and D1.
+test("seed-feed.mjs bulk-writes only new, guarded domains, then sweeps them", stubOptions, () => {
+	const directory = mkdtempSync(join(tmpdir(), "uwu-seed-feed-stub-"));
+	try {
+		const feed = join(directory, "feed.txt");
+		writeFileSync(feed, "# header\n1.92.136.152\nold.example\nnew.example\nsites.google.com\ngithub.io\n");
+		writeFileSync(
+			join(directory, "pnpm"),
+			[
+				"#!/bin/sh",
+				'case "$*" in',
+				'  *"key list"*) printf \'[{"name":"banned:old.example"}]\' ;;',
+				'  *"bulk put"*) echo "bulk put $(cat "$6")" ;;',
+				'  *--json*) printf \'[{"results":[{"slug":"hit","url":"https://www.new.example/x"}]}]\' ;;',
+				'  *) echo "$@" ;;',
+				"esac",
+				""
+			].join("\n"),
+			{ mode: 0o755 }
+		);
+		const seed = (...flags) =>
+			spawnSync(process.execPath, [`${scriptsDirectory}seed-feed.mjs`, "urlhaus", "--file", feed, ...flags], {
+				encoding: "utf8",
+				env: { ...process.env, PATH: `${directory}:${process.env.PATH}` }
+			});
+
+		const dryRun = seed();
+		assert.equal(dryRun.status, 0, dryRun.stderr);
+		assert.match(dryRun.stdout, /Would ban new\.example/);
+		assert.doesNotMatch(dryRun.stdout, /bulk put|UPDATE links/);
+
+		const confirmed = seed("--yes");
+		assert.equal(confirmed.status, 0, confirmed.stderr);
+		const written = confirmed.stdout.split("\n").find((line) => line.startsWith("bulk put "));
+		// The existing key keeps its value; guarded entries never reach KV.
+		assert.deepEqual(JSON.parse(written?.slice("bulk put ".length) ?? "null"), [
+			{ key: "banned:new.example", value: "urlhaus" }
+		]);
+		assert.match(confirmed.stderr, /sites\.google\.com, github\.io/);
+		assert.match(confirmed.stdout, /UPDATE links .*slug = 'hit'/);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+// A sweep that failed after the bulk put left the keys behind; the re-run
+// finds nothing new to write but must still sweep every accepted domain.
+test("seed-feed.mjs re-run sweeps domains whose keys already exist", stubOptions, () => {
+	const directory = mkdtempSync(join(tmpdir(), "uwu-seed-feed-stub-"));
+	try {
+		const feed = join(directory, "feed.txt");
+		writeFileSync(feed, "new.example\n");
+		writeFileSync(
+			join(directory, "pnpm"),
+			[
+				"#!/bin/sh",
+				'case "$*" in',
+				'  *"key list"*) printf \'[{"name":"banned:new.example"}]\' ;;',
+				'  *--json*) printf \'[{"results":[{"slug":"hit","url":"https://new.example/x"}]}]\' ;;',
+				'  *) echo "$@" ;;',
+				"esac",
+				""
+			].join("\n"),
+			{ mode: 0o755 }
+		);
+		const rerun = spawnSync(
+			process.execPath,
+			[`${scriptsDirectory}seed-feed.mjs`, "urlhaus", "--file", feed, "--yes"],
+			{ encoding: "utf8", env: { ...process.env, PATH: `${directory}:${process.env.PATH}` } }
+		);
+		assert.equal(rerun.status, 0, rerun.stderr);
+		assert.doesNotMatch(rerun.stdout, /bulk put/);
+		assert.match(rerun.stdout, /UPDATE links .*slug = 'hit'/);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 const domainRows = [

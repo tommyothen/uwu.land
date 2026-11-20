@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { links } from "@uwu/db/schema";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BAN_FEEDS, type FeedSource } from "../src/ban-feeds";
 import { syncBannedDomains } from "../src/ban-sync";
 import { reconcilePendingLinks } from "../src/link-reconciliation";
 import type { Env } from "../src/worker";
@@ -18,9 +19,22 @@ async function seedBans(count: number): Promise<void> {
 	}
 }
 
-function sourceOf(domains: string[]): typeof fetch {
-	return (async () => new Response(domains.join("\n"))) as typeof fetch;
+// Serves each feed's URL from `bodies`; a feed left out publishes nothing.
+function feedsOf(bodies: Partial<Record<FeedSource, string | Response | Error>>): typeof fetch {
+	return async (input) => {
+		const feed = BAN_FEEDS.find(({ url }) => url === String(input));
+		const body = feed === undefined ? undefined : bodies[feed.source];
+		if (body instanceof Error) throw body;
+		return body instanceof Response ? body : new Response(body ?? "");
+	};
 }
+
+function sourceOf(domains: string[]): typeof fetch {
+	return feedsOf({ auto: domains.join("\n") });
+}
+
+const [GRABIFY, URLHAUS] = BAN_FEEDS;
+const NOTHING = { added: 0, scanned: 0, refused: false };
 
 describe("banned-domain sync", () => {
 	beforeEach(async () => {
@@ -33,13 +47,10 @@ describe("banned-domain sync", () => {
 
 		const result = await syncBannedDomains(
 			{ UWU: env.UWU, DB: env.DB },
-			async () =>
-				new Response(
-					"# comment\nmanual.example\nNew.Example\ninvalid\nother.example\n"
-				)
+			feedsOf({ auto: "# comment\nmanual.example\nNew.Example\ninvalid\nother.example\n" })
 		);
 
-		expect(result).toEqual({ added: 2, scanned: 3, swept: 0, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 2, scanned: 3, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(await env.UWU.get("banned:manual.example")).toBe("1");
 		expect(await env.UWU.get("banned:new.example")).toBe("auto");
 		expect(await env.UWU.get("banned:other.example")).toBe("auto");
@@ -47,19 +58,24 @@ describe("banned-domain sync", () => {
 
 	it("does not add anything when the fetch fails or returns no domains", async () => {
 		await env.UWU.put("banned:manual.example", "1");
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		await expect(
-			syncBannedDomains({ UWU: env.UWU, DB: env.DB }, async () => {
-				throw new Error("network failure");
-			})
-		).resolves.toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
+			syncBannedDomains({ UWU: env.UWU, DB: env.DB }, feedsOf({ auto: new Error("network failure") }))
+		).resolves.toEqual({ feeds: { auto: { added: 0, scanned: 0, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		await expect(
 			syncBannedDomains(
 				{ UWU: env.UWU, DB: env.DB },
-				async () => new Response("# only a comment\nnot-a-domain")
+				feedsOf({ auto: "# only a comment\nnot-a-domain" })
 			)
-		).resolves.toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
+		).resolves.toEqual({ feeds: { auto: { added: 0, scanned: 0, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(await env.UWU.get("banned:manual.example")).toBe("1");
+		// A dead feed is logged, so it cannot sit broken behind quiet runs.
+		expect(consoleError).toHaveBeenCalledWith(
+			"Blocklist feed could not be fetched.",
+			expect.objectContaining({ feed: "auto" })
+		);
+		consoleError.mockRestore();
 	});
 
 	it("never auto-bans an allowlisted domain or anything under it", async () => {
@@ -77,7 +93,7 @@ describe("banned-domain sync", () => {
 			])
 		);
 
-		expect(result).toEqual({ added: 1, scanned: 4, swept: 0, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 1, scanned: 4, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(await env.UWU.get("banned:google.com")).toBeNull();
 		expect(await env.UWU.get("banned:sites.google.com")).toBeNull();
 		expect(await env.UWU.get("banned:github.com")).toBeNull();
@@ -114,24 +130,27 @@ describe("banned-domain sync", () => {
 
 		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(flood));
 
-		expect(result).toEqual({ added: 0, scanned: 400, swept: 0, refused: true });
+		expect(result).toEqual({ feeds: { auto: { added: 0, scanned: 400, refused: true }, urlhaus: NOTHING }, swept: 0 });
 		expect(await env.UWU.get("banned:flood0.example")).toBeNull();
 		expect(consoleError).toHaveBeenCalled();
 		consoleError.mockRestore();
 	});
 
-	it("allows a plausible delta against a small existing set", async () => {
-		// Production carries ~71 keys and upstream publishes ~29, so an ordinary
-		// run must never trip the guard just because the existing set is small.
+	it("allows a full cap's worth against a small existing set", async () => {
+		// The cap is fixed per feed, not scaled by the existing set, so a small
+		// set never makes an ordinary run trip the guard.
 		await seedBans(5);
 		const batch = Array.from(
-			{ length: 60 },
+			{ length: GRABIFY.maxAdds },
 			(_, index) => `new${index}.example`
 		);
 
 		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(batch));
 
-		expect(result).toEqual({ added: 60, scanned: 60, swept: 0, refused: false });
+		expect(result).toEqual({
+			feeds: { auto: { added: GRABIFY.maxAdds, scanned: GRABIFY.maxAdds, refused: false }, urlhaus: NOTHING },
+			swept: 0
+		});
 		expect(await env.UWU.get("banned:new0.example")).toBe("auto");
 	});
 
@@ -147,7 +166,7 @@ describe("banned-domain sync", () => {
 			])
 		);
 
-		expect(result).toEqual({ added: 2, scanned: 2, swept: 0, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 2, scanned: 2, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(await env.UWU.get("banned:location.cyou")).toBe("auto");
 		expect(await env.UWU.get("banned:stopify.co")).toBe("auto");
 	});
@@ -168,7 +187,7 @@ describe("banned-domain sync", () => {
 			])
 		);
 
-		expect(result).toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 0, scanned: 0, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(consoleError).toHaveBeenCalledWith(
 			"Blocklist source published no parseable domains.",
 			expect.objectContaining({ candidateLines: 2 })
@@ -188,7 +207,7 @@ describe("banned-domain sync", () => {
 			sourceOf(["# nothing to publish today", "", "   "])
 		);
 
-		expect(result).toEqual({ added: 0, scanned: 0, swept: 0, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 0, scanned: 0, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(consoleError).not.toHaveBeenCalled();
 		consoleError.mockRestore();
 	});
@@ -207,7 +226,7 @@ describe("banned-domain sync", () => {
 			sourceOf(["evil.example - see also innocent.example"])
 		);
 
-		expect(result).toEqual({ added: 1, scanned: 1, swept: 0, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 1, scanned: 1, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(await env.UWU.get("banned:evil.example")).toBe("auto");
 		expect(await env.UWU.get("banned:innocent.example")).toBeNull();
 	});
@@ -224,7 +243,7 @@ describe("banned-domain sync", () => {
 			sourceOf(["xn--e1afmkfd.xn--p1ai", "co.uk", "co.ke", "customer.co.ke", "anything.ck", "github.io", "evil.github.io"])
 		);
 
-		expect(result).toEqual({ added: 3, scanned: 7, swept: 0, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 3, scanned: 7, refused: false }, urlhaus: NOTHING }, swept: 0 });
 		expect(await env.UWU.get("banned:xn--e1afmkfd.xn--p1ai")).toBe("auto");
 		expect(await env.UWU.get("banned:customer.co.ke")).toBe("auto");
 		expect(await env.UWU.get("banned:evil.github.io")).toBe("auto");
@@ -251,7 +270,7 @@ describe("banned-domain sync", () => {
 		}
 
 		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(["evil.example"]));
-		expect(result).toEqual({ added: 1, scanned: 1, swept: 2, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 1, scanned: 1, refused: false }, urlhaus: NOTHING }, swept: 2 });
 
 		await reconcilePendingLinks(env as Env);
 		const remaining = await db.select({ slug: links.slug }).from(links).all();
@@ -269,7 +288,7 @@ describe("banned-domain sync", () => {
 		await db.insert(links).values({ slug: "late", url: "https://manual.example/x", source: "web-anon" }).run();
 
 		const result = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(["feed.example"]));
-		expect(result).toEqual({ added: 1, scanned: 1, swept: 1, refused: false });
+		expect(result).toEqual({ feeds: { auto: { added: 1, scanned: 1, refused: false }, urlhaus: NOTHING }, swept: 1 });
 	});
 
 	it("still sweeps existing bans when the feed fails or is refused", async () => {
@@ -278,13 +297,127 @@ describe("banned-domain sync", () => {
 		await env.UWU.put("banned:manual.example", "1");
 		await db.insert(links).values({ slug: "late-a", url: "https://manual.example/a", source: "web-anon" }).run();
 
-		const failed = (async () => new Response("", { status: 503 })) as typeof fetch;
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		const failed = feedsOf({ auto: new Response("", { status: 503 }) });
 		const afterFailure = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, failed);
-		expect(afterFailure).toEqual({ added: 0, scanned: 0, swept: 1, refused: false });
+		expect(afterFailure).toEqual({ feeds: { auto: { added: 0, scanned: 0, refused: false }, urlhaus: NOTHING }, swept: 1 });
 
 		await db.insert(links).values({ slug: "late-b", url: "https://manual.example/b", source: "web-anon" }).run();
 		const flood = Array.from({ length: 400 }, (_, index) => `flood${index}.example`);
 		const afterRefusal = await syncBannedDomains({ UWU: env.UWU, DB: env.DB }, sourceOf(flood));
-		expect(afterRefusal).toEqual({ added: 0, scanned: 400, swept: 1, refused: true });
+		expect(afterRefusal).toEqual({ feeds: { auto: { added: 0, scanned: 400, refused: true }, urlhaus: NOTHING }, swept: 1 });
+		consoleError.mockRestore();
+	});
+
+	it("parses the URLhaus domains-online format", async () => {
+		// Shape of malware-filter's urlhaus-filter-domains-online.txt as of
+		// 2026-11-20: a comment header, then one host per line, about two thirds
+		// of them IPv4. IPs are dropped (creates refuse IP-literal hosts anyway)
+		// and must not set off the unparseable-feed alarm.
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU, DB: env.DB },
+			feedsOf({
+				urlhaus: [
+					"# Title: Online Malicious Domains Blocklist",
+					"# Updated: 2026-11-20T00:09:58Z",
+					"# Expires: 12 hours (update frequency)",
+					"# Source: https://urlhaus.abuse.ch/api/",
+					"1.92.136.152",
+					"101.108.76.71",
+					"payload.example",
+					"dropper.cdn.example"
+				].join("\n")
+			})
+		);
+
+		expect(result).toEqual({
+			feeds: { auto: NOTHING, urlhaus: { added: 2, scanned: 2, refused: false } },
+			swept: 0
+		});
+		expect(await env.UWU.get("banned:payload.example")).toBe("urlhaus");
+		expect(await env.UWU.get("banned:dropper.cdn.example")).toBe("urlhaus");
+		expect(await env.UWU.get("banned:1.92.136.152")).toBeNull();
+		expect(consoleError).not.toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+
+	it("isolates a failing feed from the others", async () => {
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU, DB: env.DB },
+			feedsOf({ auto: new Error("network failure"), urlhaus: "malware.example" })
+		);
+
+		expect(result.feeds).toEqual({
+			auto: NOTHING,
+			urlhaus: { added: 1, scanned: 1, refused: false }
+		});
+		expect(await env.UWU.get("banned:malware.example")).toBe("urlhaus");
+		consoleError.mockRestore();
+	});
+
+	it("caps each feed on its own budget", async () => {
+		// Grabify trips its cap while URLhaus adds more than grabify's cap in
+		// the same run: neither the refusal nor the budget is shared.
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		const domains = (prefix: string, count: number) =>
+			Array.from({ length: count }, (_, index) => `${prefix}${index}.example`).join("\n");
+
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU, DB: env.DB },
+			feedsOf({
+				auto: domains("grabber", GRABIFY.maxAdds + 1),
+				urlhaus: domains("malware", URLHAUS.maxAdds)
+			})
+		);
+
+		expect(URLHAUS.maxAdds).toBeGreaterThan(GRABIFY.maxAdds);
+		expect(result.feeds).toEqual({
+			auto: { added: 0, scanned: GRABIFY.maxAdds + 1, refused: true },
+			urlhaus: { added: URLHAUS.maxAdds, scanned: URLHAUS.maxAdds, refused: false }
+		});
+		expect(await env.UWU.get("banned:grabber0.example")).toBeNull();
+		expect(await env.UWU.get("banned:malware0.example")).toBe("urlhaus");
+		consoleError.mockRestore();
+	});
+
+	it("keeps the first feed's value for a domain both feeds publish", async () => {
+		const result = await syncBannedDomains(
+			{ UWU: env.UWU, DB: env.DB },
+			feedsOf({ auto: "shared.example", urlhaus: "shared.example" })
+		);
+
+		expect(result.feeds.urlhaus).toEqual({ added: 0, scanned: 1, refused: false });
+		expect(await env.UWU.get("banned:shared.example")).toBe("auto");
+	});
+	it("waits for a slow write in a failing batch before the next feed runs", async () => {
+		// One write fails while another is still in flight. The slow one must
+		// land and count before URLhaus decides the shared domain is missing.
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		const put = async (key: string, value: string) => {
+			if (key === "banned:broken.example") throw new Error("KV write failed");
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			return env.UWU.put(key, value);
+		};
+		const uwu = new Proxy(env.UWU, {
+			get: (target, property) => {
+				if (property === "put") return put;
+				const value: unknown = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			}
+		});
+
+		const result = await syncBannedDomains(
+			{ UWU: uwu, DB: env.DB },
+			feedsOf({ auto: "broken.example\nshared.example", urlhaus: "shared.example" })
+		);
+
+		expect(result.feeds.auto).toEqual({ added: 1, scanned: 2, refused: false });
+		expect(result.feeds.urlhaus).toEqual({ added: 0, scanned: 1, refused: false });
+		expect(await env.UWU.get("banned:shared.example")).toBe("auto");
+		consoleError.mockRestore();
 	});
 });

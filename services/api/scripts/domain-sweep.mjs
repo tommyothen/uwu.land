@@ -7,6 +7,8 @@ const PAGE_SIZE = 200;
 const D1_MAX_BUFFER = 16 * 1024 * 1024;
 // Keeps each UPDATE well under D1's 100 KB statement limit.
 const MAX_STATEMENT_LENGTH = 90_000;
+// Hostnames per sweep query; at most a few KB of LIKE clauses.
+const DOMAINS_PER_QUERY = 50;
 
 /**
  * Turns an operator's DOMAIN argument into the hostname the worker sees, so a
@@ -25,7 +27,7 @@ export function parseHostname(value) {
  * parseHostname, but also null for a registry or hosting suffix (`co.ke`,
  * `github.io`) whose subdomains belong to unrelated owners: a sweep on one
  * would take down every link under it. Matches isPublicSuffix in
- * src/ban-sync.ts.
+ * src/ban-feeds.ts.
  */
 export function parseBannableDomain(value) {
 	const hostname = parseHostname(value);
@@ -34,22 +36,30 @@ export function parseBannableDomain(value) {
 }
 
 /**
- * Yields live links whose host is `domain` or a subdomain of it, a page at a
- * time. Pages are read lazily, so a caller that marks each page before asking
- * for the next keeps every Wrangler response bounded. Keyset pagination on
- * slug rather than OFFSET, because marked rows leave the result set.
+ * Yields live links whose host is one of `domains` or a subdomain of one, a
+ * page at a time. Pages are read lazily, so a caller that marks each page
+ * before asking for the next keeps every Wrangler response bounded. Keyset
+ * pagination on slug rather than OFFSET, because marked rows leave the result
+ * set. Domains go in groups of DOMAINS_PER_QUERY, so seeding a whole feed costs
+ * a handful of queries rather than one per domain.
  */
-export function* linkPagesOnDomain(domain) {
-	let after = "";
-	for (;;) {
+export function* linkPagesOnDomains(domains) {
+	for (let index = 0; index < domains.length; index += DOMAINS_PER_QUERY) {
+		const group = domains.slice(index, index + DOMAINS_PER_QUERY);
 		// The LIKE only narrows the scan; the parsed hostname decides.
-		const page = d1Rows(
-			`SELECT slug, url FROM links WHERE lifecycle_state IN ('active', 'pending_publish') AND lower(url) LIKE '%${sqlLiteral(domain)}%' AND slug > '${sqlLiteral(after)}' ORDER BY slug LIMIT ${PAGE_SIZE}`
-		);
-		yield page.filter((row) => typeof row.slug === "string" && urlIsUnderDomain(row.url, domain));
-		const last = page.at(-1)?.slug;
-		if (page.length < PAGE_SIZE || typeof last !== "string") return;
-		after = last;
+		const likes = group.map((domain) => `lower(url) LIKE '%${sqlLiteral(domain)}%'`).join(" OR ");
+		let after = "";
+		for (;;) {
+			const page = d1Rows(
+				`SELECT slug, url FROM links WHERE lifecycle_state IN ('active', 'pending_publish') AND (${likes}) AND slug > '${sqlLiteral(after)}' ORDER BY slug LIMIT ${PAGE_SIZE}`
+			);
+			yield page.filter(
+				(row) => typeof row.slug === "string" && group.some((domain) => urlIsUnderDomain(row.url, domain))
+			);
+			const last = page.at(-1)?.slug;
+			if (page.length < PAGE_SIZE || typeof last !== "string") break;
+			after = last;
+		}
 	}
 }
 
