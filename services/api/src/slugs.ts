@@ -53,6 +53,17 @@ export const RESERVED: ReadonlySet<string> = new Set([
 
 export type IdGenerator = () => string;
 
+/**
+ * Length of a generated slug. The redirect is unauthenticated and cannot be
+ * rate limited without a storage read on every hit, so the slug space itself
+ * has to make guessing live links impractical: 64^8 is about 2.8e14, against
+ * about 1e9 for the 5 characters issued before. Older, shorter slugs keep
+ * working.
+ */
+const GENERATED_SLUG_LENGTH = 8;
+
+export const randomSlug: IdGenerator = () => nanoid(GENERATED_SLUG_LENGTH);
+
 export function isReservedSlug(slug: string): boolean {
 	return RESERVED.has(slug.toLowerCase());
 }
@@ -63,7 +74,7 @@ export function isValidCustomSlug(slug: string): boolean {
 
 export async function generateSlug(
 	kv: KVNamespace,
-	generateId: IdGenerator = () => nanoid(5),
+	generateId: IdGenerator = randomSlug,
 	maxAttempts = 20
 ): Promise<string> {
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {

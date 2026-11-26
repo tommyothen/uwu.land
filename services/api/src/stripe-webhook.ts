@@ -10,12 +10,14 @@ import { isDeletedUser } from "./deletion";
 import { isRecord, readJson } from "./request-utils";
 import { cancelStripeSubscription } from "./stripe-cancel";
 import {
+	chargeCustomerId,
 	paymentIntentRefundState,
 	refundStripePaymentIntent
 } from "./stripe-refund";
 import type { Env } from "./worker";
 
 const RELEVANT_EVENT_TYPES = new Set([
+	"charge.dispute.closed",
 	"charge.refunded",
 	"checkout.session.async_payment_succeeded",
 	"checkout.session.completed",
@@ -59,8 +61,13 @@ interface SubscriptionEvent extends ParsedSubscriptionEvent {
 // The deleted_users guard is folded into each upsert (INSERT ... SELECT ...
 // WHERE NOT EXISTS) so the write itself is atomic against a deletion
 // committing after the isDeletedUser fast path in stripeWebhook.
+// Stripe timestamps are whole seconds, and a Checkout subscription routinely
+// emits `created` (incomplete) and `updated` (active) inside the same one, in
+// either delivery order. So a tie is accepted unless it would move the row
+// backwards: `incomplete` is only ever the first state, and a terminal status
+// is never left.
 const UPSERT_SUBSCRIPTION_STRICT =
-	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp > stripe_subscriptions.event_timestamp";
+	`INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp > stripe_subscriptions.event_timestamp OR (excluded.event_timestamp = stripe_subscriptions.event_timestamp AND excluded.status != 'incomplete' AND stripe_subscriptions.status NOT IN (${TERMINAL_STATUS_SQL}))`;
 const UPSERT_SUBSCRIPTION_DELETED =
 	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp >= stripe_subscriptions.event_timestamp";
 
@@ -128,6 +135,10 @@ export async function stripeWebhook(
 
 	if (rawEvent.type === "charge.refunded") {
 		return handleChargeRefunded(c, rawEvent, object);
+	}
+
+	if (rawEvent.type === "charge.dispute.closed") {
+		return handleDisputeClosed(c, rawEvent, object, options);
 	}
 
 	const parsed = parseSubscriptionEvent(rawEvent, object);
@@ -777,5 +788,110 @@ async function handleChargeRefunded(
 		).bind(eventTimestamp, eventId, paymentIntent),
 		tierRecomputeStatement(c.env.DB, c.env, purchase.user_id)
 	]);
+	return new Response(null, { status: 200 });
+}
+
+// Revokes what a lost dispute paid for. A chargeback takes the money back
+// without a refund, so charge.refunded never fires and nothing else would undo
+// the entitlement. Only `lost` acts: a dispute we won, or one the buyer
+// withdrew, leaves the payment standing.
+//
+// A lifetime purchase is marked `disputed`, which stops it entitling. Anything
+// else is a subscription invoice: the dispute names no customer, so the charge
+// is looked up and that customer's live subscriptions are cancelled at once.
+// Their customer.subscription.deleted events then drop the tier.
+async function handleDisputeClosed(
+	c: Context<{ Bindings: Env }>,
+	rawEvent: Record<string, unknown>,
+	object: Record<string, unknown> | null,
+	options: StripeWebhookOptions
+): Promise<Response> {
+	// rawEvent.id and rawEvent.type were validated by the caller.
+	const eventId = rawEvent.id as string;
+	if (
+		object === null ||
+		typeof rawEvent.created !== "number" ||
+		!Number.isSafeInteger(rawEvent.created) ||
+		typeof object.id !== "string" ||
+		object.id.length === 0
+	) {
+		return c.text("Invalid webhook payload.", 400);
+	}
+	const eventTimestamp = rawEvent.created;
+	if (object.status !== "lost") {
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	const paymentIntent =
+		typeof object.payment_intent === "string" &&
+		object.payment_intent.length > 0
+			? object.payment_intent
+			: undefined;
+	const purchase =
+		paymentIntent === undefined
+			? null
+			: await c.env.DB.prepare(
+					"SELECT user_id FROM stripe_lifetime_purchases WHERE payment_intent_id = ? AND status = 'paid' LIMIT 1"
+				)
+					.bind(paymentIntent)
+					.first<{ user_id: string }>();
+	if (purchase !== null) {
+		// Same shape as handleChargeRefunded: the status = 'paid' guard keeps
+		// redelivery a no-op, and the event row goes first for the event_id FK.
+		await c.env.DB.batch([
+			c.env.DB.prepare(
+				"INSERT INTO stripe_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
+			).bind(eventId, eventTimestamp, Date.now()),
+			c.env.DB.prepare(
+				"UPDATE stripe_lifetime_purchases SET status = 'disputed', event_timestamp = ?, event_id = ? WHERE payment_intent_id = ? AND status = 'paid'"
+			).bind(eventTimestamp, eventId, paymentIntent),
+			tierRecomputeStatement(c.env.DB, c.env, purchase.user_id)
+		]);
+		return new Response(null, { status: 200 });
+	}
+
+	const chargeId =
+		typeof object.charge === "string" && object.charge.length > 0
+			? object.charge
+			: undefined;
+	const stripeSecret = c.env.STRIPE_SECRET_KEY;
+	if (
+		chargeId === undefined ||
+		stripeSecret === undefined ||
+		stripeSecret.length === 0
+	) {
+		// Retrying cannot supply a charge id or a key, so acknowledge and leave a
+		// line to act on by hand.
+		console.error("Lost dispute could not be followed to a subscription.", {
+			disputeId: object.id
+		});
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	// Fail closed on Stripe errors, as the deleted-user backstop does: the event
+	// stays unrecorded, so Stripe's retry re-runs the lookup and the cancels.
+	const stripeFetch = options.stripeFetch ?? fetch;
+	const customerId = await chargeCustomerId(stripeFetch, stripeSecret, chargeId);
+	if (customerId === "failed") {
+		return c.text("Unable to look up the disputed charge.", 500);
+	}
+	if (customerId !== null) {
+		const subscriptions = await c.env.DB.prepare(
+			`SELECT id FROM stripe_subscriptions WHERE customer_id = ? AND status NOT IN (${TERMINAL_STATUS_SQL})`
+		)
+			.bind(customerId)
+			.all<{ id: string }>();
+		for (const { id } of subscriptions.results) {
+			if (
+				(await cancelStripeSubscription(stripeFetch, stripeSecret, id)) ===
+				"failed"
+			) {
+				return c.text("Unable to cancel Stripe subscription.", 500);
+			}
+		}
+	}
+	await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
 	return new Response(null, { status: 200 });
 }

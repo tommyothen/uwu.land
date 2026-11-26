@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidCustomSlug, SLUG_RE } from "../src/slugs";
+import { isValidCustomSlug, randomSlug, SLUG_RE } from "../src/slugs";
 
 describe("slug validation", () => {
 	it("accepts v1-compatible custom slug shapes", () => {
@@ -22,5 +22,11 @@ describe("slug validation", () => {
 			expect(isValidCustomSlug(slug)).toBe(false);
 		}
 		expect(isValidCustomSlug("logins")).toBe(true);
+	});
+
+	it("generates 8-character slugs, too many to enumerate", () => {
+		const slug = randomSlug();
+		expect(slug).toHaveLength(8);
+		expect(SLUG_RE.test(slug)).toBe(true);
 	});
 });

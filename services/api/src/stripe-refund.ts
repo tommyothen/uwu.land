@@ -115,3 +115,46 @@ export async function refundStripePaymentIntent(
 	});
 	return "failed";
 }
+
+// The customer a charge belongs to, or null when it has none (a guest
+// payment). A dispute names its charge but not its customer, so the lost
+// dispute handler asks here. A missing charge is null too: there is nothing
+// left to act on. "failed" means Stripe could not be asked and the caller
+// should let the event retry.
+export async function chargeCustomerId(
+	stripeFetch: typeof fetch,
+	secret: string,
+	chargeId: string
+): Promise<string | null | "failed"> {
+	const url = `https://api.stripe.com/v1/charges/${encodeURIComponent(chargeId)}`;
+	let response: Response;
+	try {
+		response = await stripeFetch(url, {
+			headers: { authorization: `Bearer ${secret}` }
+		});
+	} catch {
+		console.error("Stripe charge lookup failed.", { chargeId });
+		return "failed";
+	}
+	if (response.status === 404) {
+		return null;
+	}
+	if (!response.ok) {
+		console.error("Stripe charge lookup failed.", {
+			chargeId,
+			status: response.status
+		});
+		return "failed";
+	}
+	try {
+		const payload: unknown = await response.json();
+		return isRecord(payload) &&
+			typeof payload.customer === "string" &&
+			payload.customer.length > 0
+			? payload.customer
+			: null;
+	} catch {
+		console.error("Stripe charge lookup returned no JSON.", { chargeId });
+		return "failed";
+	}
+}

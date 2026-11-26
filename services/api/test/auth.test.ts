@@ -542,4 +542,21 @@ describe("auth middleware", () => {
 			status: 401
 		});
 	});
+
+	it("rejects a JWT whose header is JSON null instead of crashing", async () => {
+		const app = new Hono<{ Bindings: Env }>();
+		app.use(
+			"/protected",
+			authMiddleware({ clerkIssuer: issuer, jwks: { keys: [] } })
+		);
+		app.get("/protected", (c) => c.json({ ok: true }));
+
+		const response = await app.fetch(
+			bearer(`${btoa("null")}.e30.sig`, "https://uwu.land/protected"),
+			env as Env,
+			createExecutionContext()
+		);
+
+		expect(response.status).toBe(401);
+	});
 });
