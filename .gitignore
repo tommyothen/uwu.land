@@ -5,6 +5,10 @@ dist
 .open-next
 .wrangler
 .dev.vars
+# Vite reads plain .env files too, and they hold CLERK_SECRET_KEY
+.env
+.env.*
+!.env.local.example
 coverage
 *.tsbuildinfo
 

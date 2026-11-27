@@ -71,7 +71,25 @@ interface ChargePayload {
 	};
 }
 
-type WebhookPayload = StripePayload | SessionPayload | ChargePayload;
+interface DisputePayload {
+	id: string;
+	type: string;
+	created: number;
+	data: {
+		object: {
+			id: string;
+			status: string;
+			charge: string;
+			payment_intent?: string;
+		};
+	};
+}
+
+type WebhookPayload =
+	| StripePayload
+	| SessionPayload
+	| ChargePayload
+	| DisputePayload;
 
 beforeEach(async () => {
 	await resetD1(env.DB);
@@ -304,6 +322,76 @@ describe("Stripe subscription webhook", () => {
 
 		expect((await findSubscription("sub_delete_update"))?.status).toBe("canceled");
 		expect(await findTier("user_delete_update")).toBe("free");
+	});
+
+	// Checkout emits created (incomplete) and updated (active) inside one
+	// second, in either delivery order. The paying subscriber must end up pro.
+	it("lets a same-second activation follow the incomplete creation", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "incomplete", {
+				userId: "user_tie_created_first",
+				subscriptionId: "sub_tie_created_first",
+				eventTimestamp: 200
+			})
+		);
+		await sendWebhook(
+			payload("customer.subscription.updated", "active", {
+				userId: "user_tie_created_first",
+				subscriptionId: "sub_tie_created_first",
+				eventTimestamp: 200
+			})
+		);
+
+		expect((await findSubscription("sub_tie_created_first"))?.status).toBe("active");
+		expect(await findTier("user_tie_created_first")).toBe("pro");
+	});
+
+	it("keeps a same-second activation when the incomplete creation arrives late", async () => {
+		await sendWebhook(
+			payload("customer.subscription.updated", "active", {
+				userId: "user_tie_updated_first",
+				subscriptionId: "sub_tie_updated_first",
+				eventTimestamp: 200
+			})
+		);
+		await sendWebhook(
+			payload("customer.subscription.created", "incomplete", {
+				userId: "user_tie_updated_first",
+				subscriptionId: "sub_tie_updated_first",
+				eventTimestamp: 200
+			})
+		);
+
+		expect((await findSubscription("sub_tie_updated_first"))?.status).toBe("active");
+		expect(await findTier("user_tie_updated_first")).toBe("pro");
+	});
+
+	it("keeps a same-second recovery when the older unpaid event arrives late", async () => {
+		const options = {
+			userId: "user_tie_recovery",
+			subscriptionId: "sub_tie_recovery"
+		};
+		await sendWebhook(
+			payload("customer.subscription.updated", "unpaid", {
+				...options,
+				eventTimestamp: 100
+			})
+		);
+		await sendWebhook(
+			payload("customer.subscription.updated", "active", {
+				...options,
+				eventTimestamp: 200
+			})
+		);
+		await sendWebhook(
+			payload("customer.subscription.updated", "unpaid", {
+				...options,
+				eventTimestamp: 200
+			})
+		);
+
+		expect((await findSubscription("sub_tie_recovery"))?.status).toBe("active");
+		expect(await findTier("user_tie_recovery")).toBe("pro");
 	});
 
 	it("ignores an out-of-order older event", async () => {
@@ -1440,6 +1528,252 @@ describe("Stripe lifetime checkout webhook", () => {
 	});
 });
 
+describe("Stripe dispute webhook", () => {
+	it("revokes a lifetime purchase when its dispute is lost", async () => {
+		await sendWebhook(
+			sessionPayload({
+				eventId: "evt_dispute_setup",
+				metadataUserId: "user_dispute",
+				sessionId: "cs_dispute",
+				paymentIntent: "pi_dispute"
+			})
+		);
+		expect(await findTier("user_dispute")).toBe("pro");
+
+		const response = await sendWebhook(
+			disputePayload({ eventId: "evt_dispute_lost", paymentIntent: "pi_dispute" })
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_dispute")).toBe("free");
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toMatchObject([
+			{ id: "cs_dispute", status: "disputed", eventId: "evt_dispute_lost" }
+		]);
+	});
+
+	it("leaves the purchase standing when the dispute is won", async () => {
+		await sendWebhook(
+			sessionPayload({
+				eventId: "evt_dispute_won_setup",
+				metadataUserId: "user_dispute_won",
+				sessionId: "cs_dispute_won",
+				paymentIntent: "pi_dispute_won"
+			})
+		);
+
+		const response = await sendWebhook(
+			disputePayload({ status: "won", paymentIntent: "pi_dispute_won" })
+		);
+
+		expect(response.status).toBe(200);
+		expect(await findTier("user_dispute_won")).toBe("pro");
+	});
+
+	it("cancels only the subscription whose invoice dispute is lost", async () => {
+		for (const subscriptionId of ["sub_dispute_old", "sub_dispute_new"]) {
+			await sendWebhook(
+				payload("customer.subscription.created", "active", {
+					userId: "user_sub_dispute",
+					customerId: "cus_sub_dispute",
+					subscriptionId
+				})
+			);
+		}
+		const stripeFetch = vi.fn<typeof fetch>(async (input) =>
+			String(input).includes("/v1/charges/ch_sub_dispute")
+				? Response.json({
+						id: "ch_sub_dispute",
+						invoice: { id: "in_old", subscription: "sub_dispute_old" }
+					})
+				: Response.json({ status: "canceled" })
+		);
+
+		const response = await sendInjectedWebhook(
+			disputePayload({ chargeId: "ch_sub_dispute", paymentIntent: "pi_invoice" }),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		const cancelled = stripeFetch.mock.calls
+			.map(([url]) => String(url))
+			.filter((url) => url.includes("/v1/subscriptions/"));
+		expect(cancelled).toEqual([
+			"https://api.stripe.com/v1/subscriptions/sub_dispute_old"
+		]);
+		expect(subscriptionCall(stripeFetch)[1]?.method).toBe("DELETE");
+	});
+
+	it("leaves a subscription it never recorded alone", async () => {
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({
+				id: "ch_other_product",
+				invoice: { id: "in_other", subscription: "sub_other_product" }
+			})
+		);
+
+		const response = await sendInjectedWebhook(
+			disputePayload({ chargeId: "ch_other_product" }),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).toHaveBeenCalledTimes(1);
+		expect(subscriptionCall(stripeFetch)[0]).toBe("undefined");
+	});
+
+	it("leaves a recorded subscription on another product's price alone", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_other_price",
+				subscriptionId: "sub_other_price",
+				priceId: "price_other_product"
+			})
+		);
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({
+				id: "ch_other_price",
+				invoice: { id: "in_other_price", subscription: "sub_other_price" }
+			})
+		);
+
+		const response = await sendInjectedWebhook(
+			disputePayload({ chargeId: "ch_other_price" }),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		expect(subscriptionCall(stripeFetch)[0]).toBe("undefined");
+	});
+
+	it("leaves a lost dispute to retry when the Stripe key is missing", async () => {
+		const stripeFetch = vi.fn<typeof fetch>();
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		try {
+			const response = await sendInjectedWebhook(
+				disputePayload({ eventId: "evt_dispute_no_key" }),
+				{ stripeFetch, envOverride: { STRIPE_SECRET_KEY: undefined } }
+			);
+
+			expect(response.status).toBe(500);
+			expect(stripeFetch).not.toHaveBeenCalled();
+			expect(
+				await drizzle(env.DB)
+					.select()
+					.from(stripeWebhookEvents)
+					.where(eq(stripeWebhookEvents.id, "evt_dispute_no_key"))
+					.all()
+			).toEqual([]);
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
+	it("records a lifetime purchase as disputed when the dispute arrived first", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		try {
+			const disputeFetch = vi.fn<typeof fetch>(async () =>
+				Response.json({ id: "ch_early", invoice: null })
+			);
+			const dispute = await sendInjectedWebhook(
+				disputePayload({ chargeId: "ch_early", paymentIntent: "pi_early" }),
+				{ stripeFetch: disputeFetch }
+			);
+			expect(dispute.status).toBe(200);
+
+			const sessionFetch = vi.fn<typeof fetch>(async (input) =>
+				String(input).startsWith("https://api.stripe.com/v1/disputes?")
+					? Response.json({ object: "list", data: [{ status: "lost" }] })
+					: Response.json({ object: "list", data: [] })
+			);
+			const session = await sendInjectedWebhook(
+				sessionPayload({
+					metadataUserId: "user_dispute_early",
+					sessionId: "cs_dispute_early",
+					paymentIntent: "pi_early"
+				}),
+				{ stripeFetch: sessionFetch }
+			);
+
+			expect(session.status).toBe(200);
+			expect(await findTier("user_dispute_early")).toBe("free");
+			expect(
+				await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+			).toMatchObject([{ id: "cs_dispute_early", status: "disputed" }]);
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
+	it("does not treat a redelivered disputed purchase as paid", async () => {
+		await sendWebhook(
+			sessionPayload({
+				eventId: "evt_disputed_replay_setup",
+				metadataUserId: "user_disputed_replay",
+				sessionId: "cs_disputed_replay",
+				paymentIntent: "pi_disputed_replay"
+			})
+		);
+		await sendWebhook(
+			disputePayload({ paymentIntent: "pi_disputed_replay" })
+		);
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_disputed_replay",
+				subscriptionId: "sub_disputed_replay"
+			})
+		);
+		const stripeFetch = vi.fn<typeof fetch>(async () => Response.json({}));
+
+		const response = await sendInjectedWebhook(
+			sessionPayload({
+				eventId: "evt_disputed_replay_again",
+				metadataUserId: "user_disputed_replay",
+				sessionId: "cs_disputed_replay",
+				paymentIntent: "pi_disputed_replay"
+			}),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).not.toHaveBeenCalled();
+		expect(
+			await drizzle(env.DB).select().from(stripeLifetimePurchases).all()
+		).toMatchObject([{ id: "cs_disputed_replay", status: "disputed" }]);
+	});
+
+	it("leaves a lost dispute to retry when Stripe cannot be asked", async () => {
+		const stripeFetch = vi.fn<typeof fetch>(
+			async () => new Response(null, { status: 503 })
+		);
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		try {
+			const response = await sendInjectedWebhook(
+				disputePayload({ eventId: "evt_dispute_retry" }),
+				{ stripeFetch }
+			);
+
+			expect(response.status).toBe(500);
+			expect(
+				await drizzle(env.DB)
+					.select()
+					.from(stripeWebhookEvents)
+					.where(eq(stripeWebhookEvents.id, "evt_dispute_retry"))
+					.all()
+			).toEqual([]);
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+});
+
 describe("Stripe refund webhook", () => {
 	// Every case starts from a real entitling purchase so the revocation is
 	// observable as a tier change, not just a column edit.
@@ -1658,6 +1992,30 @@ function sessionPayload(
 		type: "checkout.session.completed",
 		created: options.eventTimestamp ?? 100,
 		data: { object }
+	};
+}
+
+// Builds a charge.dispute.closed envelope, lost unless told otherwise.
+function disputePayload(
+	options: {
+		eventId?: string;
+		status?: string;
+		chargeId?: string;
+		paymentIntent?: string;
+	} = {}
+): DisputePayload {
+	return {
+		id: options.eventId ?? `evt_${crypto.randomUUID()}`,
+		type: "charge.dispute.closed",
+		created: 400,
+		data: {
+			object: {
+				id: "dp_test",
+				status: options.status ?? "lost",
+				charge: options.chargeId ?? "ch_test",
+				payment_intent: options.paymentIntent ?? "pi_test"
+			}
+		}
 	};
 }
 

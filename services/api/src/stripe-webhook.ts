@@ -1,3 +1,4 @@
+import type { stripeLifetimePurchases } from "@uwu/db/schema";
 import type { Context } from "hono";
 import {
 	configuredLifetimePriceIds,
@@ -10,12 +11,14 @@ import { isDeletedUser } from "./deletion";
 import { isRecord, readJson } from "./request-utils";
 import { cancelStripeSubscription } from "./stripe-cancel";
 import {
-	paymentIntentRefundState,
+	chargeSubscriptionId,
+	paymentIntentReversal,
 	refundStripePaymentIntent
 } from "./stripe-refund";
 import type { Env } from "./worker";
 
 const RELEVANT_EVENT_TYPES = new Set([
+	"charge.dispute.closed",
 	"charge.refunded",
 	"checkout.session.async_payment_succeeded",
 	"checkout.session.completed",
@@ -52,6 +55,8 @@ interface ParsedSubscriptionEvent {
 	status: SubscriptionStatus | (string & {});
 }
 
+type PurchaseStatus = typeof stripeLifetimePurchases.$inferSelect.status;
+
 interface SubscriptionEvent extends ParsedSubscriptionEvent {
 	userId: string;
 }
@@ -59,8 +64,13 @@ interface SubscriptionEvent extends ParsedSubscriptionEvent {
 // The deleted_users guard is folded into each upsert (INSERT ... SELECT ...
 // WHERE NOT EXISTS) so the write itself is atomic against a deletion
 // committing after the isDeletedUser fast path in stripeWebhook.
+// Stripe timestamps are whole seconds, and a Checkout subscription routinely
+// emits `created` (incomplete) and `updated` (active) inside the same one, in
+// either delivery order. That is the one tie we can order: `incomplete` is only
+// ever the first state, so a tie may move a row out of it and nothing else.
+// Any other tie keeps what is stored until a later event settles it.
 const UPSERT_SUBSCRIPTION_STRICT =
-	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp > stripe_subscriptions.event_timestamp";
+	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp > stripe_subscriptions.event_timestamp OR (excluded.event_timestamp = stripe_subscriptions.event_timestamp AND stripe_subscriptions.status = 'incomplete' AND excluded.status != 'incomplete')";
 const UPSERT_SUBSCRIPTION_DELETED =
 	"INSERT INTO stripe_subscriptions (id, customer_id, price_id, user_id, status, event_timestamp, event_id) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM deleted_users WHERE user_id = ?) ON CONFLICT (id) DO UPDATE SET customer_id = excluded.customer_id, price_id = excluded.price_id, user_id = excluded.user_id, status = excluded.status, event_timestamp = excluded.event_timestamp, event_id = excluded.event_id WHERE excluded.event_timestamp >= stripe_subscriptions.event_timestamp";
 
@@ -128,6 +138,10 @@ export async function stripeWebhook(
 
 	if (rawEvent.type === "charge.refunded") {
 		return handleChargeRefunded(c, rawEvent, object);
+	}
+
+	if (rawEvent.type === "charge.dispute.closed") {
+		return handleDisputeClosed(c, rawEvent, object, options);
 	}
 
 	const parsed = parseSubscriptionEvent(rawEvent, object);
@@ -592,39 +606,42 @@ async function handleCheckoutSessionCompleted(
 		return new Response(null, { status: 200 });
 	}
 
-	// Was this payment already refunded before we managed to record it? Only
-	// reachable when the session event was retried for a while (a fail-closed
-	// 500 below, or a webhook backlog) and the buyer got their money back in the
-	// meantime: `charge.refunded` found no row to revoke and was acknowledged,
-	// so nothing else would ever undo the entitlement. Checked BEFORE the
-	// cancellation step — a refunded purchase must not end their subscription
-	// either. Existing rows skip the lookup: a replayed event is the common case
-	// and the row already tells us the outcome.
+	// Was this payment already refunded or lost to a dispute before we managed
+	// to record it? Only reachable when the session event was retried for a
+	// while (a fail-closed 500 below, or a webhook backlog) and the money went
+	// back in the meantime: `charge.refunded` or `charge.dispute.closed` found
+	// no row to revoke and was acknowledged, so nothing else would ever undo the
+	// entitlement. Checked BEFORE the cancellation step: a reversed purchase
+	// must not end their subscription either. Existing rows skip the lookup: a
+	// replayed event is the common case and the row already tells us the
+	// outcome.
 	const existingPurchase = await c.env.DB.prepare(
 		"SELECT status FROM stripe_lifetime_purchases WHERE id = ?"
 	)
 		.bind(sessionId)
-		.first<{ status: string }>();
+		.first<{ status: PurchaseStatus }>();
 	const purchaseSecret = c.env.STRIPE_SECRET_KEY;
-	let purchaseStatus: "paid" | "refunded" = "paid";
-	if (existingPurchase !== null) {
-		purchaseStatus = existingPurchase.status === "refunded" ? "refunded" : "paid";
-	} else if (purchaseSecret !== undefined && purchaseSecret.length > 0) {
-		if (
-			(await paymentIntentRefundState(
-				options.stripeFetch ?? fetch,
-				purchaseSecret,
-				paymentIntent
-			)) === "refunded"
-		) {
-			// Record it as refunded rather than dropping it: the money did move,
-			// so the purchase belongs in the audit trail and in DSAR exports. Only
-			// `paid` rows entitle, so this stays inert.
-			console.error("Recording an already-refunded lifetime purchase.", {
+	let purchaseStatus: PurchaseStatus = existingPurchase?.status ?? "paid";
+	if (
+		existingPurchase === null &&
+		purchaseSecret !== undefined &&
+		purchaseSecret.length > 0
+	) {
+		const reversal = await paymentIntentReversal(
+			options.stripeFetch ?? fetch,
+			purchaseSecret,
+			paymentIntent
+		);
+		if (reversal === "refunded" || reversal === "disputed") {
+			// Record it rather than drop it: the money did move, so the purchase
+			// belongs in the audit trail and in DSAR exports. Only `paid` rows
+			// entitle, so this stays inert.
+			console.error("Recording an already-reversed lifetime purchase.", {
 				sessionId,
-				paymentIntentId: paymentIntent
+				paymentIntentId: paymentIntent,
+				reversal
 			});
-			purchaseStatus = "refunded";
+			purchaseStatus = reversal;
 		}
 	}
 
@@ -777,5 +794,123 @@ async function handleChargeRefunded(
 		).bind(eventTimestamp, eventId, paymentIntent),
 		tierRecomputeStatement(c.env.DB, c.env, purchase.user_id)
 	]);
+	return new Response(null, { status: 200 });
+}
+
+// Revokes what a lost dispute paid for. A chargeback takes the money back
+// without a refund, so charge.refunded never fires and nothing else would undo
+// the entitlement. Only `lost` acts: a dispute we won, or one the buyer
+// withdrew, leaves the payment standing.
+//
+// A lifetime purchase is marked `disputed`, which stops it entitling. Anything
+// else is followed through its charge to the invoice it paid, and that
+// invoice's subscription is cancelled at once if it is one of ours; its
+// customer.subscription.deleted event then drops the tier. Other subscriptions
+// on the same customer, such as a replacement paid on a different invoice, are
+// left alone. A lifetime purchase not recorded yet is caught when its session
+// event lands, by the reversal check in handleCheckoutSessionCompleted.
+async function handleDisputeClosed(
+	c: Context<{ Bindings: Env }>,
+	rawEvent: Record<string, unknown>,
+	object: Record<string, unknown> | null,
+	options: StripeWebhookOptions
+): Promise<Response> {
+	// rawEvent.id and rawEvent.type were validated by the caller.
+	const eventId = rawEvent.id as string;
+	if (
+		object === null ||
+		typeof rawEvent.created !== "number" ||
+		!Number.isSafeInteger(rawEvent.created) ||
+		typeof object.id !== "string" ||
+		object.id.length === 0
+	) {
+		return c.text("Invalid webhook payload.", 400);
+	}
+	const eventTimestamp = rawEvent.created;
+	if (object.status !== "lost") {
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	const paymentIntent =
+		typeof object.payment_intent === "string" &&
+		object.payment_intent.length > 0
+			? object.payment_intent
+			: undefined;
+	const purchase =
+		paymentIntent === undefined
+			? null
+			: await c.env.DB.prepare(
+					"SELECT user_id FROM stripe_lifetime_purchases WHERE payment_intent_id = ? AND status = 'paid' LIMIT 1"
+				)
+					.bind(paymentIntent)
+					.first<{ user_id: string }>();
+	if (purchase !== null) {
+		// Same shape as handleChargeRefunded: the status = 'paid' guard keeps
+		// redelivery a no-op, and the event row goes first for the event_id FK.
+		await c.env.DB.batch([
+			c.env.DB.prepare(
+				"INSERT INTO stripe_webhook_events (id, event_timestamp, processed_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"
+			).bind(eventId, eventTimestamp, Date.now()),
+			c.env.DB.prepare(
+				"UPDATE stripe_lifetime_purchases SET status = 'disputed', event_timestamp = ?, event_id = ? WHERE payment_intent_id = ? AND status = 'paid'"
+			).bind(eventTimestamp, eventId, paymentIntent),
+			tierRecomputeStatement(c.env.DB, c.env, purchase.user_id)
+		]);
+		return new Response(null, { status: 200 });
+	}
+
+	const chargeId =
+		typeof object.charge === "string" && object.charge.length > 0
+			? object.charge
+			: undefined;
+	if (chargeId === undefined) {
+		// Retrying cannot supply a charge id, so acknowledge and leave a line to
+		// act on by hand.
+		console.error("Lost dispute names no charge.", { disputeId: object.id });
+		await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
+		return new Response(null, { status: 200 });
+	}
+
+	// Fail closed on a missing key and on Stripe errors alike: the event stays
+	// unrecorded, so once the key is back or Stripe answers, the retry re-runs
+	// the lookup and the cancel.
+	const stripeSecret = c.env.STRIPE_SECRET_KEY;
+	if (stripeSecret === undefined || stripeSecret.length === 0) {
+		console.error("Lost dispute cannot be followed: STRIPE_SECRET_KEY unset", {
+			disputeId: object.id
+		});
+		return c.text("Unable to look up the disputed charge.", 500);
+	}
+	const stripeFetch = options.stripeFetch ?? fetch;
+	const subscriptionId = await chargeSubscriptionId(
+		stripeFetch,
+		stripeSecret,
+		chargeId
+	);
+	if (subscriptionId === "failed") {
+		return c.text("Unable to look up the disputed charge.", 500);
+	}
+	// The Stripe account may bill for more than uwu.land, and a known customer's
+	// other subscriptions are still recorded, so only a live one on our own
+	// prices is ours to cancel.
+	const [monthlyPriceId, yearlyPriceId] = configuredPriceIds(c.env);
+	const ours =
+		subscriptionId === null
+			? null
+			: await c.env.DB.prepare(
+					`SELECT 1 FROM stripe_subscriptions WHERE id = ? AND status NOT IN (${TERMINAL_STATUS_SQL}) AND price_id IN (?, ?)`
+				)
+					.bind(subscriptionId, monthlyPriceId, yearlyPriceId)
+					.first();
+	if (
+		subscriptionId !== null &&
+		ours !== null &&
+		(await cancelStripeSubscription(stripeFetch, stripeSecret, subscriptionId)) ===
+			"failed"
+	) {
+		return c.text("Unable to cancel Stripe subscription.", 500);
+	}
+	await recordWebhookEvent(c.env.DB, eventId, eventTimestamp);
 	return new Response(null, { status: 200 });
 }

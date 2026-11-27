@@ -9,7 +9,6 @@ import {
 import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
-import { nanoid } from "nanoid";
 import { getDomain } from "tldts";
 import { z } from "zod";
 import { ipKey, isIpBlocked, recordBannedAttempt } from "./abuse";
@@ -37,6 +36,7 @@ import {
 	type IdGenerator,
 	isReservedSlug,
 	isValidCustomSlug,
+	randomSlug,
 	SLUG_RE
 } from "./slugs";
 import { anonymousTier } from "./turnstile";
@@ -696,7 +696,7 @@ async function availableCustomSlug(
 async function generateAvailableSlug(
 	env: Env,
 	db: ReturnType<typeof drizzle>,
-	generateId: IdGenerator = () => nanoid(5),
+	generateId: IdGenerator = randomSlug,
 	maxAttempts = 20
 ): Promise<string> {
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {

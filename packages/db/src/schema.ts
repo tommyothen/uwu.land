@@ -111,6 +111,8 @@ export const stripeSubscriptions = sqliteTable(
 // FULLY refunded, so issuing a full refund in Stripe is what revokes
 // First-Class. A partial refund deliberately leaves the purchase entitled;
 // see the refunds policy note in the root README.
+// It flips to `disputed` when charge.dispute.closed reports a lost dispute,
+// since a chargeback takes the money back without a refund.
 export const stripeLifetimePurchases = sqliteTable(
 	"stripe_lifetime_purchases",
 	{
@@ -119,7 +121,7 @@ export const stripeLifetimePurchases = sqliteTable(
 		customerId: text("customer_id").notNull(),
 		priceId: text("price_id").notNull(),
 		userId: text("user_id").notNull(),
-		status: text("status", { enum: ["paid", "refunded"] }).notNull(),
+		status: text("status", { enum: ["paid", "refunded", "disputed"] }).notNull(),
 		eventTimestamp: integer("event_timestamp").notNull(),
 		eventId: text("event_id")
 			.notNull()

@@ -332,7 +332,12 @@ function decodeJwtPart(part: string | undefined): Record<string, unknown> {
 			normalized.length + ((4 - (normalized.length % 4)) % 4),
 			"="
 		);
-		return JSON.parse(atob(padded)) as Record<string, unknown>;
+		const parsed: unknown = JSON.parse(atob(padded));
+		// `null` and other non-objects are valid JSON but not a JWT header.
+		if (typeof parsed !== "object" || parsed === null) {
+			throw new AuthError();
+		}
+		return parsed as Record<string, unknown>;
 	} catch {
 		throw new AuthError();
 	}
