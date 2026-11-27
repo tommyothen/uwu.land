@@ -1605,6 +1605,24 @@ describe("Stripe dispute webhook", () => {
 		expect(subscriptionCall(stripeFetch)[1]?.method).toBe("DELETE");
 	});
 
+	it("leaves a subscription it never recorded alone", async () => {
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({
+				id: "ch_other_product",
+				invoice: { id: "in_other", subscription: "sub_other_product" }
+			})
+		);
+
+		const response = await sendInjectedWebhook(
+			disputePayload({ chargeId: "ch_other_product" }),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeFetch).toHaveBeenCalledTimes(1);
+		expect(subscriptionCall(stripeFetch)[0]).toBe("undefined");
+	});
+
 	it("leaves a lost dispute to retry when the Stripe key is missing", async () => {
 		const stripeFetch = vi.fn<typeof fetch>();
 		const consoleError = vi

@@ -804,7 +804,7 @@ async function handleChargeRefunded(
 //
 // A lifetime purchase is marked `disputed`, which stops it entitling. Anything
 // else is followed through its charge to the invoice it paid, and that
-// invoice's subscription is cancelled at once; its
+// invoice's subscription is cancelled at once if it is one of ours; its
 // customer.subscription.deleted event then drops the tier. Other subscriptions
 // on the same customer, such as a replacement paid on a different invoice, are
 // left alone. A lifetime purchase not recorded yet is caught when its session
@@ -891,8 +891,19 @@ async function handleDisputeClosed(
 	if (subscriptionId === "failed") {
 		return c.text("Unable to look up the disputed charge.", 500);
 	}
+	// The Stripe account may bill for more than uwu.land, so only a live
+	// subscription we recorded is ours to cancel.
+	const ours =
+		subscriptionId === null
+			? null
+			: await c.env.DB.prepare(
+					`SELECT 1 FROM stripe_subscriptions WHERE id = ? AND status NOT IN (${TERMINAL_STATUS_SQL})`
+				)
+					.bind(subscriptionId)
+					.first();
 	if (
 		subscriptionId !== null &&
+		ours !== null &&
 		(await cancelStripeSubscription(stripeFetch, stripeSecret, subscriptionId)) ===
 			"failed"
 	) {
