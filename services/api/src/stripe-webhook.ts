@@ -891,15 +891,17 @@ async function handleDisputeClosed(
 	if (subscriptionId === "failed") {
 		return c.text("Unable to look up the disputed charge.", 500);
 	}
-	// The Stripe account may bill for more than uwu.land, so only a live
-	// subscription we recorded is ours to cancel.
+	// The Stripe account may bill for more than uwu.land, and a known customer's
+	// other subscriptions are still recorded, so only a live one on our own
+	// prices is ours to cancel.
+	const [monthlyPriceId, yearlyPriceId] = configuredPriceIds(c.env);
 	const ours =
 		subscriptionId === null
 			? null
 			: await c.env.DB.prepare(
-					`SELECT 1 FROM stripe_subscriptions WHERE id = ? AND status NOT IN (${TERMINAL_STATUS_SQL})`
+					`SELECT 1 FROM stripe_subscriptions WHERE id = ? AND status NOT IN (${TERMINAL_STATUS_SQL}) AND price_id IN (?, ?)`
 				)
-					.bind(subscriptionId)
+					.bind(subscriptionId, monthlyPriceId, yearlyPriceId)
 					.first();
 	if (
 		subscriptionId !== null &&

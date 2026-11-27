@@ -1623,6 +1623,30 @@ describe("Stripe dispute webhook", () => {
 		expect(subscriptionCall(stripeFetch)[0]).toBe("undefined");
 	});
 
+	it("leaves a recorded subscription on another product's price alone", async () => {
+		await sendWebhook(
+			payload("customer.subscription.created", "active", {
+				userId: "user_other_price",
+				subscriptionId: "sub_other_price",
+				priceId: "price_other_product"
+			})
+		);
+		const stripeFetch = vi.fn<typeof fetch>(async () =>
+			Response.json({
+				id: "ch_other_price",
+				invoice: { id: "in_other_price", subscription: "sub_other_price" }
+			})
+		);
+
+		const response = await sendInjectedWebhook(
+			disputePayload({ chargeId: "ch_other_price" }),
+			{ stripeFetch }
+		);
+
+		expect(response.status).toBe(200);
+		expect(subscriptionCall(stripeFetch)[0]).toBe("undefined");
+	});
+
 	it("leaves a lost dispute to retry when the Stripe key is missing", async () => {
 		const stripeFetch = vi.fn<typeof fetch>();
 		const consoleError = vi
